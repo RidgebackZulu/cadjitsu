@@ -73,7 +73,8 @@ class ExportTests : public QObject {
         auto *button = dlg->findChild<QPushButton *>(QStringLiteral("exportButton"));
         if(!button || !button->isEnabled()) return false;
         button->click();
-        return finished.count() > 0 || finished.wait(60000);
+        const bool background = dlg->busy(); // the export runs on a worker thread
+        return (finished.count() > 0 || finished.wait(60000)) && background;
     }
 
 private slots:

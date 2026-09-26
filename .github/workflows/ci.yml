@@ -93,16 +93,33 @@ jobs:
         run: |
           cp -R build/macos/src/app/Cadly.app out/Cadly.app
           "$(brew --prefix qtbase)/bin/macdeployqt" out/Cadly.app -always-overwrite
+          # Whatever macdeployqt left pointing at Homebrew is copied in and re-pointed;
+          # fails if anything still resolves outside the bundle.
+          python3 scripts/macos_bundle_fix.py out/Cadly.app
           codesign --force --deep --sign - out/Cadly.app
           plutil -lint out/Cadly.app/Contents/Info.plist
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' out/Cadly.app/Contents/Info.plist)" = Cadly.icns
           /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:CFBundleTypeName' out/Cadly.app/Contents/Info.plist
           test -s out/Cadly.app/Contents/Resources/Cadly.icns
+          vtool -show-build out/Cadly.app/Contents/MacOS/Cadly | grep -E 'minos|sdk' || true
 
-      - name: Acceptance test of the bundled app
+      - name: Acceptance test of the bundled app (Homebrew hidden)
         run: |
-          out/Cadly.app/Contents/MacOS/Cadly --selftest=acceptance --out out/macos-bundled
-          (cd out && ditto -c -k --keepParent Cadly.app Cadly-macos-arm64.zip)
+          # The bundle has to run on a Mac without Homebrew: hide it meanwhile.
+          sudo mv /opt/homebrew /opt/homebrew.hidden
+          trap 'sudo mv /opt/homebrew.hidden /opt/homebrew' EXIT
+          status=0
+          out/Cadly.app/Contents/MacOS/Cadly --selftest=acceptance --out out/macos-bundled || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::group::Backtrace and loaded images"
+            lldb --batch -o run -k "thread backtrace all" -k "image list" -- \
+              out/Cadly.app/Contents/MacOS/Cadly --selftest=acceptance --out out/macos-bundled-lldb || true
+            echo "::endgroup::"
+          fi
+          exit "$status"
+
+      - name: Zip Cadly.app
+        run: (cd out && ditto -c -k --keepParent Cadly.app Cadly-macos-arm64.zip)
 
       - uses: actions/upload-artifact@v4
         if: always()
