@@ -118,8 +118,26 @@ jobs:
           fi
           exit "$status"
 
-      - name: Zip Cadly.app
-        run: (cd out && ditto -c -k --keepParent Cadly.app Cadly-macos-arm64.zip)
+      # A disk image, not a zip: upload-artifact zips every artifact itself (a
+      # zip inside would come out double-zipped), and an app bundle uploaded
+      # as loose files loses its symlinks and executable bits.
+      - name: Make Cadly.dmg
+        run: |
+          mkdir -p out/dmg
+          cp -R out/Cadly.app out/dmg/
+          ln -s /Applications out/dmg/Applications
+          hdiutil create -volname Cadly -srcfolder out/dmg -format UDZO -ov out/Cadly.dmg
+
+      - name: Test the app from Cadly.dmg (Homebrew hidden)
+        run: |
+          mnt=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" out/Cadly.dmg
+          test -L "$mnt/Applications"
+          cp -R "$mnt/Cadly.app" out/from-dmg.app
+          hdiutil detach "$mnt"
+          sudo mv /opt/homebrew /opt/homebrew.hidden
+          trap 'sudo mv /opt/homebrew.hidden /opt/homebrew' EXIT
+          out/from-dmg.app/Contents/MacOS/Cadly --selftest=smoke --out out/macos-dmg
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -132,5 +150,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Cadly-macos-arm64
-          path: out/Cadly-macos-arm64.zip
+          name: Cadly-macOS-dmg
+          path: out/Cadly.dmg

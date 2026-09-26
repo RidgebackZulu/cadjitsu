@@ -37,13 +37,14 @@ Tests: `ctest --preset macos-brew`.
 
 ## Downloading a CI build
 
-Each CI run uploads an ad-hoc-signed `Cadly-macos-arm64` artifact.
+Each CI run uploads an ad-hoc-signed disk image as the `Cadly-macOS-dmg` artifact. GitHub always delivers artifacts zipped.
 
-1. Download the zip from the run's **Artifacts** section and unzip it.
-2. Clear the quarantine flag once: `xattr -dr com.apple.quarantine Cadly.app`.
-3. Open `Cadly.app`.
+1. Download `Cadly-macOS-dmg` from the run's **Artifacts** section and unzip it: you get `Cadly.dmg`.
+2. Open `Cadly.dmg` and drag Cadly onto Applications.
+3. Clear the quarantine flag once: `xattr -dr com.apple.quarantine /Applications/Cadly.app`.
+4. Open Cadly.
 
-The bundle is built for Apple Silicon, draws with Metal and needs macOS 15 (Sequoia) or later. It is self-contained: after `macdeployqt`, `scripts/macos_bundle_fix.py` points every library reference into the bundle and fails the build if anything still leads outside it. Before the zip is uploaded, CI hides Homebrew and runs the `acceptance` self test on the packaged app itself. On an older macOS, build locally (see above).
+The bundle is built for Apple Silicon, draws with Metal and needs macOS 15 (Sequoia) or later. It is self-contained: after `macdeployqt`, `scripts/macos_bundle_fix.py` points every library reference into the bundle and fails the build if anything still leads outside it. Before the disk image is uploaded, CI hides Homebrew, runs the `acceptance` self test on the packaged app, and runs the app copied out of the finished disk image. On an older macOS, build locally (see above).
 
 ## Building on Linux
 
