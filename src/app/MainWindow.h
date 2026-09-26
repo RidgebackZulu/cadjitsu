@@ -7,6 +7,7 @@
 #include "doc/Document.h"
 
 #include <QMainWindow>
+#include <QPointer>
 
 #include <functional>
 #include <map>
@@ -24,6 +25,11 @@ class CommandController;
 class DistanceManipulator;
 class CommandPanel;
 class ExportDialog;
+class McpButton;
+class McpDialog;
+class McpLog;
+class McpServer;
+class McpTools;
 class SettingsDialog;
 class MarkingMenu;
 class ModelView;
@@ -81,6 +87,14 @@ public:
     ExportDialog *openExportDialog(ExportJob::Format format);
     // Cadly > Settings (mouse bindings).
     SettingsDialog *openSettings();
+    // The MCP server (AI agents), its event log, status button and dialog.
+    McpServer *mcpServer() const { return m_mcp; }
+    McpLog *mcpLog() const { return m_mcpLog; }
+    McpButton *mcpButton() const { return m_mcpButton; }
+    McpTools *mcpTools() const { return m_mcpTools.get(); }
+    McpDialog *openMcpDialog();
+    // Ends an open sketch or command (and closes menus) before other edits.
+    void finishInteractions();
 
 private:
     QAction *makeAction(const char *name, const QString &text, IconId icon, const QKeySequence &shortcut,
@@ -95,7 +109,6 @@ private:
     void onSketchTool(SketchToolKind kind);
     void onDocumentChanged();
     void onEvaluation(const EvaluationPtr &e);
-    void finishInteractions();
     void updateSectionArrow();
 
     std::unique_ptr<cad::Document> m_document;
@@ -114,6 +127,11 @@ private:
     QLabel *m_selectionStats = nullptr;
     QLabel *m_busy = nullptr;
     std::unique_ptr<DistanceManipulator> m_sectionArrow;
+    McpLog *m_mcpLog = nullptr;
+    std::unique_ptr<McpTools> m_mcpTools;
+    McpServer *m_mcp = nullptr;
+    McpButton *m_mcpButton = nullptr;
+    QPointer<McpDialog> m_mcpDialog;
     QString m_path;
     QString m_lastCommand;
     std::map<QString, QAction *> m_actions;

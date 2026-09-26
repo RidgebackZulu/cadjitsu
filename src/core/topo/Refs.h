@@ -55,6 +55,9 @@ struct PlaneRef {
 
 // A closed region of a sketch, identified by the sketch segments that bound it.
 struct ProfileRef {
+    ProfileRef() = default;
+    ProfileRef(FeatureId s, std::string k, Vec2 p) : sketch(s), key(std::move(k)), sample(p) {}
+
     FeatureId sketch = kNoFeature;
     std::string key;
     Vec2 sample; // a point inside the region when it was picked (fallback)

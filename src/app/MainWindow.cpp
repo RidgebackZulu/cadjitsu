@@ -8,6 +8,11 @@
 #include "command/HoleCommand.h"
 #include "command/PlaneCommand.h"
 #include "command/SectionCommand.h"
+#include "mcp/McpButton.h"
+#include "mcp/McpDialog.h"
+#include "mcp/McpLog.h"
+#include "mcp/McpServer.h"
+#include "mcp/McpTools.h"
 #include "model/ModelView.h"
 #include "sketch/SketchEditor.h"
 #include "sketch/SketchMode.h"
@@ -129,15 +134,27 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
     connect(m_browser, &BrowserTree::editSectionRequested, this, &MainWindow::editSection);
     m_document->changed = [this] { onDocumentChanged(); };
 
+    // AI agents over MCP (off unless switched on in the MCP dialog).
+    m_mcpLog = new McpLog(this);
+    m_mcpTools = std::make_unique<McpTools>(*this);
+    m_mcp = new McpServer(m_mcpLog, m_mcpTools.get(), this);
+
     buildActions();
     buildRibbon();
     buildMenus();
     onSketchActive(false);
     updateTitle();
     refresh();
+    connect(m_mcp, &McpServer::stateChanged, this, [this](McpServer::State s) {
+        m_mcpButton->setState(s, m_mcp->clientName());
+        if(s == McpServer::State::Connected)
+            statusBar()->showMessage(tr("An AI agent connected over MCP: %1").arg(m_mcp->clientName()), 6000);
+    });
+    m_mcp->apply(McpSettings::load());
 }
 
 MainWindow::~MainWindow() {
+    m_mcp->stop();
     m_document->changed = nullptr;
     m_viewport->setIdleTool(nullptr);
     // These use the viewport; take them down while it exists.
@@ -392,6 +409,19 @@ void MainWindow::showMarkingMenu(QPoint canvasPos) {
     m_marking->open(canvasPos);
 }
 
+McpDialog *MainWindow::openMcpDialog() {
+    if(!m_mcpDialog) {
+        m_mcpDialog = new McpDialog(*m_mcp, *m_mcpLog, this);
+        m_mcpDialog->setAttribute(Qt::WA_DeleteOnClose);
+    }
+    // Connected: the log is what is interesting; otherwise the settings.
+    if(m_mcp->state() == McpServer::State::Connected) m_mcpDialog->showLog();
+    m_mcpDialog->show();
+    m_mcpDialog->raise();
+    m_mcpDialog->activateWindow();
+    return m_mcpDialog;
+}
+
 SettingsDialog *MainWindow::openSettings() {
     auto *dlg = new SettingsDialog(m_viewport->mouseBindings(), this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
@@ -445,6 +475,7 @@ void MainWindow::buildActions() {
     QAction *settings = makeAction("settings", tr("Settings..."), IconId::Display, QKeySequence::Preferences,
                                    [this] { openSettings(); });
     settings->setMenuRole(QAction::PreferencesRole);
+    makeAction("mcpServer", tr("MCP Server..."), IconId::Display, {}, [this] { openMcpDialog(); });
     makeAction("undo", tr("Undo"), IconId::Undo, QKeySequence::Undo, [this] { undo(); });
     QAction *redo = makeAction("redo", tr("Redo"), IconId::Redo, QKeySequence::Redo, [this] { this->redo(); });
     redo->setShortcuts({QKeySequence::Redo, QKeySequence(Qt::CTRL | Qt::Key_Y)});
@@ -546,6 +577,10 @@ void MainWindow::buildRibbon() {
         m_ribbon->addLeadingWidget(b);
     }
 
+    m_mcpButton = new McpButton(m_ribbon);
+    connect(m_mcpButton, &QAbstractButton::clicked, this, [this] { openMcpDialog(); });
+    m_ribbon->addTrailingWidget(m_mcpButton);
+
     m_solidTab = m_ribbon->addTab(tr("SOLID"));
     RibbonGroup *create = m_solidTab->addGroup(tr("CREATE"));
     create->addAction(action(QStringLiteral("createSketch")));
@@ -588,6 +623,7 @@ void MainWindow::buildMenus() {
     file->addAction(action(QStringLiteral("export")));
     file->addAction(action(QStringLiteral("print3d")));
     file->addSeparator();
+    file->addAction(action(QStringLiteral("mcpServer")));
     file->addAction(action(QStringLiteral("settings")));
 
     QMenu *edit = menuBar()->addMenu(tr("&Edit"));

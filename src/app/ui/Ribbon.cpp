@@ -109,6 +109,8 @@ Ribbon::Ribbon(QWidget *parent) : QWidget(parent) {
 
 void Ribbon::addLeadingWidget(QWidget *w) { m_top->insertWidget(m_top->indexOf(m_tabs), w); }
 
+void Ribbon::addTrailingWidget(QWidget *w) { m_top->addWidget(w, 0, Qt::AlignVCenter); }
+
 RibbonTab *Ribbon::addTab(const QString &name) {
     auto *t = new RibbonTab(this);
     t->setObjectName(name);

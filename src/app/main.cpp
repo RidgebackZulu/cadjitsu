@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 #include "selftest/SelfTest.h"
+#include "mcp/McpTools.h"
 #include "ui/AppIcon.h"
 #include "ui/Theme.h"
 #include "viewport/Viewport.h"
@@ -81,7 +82,9 @@ int main(int argc, char *argv[]) {
                               QStringLiteral("api"));
     QCommandLineOption listOpt(QStringLiteral("list-selftests"),
                                QStringLiteral("Print the available self tests and exit."));
-    parser.addOptions({selfTestOpt, outOpt, rhiOpt, listOpt});
+    QCommandLineOption toolsOpt(QStringLiteral("mcp-tools"),
+                                QStringLiteral("Print the MCP server's tool list (JSON) and exit."));
+    parser.addOptions({selfTestOpt, outOpt, rhiOpt, listOpt, toolsOpt});
     parser.addPositionalArgument(QStringLiteral("file"), QStringLiteral("A .cadly design to open."), QStringLiteral("[file]"));
     parser.process(app);
 
@@ -91,6 +94,10 @@ int main(int argc, char *argv[]) {
     }
 
     cadly::MainWindow window;
+    if(parser.isSet(toolsOpt)) {
+        printf("%s\n", window.mcpTools()->toolList().dump(2).c_str());
+        return 0;
+    }
     if(parser.isSet(rhiOpt)) {
         bool ok = false;
         const auto api = parseApi(parser.value(rhiOpt), &ok);

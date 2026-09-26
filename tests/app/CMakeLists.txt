@@ -1,6 +1,7 @@
 file(GLOB CADLY_APP_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 qt_add_executable(cadly_app_tests ${CADLY_APP_TEST_SOURCES})
 target_link_libraries(cadly_app_tests PRIVATE cadly_ui Qt6::Test)
+target_compile_definitions(cadly_app_tests PRIVATE CADLY_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 set_target_properties(cadly_app_tests PROPERTIES MACOSX_BUNDLE OFF WIN32_EXECUTABLE OFF)
 
 # On Linux the app tests need an X server; run them through the Xvfb wrapper.

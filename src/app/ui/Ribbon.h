@@ -59,6 +59,8 @@ public:
     RibbonTab *currentTab() const;
     // Widgets placed left of the tabs (file menu, undo / redo).
     void addLeadingWidget(QWidget *w);
+    // At the right end of the top row (the MCP status button).
+    void addTrailingWidget(QWidget *w);
 
 private:
     QTabBar *m_tabs;

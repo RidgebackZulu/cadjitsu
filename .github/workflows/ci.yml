@@ -43,6 +43,12 @@ jobs:
       - name: App tests
         run: ctest --preset linux-conda -L app
 
+      - name: Plugin, skill and MCP tool reference
+        run: |
+          python3 scripts/check_plugin.py
+          scripts/run_xvfb.sh build/linux/src/app/Cadly --mcp-tools > out-tools.json
+          python3 scripts/gen_mcp_tool_docs.py --check out-tools.json plugins/cadly/skills/cadly-cad/references/tools.md
+
       - name: Self tests
         run: |
           for t in $(scripts/run_xvfb.sh build/linux/src/app/Cadly --list-selftests); do

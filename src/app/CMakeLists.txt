@@ -6,7 +6,7 @@ list(REMOVE_ITEM CADLY_UI_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp)
 
 qt_add_library(cadly_ui STATIC ${CADLY_UI_SOURCES})
 target_include_directories(cadly_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(cadly_ui PUBLIC cadcore Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Widgets)
+target_link_libraries(cadly_ui PUBLIC cadcore Qt6::Core Qt6::Gui Qt6::GuiPrivate Qt6::Widgets Qt6::Network)
 if(NOT MSVC)
     target_compile_options(cadly_ui PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()

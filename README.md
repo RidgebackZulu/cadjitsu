@@ -211,6 +211,30 @@ The canvas can be used the same way in every style: picking, commands and sectio
 - **STEP:** AP242 (or AP214), in millimetres, one named solid per body. After writing, the file is read back and its volume shown next to the model's.
 - Exports run in the background; the window stays usable. An open command is ended first, so what you export is the design, never a preview.
 
+## AI agents (MCP)
+
+Cadly has a built-in [Model Context Protocol](https://modelcontextprotocol.io) server, so AI agents (Claude
+Code, Claude Desktop, Hermes Agent...) can build and edit designs: inspect the design, sketch, extrude, fillet,
+chamfer, drill holes, combine bodies, change parameters, take screenshots and export a checked STL or STEP.
+Everything an agent does is ordinary history: one undo step per tool call, visible in the timeline.
+
+- **Turn it on:** click the **MCP** button at the right of the toolbar (or File > MCP Server...), tick
+  **Enable the MCP server**, click **Apply**. It listens on `http://127.0.0.1:7823/mcp` (this computer only; the
+  port can be changed) and every request needs `Authorization: Bearer <token>`; **Generate** makes a new token.
+  The dialog has ready-to-paste setups for Claude Code, Claude Desktop and Hermes.
+- **The button** is grey when the server is off, blue while it listens, and glows green while an agent is
+  connected. Click it for the settings and the **event log**: connections, every tool call with its arguments
+  and result, errors and refused requests. The log is also saved to a rolling file (at most 1 MB) in
+  `~/Library/Application Support/Cadly/logs/mcp.log` on macOS; **Open log folder** shows it.
+- **Skill and plugin:** this repository is a Claude Code plugin marketplace. `/plugin marketplace add
+  RidgebackZulu/cadly` then `/plugin install cadly@cadly` installs the MCP connection (set `CADLY_MCP_TOKEN`)
+  and the `cadly-cad` skill, which teaches agents the workflow, how to pick faces and edges, fastener
+  clearances and 3D-printing design rules, with worked examples. For Hermes Agent, copy
+  `plugins/cadly/skills/cadly-cad` to `~/.hermes/skills/` and add the server to `~/.hermes/config.yaml`
+  (see [plugins/cadly/README.md](plugins/cadly/README.md)).
+- **Tools:** see [the tool reference](plugins/cadly/skills/cadly-cad/references/tools.md) (generated from the app
+  with `Cadly --mcp-tools`).
+
 ## Self tests
 
 `Cadly --selftest=<name> --out <dir>` runs a scripted scenario through the real UI and
@@ -220,6 +244,7 @@ command layer. It saves screenshots and exits with status 0 on success.
 | Scenario | What it does |
 |---|---|
 | `smoke` | The window opens and the canvas renders. |
+| `mcp` | An agent connects over MCP, builds a plate with filleted corners and countersunk holes through tools and exports a printable STL; the MCP button glows; screenshots of the button, the event log and the settings. |
 | `acceptance` | The M7 acceptance run, all through the UI: an L bracket (a 60 x 40 plate extruded 8 mm, an upright sketched on its top face and extruded 40 mm, two counterbored screw holes, a hole through the upright, an R4 fillet in the inside corner, chamfers), then Extrude1 edited from 8 to 10 mm with every later feature following. Screenshots in all four visual styles; 3D Print to an STL that passes the printability check and reads back as one manifold shell; File > Export to a STEP that reads back with the same volume; save, New, reopen. The macOS CI job also runs it on the packaged app. |
 | `views` | A demo part in every display style; hover, selection statistics and the ViewCube. |
 | `sketch` | Sketch mode end to end: typed dimensions, a hole, a slot, constraints, statistics. |

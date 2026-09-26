@@ -1,0 +1,20 @@
+{
+  "name": "cadly",
+  "owner": {
+    "name": "RidgebackZulu"
+  },
+  "metadata": {
+    "description": "Cadly: parametric CAD for 3D-printable parts. The plugin connects agents to Cadly's MCP server and teaches them to model printable parts.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "cadly",
+      "source": "./plugins/cadly",
+      "description": "Design 3D-printable parts in Cadly from Claude: sketch, extrude, fillet, drill, combine, change parameters and export a checked STL or STEP through Cadly's MCP server.",
+      "version": "1.0.0",
+      "category": "design",
+      "keywords": ["cad", "3d-printing", "mcp", "parametric", "stl", "step"]
+    }
+  ]
+}

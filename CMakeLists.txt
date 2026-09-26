@@ -39,7 +39,7 @@ add_subdirectory(src/core)
 
 if(CADLY_BUILD_APP)
     set(QT_NO_PRIVATE_MODULE_WARNING ON)
-    find_package(Qt6 6.7 REQUIRED COMPONENTS Core Gui Widgets ShaderTools Test)
+    find_package(Qt6 6.7 REQUIRED COMPONENTS Core Gui Widgets Network ShaderTools Test)
     # QRhi (<rhi/qrhi.h>) is semi-public API: its headers come with the GuiPrivate target.
     find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
     qt_standard_project_setup()
