@@ -70,6 +70,14 @@ private:
     void updateRows();
     void updateArrow();
     bool chooseOperation(); // true if it changed the operation
+
+public:
+    // Whether a new extrude picks Join / Cut from where it goes (Fusion 360's
+    // way). Off by default: extrudes make new bodies, combined afterwards.
+    static bool autoOperation();
+    static void setAutoOperation(bool on);
+
+private:
     void changed();
     bool inputPoint(gp_Pnt &p, gp_Dir &n) const;
 

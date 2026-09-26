@@ -16,6 +16,7 @@ class SettingsDialog : public QDialog {
 public:
     explicit SettingsDialog(const MouseBindings &current, QWidget *parent = nullptr);
     MouseBindings bindings() const;
+    bool autoOperation() const;
 
     QComboBox *presetBox() const { return m_preset; }
     QComboBox *orbitBox() const { return m_orbit[0]; }
@@ -26,7 +27,7 @@ private:
 
     QComboBox *m_preset;
     QComboBox *m_orbit[2], *m_pan[2], *m_zoom[2];
-    QCheckBox *m_invert, *m_trackpad;
+    QCheckBox *m_invert, *m_trackpad, *m_autoOperation;
     bool m_updating = false;
 };
 

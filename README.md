@@ -134,7 +134,7 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - **Direction:** One Side, Two Sides (a distance and taper for each) or Symmetric.
 - **Extent:** Distance, To Object (click the face to stop at; faces at an angle work too), or All (through everything; Flip picks the side).
 - **Taper Angle:** positive angles flare the sides outwards, negative angles draw them in.
-- **Operation:** Join, Cut, Intersect or New Body. Until you choose one, it follows what you are doing: out of a body's face joins, into a body cuts, elsewhere makes a new body.
+- **Operation:** New Body by default, so an extrude never changes other bodies; join or subtract them afterwards with **Combine**. Choose Join, Cut or Intersect in the dialog to do it in one step. (File > Settings > "Choose Join / Cut automatically" restores Fusion's behaviour: out of a body's face joins, into a body cuts.)
 - A value box next to the arrow shows the distance too: just type a number while the command is open (on the canvas or in the dialog) and it replaces the value. Clicking into a value selects it all, so what you type replaces it. A plain number is millimetres.
 - Values take expressions and units (`20`, `d1 / 2`, `0.5 in`). The model previews live; **OK** or Enter adds one timeline step, Esc or **Cancel** leaves the design untouched.
 

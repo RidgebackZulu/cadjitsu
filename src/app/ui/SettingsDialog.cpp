@@ -1,5 +1,7 @@
 #include "ui/SettingsDialog.h"
 
+#include "command/ExtrudeCommand.h"
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -50,6 +52,19 @@ SettingsDialog::SettingsDialog(const MouseBindings &current, QWidget *parent) : 
     note->setStyleSheet(QStringLiteral("color: #5a6270;"));
     form->addRow(note);
     v->addWidget(mouse);
+
+    auto *modeling = new QGroupBox(tr("Extrude"), this);
+    auto *mv = new QVBoxLayout(modeling);
+    m_autoOperation = new QCheckBox(tr("Choose Join / Cut automatically (as Fusion 360 does)"), modeling);
+    m_autoOperation->setObjectName(QStringLiteral("autoOperation"));
+    m_autoOperation->setChecked(ExtrudeCommand::autoOperation());
+    mv->addWidget(m_autoOperation);
+    auto *opNote = new QLabel(tr("Off: every extrude makes a new body; join or subtract bodies afterwards with Combine."),
+                              modeling);
+    opNote->setWordWrap(true);
+    opNote->setStyleSheet(QStringLiteral("color: #5a6270;"));
+    mv->addWidget(opNote);
+    v->addWidget(modeling);
     connect(m_preset, &QComboBox::activated, this, [this](int i) {
         if(i < int(MouseBindings::Preset::Custom)) showBindings(MouseBindings::preset(MouseBindings::Preset(i)));
     });
@@ -79,6 +94,8 @@ void SettingsDialog::updatePreset() {
     if(m_updating) return;
     m_preset->setCurrentIndex(int(bindings().matchingPreset()));
 }
+
+bool SettingsDialog::autoOperation() const { return m_autoOperation->isChecked(); }
 
 MouseBindings SettingsDialog::bindings() const {
     MouseBindings b;

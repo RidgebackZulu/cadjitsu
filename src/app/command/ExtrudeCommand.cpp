@@ -15,6 +15,7 @@
 #include <gp_Pln.hxx>
 
 #include <QCheckBox>
+#include <QSettings>
 #include <QComboBox>
 #include <QLabel>
 
@@ -98,6 +99,8 @@ void ExtrudeCommand::setup() {
         m_distance2 = doc.makeSlot("10 mm");
         m_taper2 = doc.makeSlot("0 deg");
         m_operation->setCurrentIndex(indexIn(kOperations, cad::BodyOperation::NewBody));
+        // A new body unless automatic Join / Cut is on (combine bodies afterwards).
+        m_operationChosen = !autoOperation();
         // Start from what is selected, as in Fusion (select a profile, press E).
         for(const auto &p : m_initial) m_refs[Profiles].push_back(InputRef::ofProfile(p));
         if(m_initial.empty())
@@ -291,6 +294,12 @@ void ExtrudeCommand::updateArrow() {
 
 // Join when extruding out of a body's face, Cut when extruding into a body,
 // otherwise a new body (like Fusion's automatic operation).
+bool ExtrudeCommand::autoOperation() {
+    return QSettings().value(QStringLiteral("modeling/autoOperation"), false).toBool();
+}
+
+void ExtrudeCommand::setAutoOperation(bool on) { QSettings().setValue(QStringLiteral("modeling/autoOperation"), on); }
+
 bool ExtrudeCommand::chooseOperation() {
     if(m_operationChosen) return false;
     gp_Pnt p;

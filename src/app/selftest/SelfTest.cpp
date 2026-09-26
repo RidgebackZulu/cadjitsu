@@ -509,22 +509,24 @@ bool plateScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     sendKey(w, Qt::Key_Return);
     check(ed->profiles().size() == 1, QStringLiteral("a 10 mm circle"));
 
-    // 4. Extrude it: out of the face it joins; dragged into the plate it cuts;
-    // All carries on through the plate.
+    // 4. Extrude it: a new body at first; dragged into the plate and set to
+    // Cut it drills the plate; All carries on through it.
     w.action(QStringLiteral("extrude"))->trigger();
     ex = extrudeCommand();
     if(!ex) return false;
     settle(QStringLiteral("hole preview"));
-    check(ex->operation() == cad::BodyOperation::Join, QStringLiteral("extruding out of the face joins"));
+    check(ex->operation() == cad::BodyOperation::NewBody, QStringLiteral("an extrude makes a new body by default"));
     // From the sketch's view the arrow points at the eye: look from the side first.
     vp->setStandardView(StandardView::Home, false);
     waitForFrames(vp, 1);
     const QPointF head = ex->arrow().headOnScreen();
     const QVector3D down = ex->arrow().origin() - ex->arrow().direction() * 8.0f;
     dragAt(vp, head, vp->camera().project(down));
+    ex->operationBox()->setCurrentIndex(1); // Operation: Cut
+    emit ex->operationBox()->activated(1);
     settle(QStringLiteral("arrow dragged into the plate"));
     check(ex->operation() == cad::BodyOperation::Cut && ex->distanceField()->value().value_or(0) < -7.9,
-          QStringLiteral("dragging the arrow into the plate cuts (%1)").arg(ex->distanceField()->expression()));
+          QStringLiteral("dragged into the plate and set to Cut (%1)").arg(ex->distanceField()->expression()));
     ex->extentBox()->setCurrentIndex(2); // All
     check(ex->flipBox()->isChecked(), QStringLiteral("All keeps going into the plate"));
     settle(QStringLiteral("cut through all preview"));
@@ -1153,8 +1155,11 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     if(!ex) return false;
     settle();
     typeText(w, QStringLiteral("40"));
+    check(ex->operation() == cad::BodyOperation::NewBody, QStringLiteral("an extrude makes a new body by default"));
+    ex->operationBox()->setCurrentIndex(0); // Operation: Join
+    emit ex->operationBox()->activated(0);
     settle();
-    check(ex->operation() == cad::BodyOperation::Join, QStringLiteral("extruding out of the face joins"));
+    check(ex->operation() == cad::BodyOperation::Join, QStringLiteral("Join chosen in the dialog"));
     sendKey(w, Qt::Key_Return);
     settle();
     const double bracket = base + 60.0 * 8.0 * 40.0;

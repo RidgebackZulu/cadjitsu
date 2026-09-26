@@ -399,6 +399,7 @@ SettingsDialog *MainWindow::openSettings() {
         const MouseBindings b = dlg->bindings();
         b.save();
         m_viewport->setMouseBindings(b);
+        ExtrudeCommand::setAutoOperation(dlg->autoOperation());
     });
     dlg->open();
     return dlg;

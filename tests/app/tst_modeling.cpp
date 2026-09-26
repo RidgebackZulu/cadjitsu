@@ -137,7 +137,10 @@ private slots:
         QVERIFY(waitForFrames(vp(), 2));
     }
 
-    void cleanup() { m_window.reset(); }
+    void cleanup() {
+        m_window.reset();
+        ExtrudeCommand::setAutoOperation(false);
+    }
 
     void extrudeAProfileWithLivePreview() {
         baseSketch();
@@ -191,7 +194,9 @@ private slots:
         QVERIFY(!panel()->isVisible());
     }
 
+    // With Settings > "Choose Join / Cut automatically" on (off by default).
     void automaticJoinAndCut() {
+        ExtrudeCommand::setAutoOperation(true);
         baseSketch();
         QVERIFY(waitForFrames(vp(), 1));
         extrudeBase(QStringLiteral("10"));

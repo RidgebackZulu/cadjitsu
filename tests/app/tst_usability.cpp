@@ -7,6 +7,7 @@
 
 #include "MainWindow.h"
 #include "command/CanvasValueBox.h"
+#include "command/CombineCommand.h"
 #include "command/Command.h"
 #include "command/CommandPanel.h"
 #include "command/ExtrudeCommand.h"
@@ -20,6 +21,7 @@
 #include "ui/SettingsDialog.h"
 #include "viewport/Viewport.h"
 
+#include "features/ExtrudeFeature.h"
 #include "features/SketchFeature.h"
 #include "geom/OcctUtil.h"
 
@@ -225,6 +227,71 @@ private slots:
         int dims2 = 0;
         for(const auto &c : ed->sketch().constraints) dims2 += cad::isDimension(c.type);
         QCOMPARE(dims2, dims);
+    }
+
+    // Bug report: a sketch drawn over a body and extruded cut into that body.
+    // Extrudes make new bodies; Combine joins or subtracts them afterwards.
+    void extrudeMakesANewBodyByDefault() {
+        QVERIFY(!ExtrudeCommand::autoOperation());
+        auto base = std::make_shared<cad::SketchFeature>();
+        base->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        base->sketch.addRectangle({0, 0}, {40, 20});
+        const cad::FeatureId bid = doc().addFeature(base);
+        auto boxExtrude = std::make_shared<cad::ExtrudeFeature>();
+        for(const auto &p : doc().stateAt(doc().marker())->sketches.at(bid)->profiles)
+            boxExtrude->profiles.push_back({bid, p.key, p.sample});
+        boxExtrude->distance = doc().makeSlot("10 mm");
+        doc().addFeature(boxExtrude);
+        // A sketch overlapping the box, extruded through it from the dialog.
+        auto over = std::make_shared<cad::SketchFeature>();
+        over->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        over->sketch.addRectangle({30, 5}, {50, 15});
+        const cad::FeatureId oid = doc().addFeature(over);
+        m_window->refresh();
+        m_window->editFeature(oid);
+        QVERIFY(m_window->sketchMode()->active());
+        processEventsFor(500);
+        m_window->startExtrude();
+        QVERIFY(extrude() && extrude()->profileCount() == 1);
+        QCOMPARE(extrude()->operation(), cad::BodyOperation::NewBody);
+        QTest::keyClicks(extrude()->distanceField(), QStringLiteral("10"));
+        QVERIFY(m_window->waitForModel());
+        QCOMPARE(extrude()->operation(), cad::BodyOperation::NewBody); // still, although it runs through the box
+        m_window->commandPanel()->okButton()->click();
+        QVERIFY(m_window->waitForModel());
+        auto volumes = [&] {
+            std::vector<double> v;
+            for(const cad::Body *b : m_window->modelView()->state()->orderedBodies()) v.push_back(cad::volumeOf(b->shape.shape()));
+            return v;
+        };
+        std::vector<double> v = volumes();
+        QCOMPARE(int(v.size()), 2);
+        QVERIFY(std::fabs(v[0] - 8000.0) < 1e-6); // the box is untouched
+        QVERIFY(std::fabs(v[1] - 2000.0) < 1e-6);
+
+        // Combine > Cut subtracts the new body from the box.
+        vp()->setStandardView(StandardView::Home, false);
+        vp()->fitAll(false);
+        QVERIFY(waitForFrames(vp(), 1));
+        m_window->action(QStringLiteral("combine"))->trigger();
+        auto *combine = qobject_cast<CombineCommand *>(m_window->commands()->command());
+        QVERIFY(combine);
+        auto click = [&](QVector3D w) {
+            const QPointF p = vp()->camera().project(w);
+            send(vp(), QEvent::MouseMove, p, Qt::NoButton, Qt::NoButton);
+            send(vp(), QEvent::MouseButtonPress, p, Qt::LeftButton, Qt::LeftButton);
+            send(vp(), QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
+        };
+        click({10, 10, 10});  // the box's top: the target
+        click({45, 10, 10});  // the new body's top, outside the box: the tool
+        QVERIFY(combine->hasTarget() && combine->toolCount() == 1);
+        combine->operationBox()->setCurrentIndex(1); // Cut
+        QVERIFY(m_window->waitForModel());
+        m_window->commandPanel()->okButton()->click();
+        QVERIFY(m_window->waitForModel());
+        v = volumes();
+        QCOMPARE(int(v.size()), 1);
+        QVERIFY2(std::fabs(v[0] - (8000.0 - 10 * 10 * 10)) < 1e-6, qPrintable(QString::number(v[0])));
     }
 
     void doubleClickingASketchInTheModelEditsIt() {
