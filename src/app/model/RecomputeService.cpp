@@ -13,7 +13,11 @@ namespace cadly {
 RecomputeService::RecomputeService(std::shared_ptr<cad::ResultCache> cache, QObject *parent)
     : QObject(parent), m_cache(std::move(cache)) {
     qRegisterMetaType<EvaluationPtr>();
-    m_thread = std::thread([this] { run(); });
+    m_thread.reset(QThread::create([this] { run(); }));
+    // Booleans and fillets recurse deeply; macOS gives secondary threads only
+    // 512 KB of stack by default.
+    m_thread->setStackSize(16u * 1024u * 1024u);
+    m_thread->start();
 }
 
 RecomputeService::~RecomputeService() {
@@ -24,7 +28,7 @@ RecomputeService::~RecomputeService() {
         m_pending.reset();
     }
     m_cv.notify_all();
-    if(m_thread.joinable()) m_thread.join();
+    if(m_thread) m_thread->wait();
 }
 
 uint64_t RecomputeService::request(std::vector<cad::FeaturePtr> features, std::shared_ptr<const cad::ParamTable> params,

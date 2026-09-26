@@ -24,10 +24,22 @@ double defaultDeflection(double modelSize) { return std::clamp(modelSize * 0.000
 
 namespace {
 
+bool everyFaceMeshed(const TopoDS_Shape &shape) {
+    for(TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+        TopLoc_Location loc;
+        if(BRep_Tool::Triangulation(TopoDS::Face(ex.Current()), loc).IsNull()) return false;
+    }
+    return true;
+}
+
 TopoDS_Shape meshedCopy(const TopoDS_Shape &shape, double deflection, double angle) {
     BRepBuilderAPI_Copy copier(shape, Standard_True, Standard_False);
     TopoDS_Shape copy = copier.Shape();
     BRepMesh_IncrementalMesh mesher(copy, deflection, Standard_False, angle, Standard_True);
+    if(everyFaceMeshed(copy)) return copy;
+    // The parallel mesher occasionally leaves a face without triangulation;
+    // mesh again on this thread alone.
+    BRepMesh_IncrementalMesh again(copy, deflection, Standard_False, angle, Standard_False);
     return copy;
 }
 

@@ -3,13 +3,13 @@
 #include "doc/Document.h"
 
 #include <QObject>
+#include <QThread>
 
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <thread>
 #include <vector>
 
 namespace cadly {
@@ -74,7 +74,7 @@ private:
     void setBusy(bool busy);
 
     std::shared_ptr<cad::ResultCache> m_cache;
-    std::thread m_thread;
+    std::unique_ptr<QThread> m_thread;
     std::mutex m_mutex;
     std::condition_variable m_cv;
     std::shared_ptr<Job> m_pending, m_current;

@@ -1120,9 +1120,11 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
         clickAt(vp, ed->toScreen(*p));
         sendMouse(vp, QEvent::MouseMove, ed->toScreen({p->x + (q->x - p->x) * 0.7, p->y + (q->y - p->y) * 0.7}),
                   Qt::NoButton, Qt::NoButton);
-        typeText(w, QString::number(std::fabs(q->x - p->x)));
+        // Sizes come from projected float points; round off the float noise so
+        // the rectangle lands exactly on the intended edges.
+        typeText(w, QString::number(std::round(std::fabs(q->x - p->x) * 1000.0) / 1000.0));
         sendKey(w, Qt::Key_Tab);
-        typeText(w, QString::number(std::fabs(q->y - p->y)));
+        typeText(w, QString::number(std::round(std::fabs(q->y - p->y) * 1000.0) / 1000.0));
         sendKey(w, Qt::Key_Return);
         sendKey(w, Qt::Key_Escape);
         return true;
@@ -1147,7 +1149,7 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     sendKey(w, Qt::Key_Return);
     settle();
     const double base = 60.0 * 40.0 * 8.0;
-    check(doc.features().size() == 2 && std::fabs(shown() - base) < 0.1,
+    check(doc.features().size() == 2 && std::fabs(shown() - base) < 1e-6,
           QStringLiteral("base plate 60 x 40 x 8 (%1 mm3)").arg(vol(shown())));
 
     // 2. The upright: a 60 x 8 rectangle on the plate's top face, extruded 40 mm up (joins).
@@ -1174,7 +1176,7 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     settle();
     const double bracket = base + 60.0 * 8.0 * 40.0;
     check(doc.features().size() == 4 && w.modelView()->state()->bodies.size() == 1 &&
-              std::fabs(shown() - bracket) < 0.1,
+              std::fabs(shown() - bracket) < 1e-6,
           QStringLiteral("upright joined: one body, %1 mm3").arg(vol(shown())));
 
     // 3. Two counterbored screw holes through the base.
@@ -1192,7 +1194,7 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     w.commandPanel()->okButton()->click();
     settle();
     const double screws = 2.0 * cad::kPi * (2.5 * 2.5 * 5.0 + 4.5 * 4.5 * 3.0);
-    check(lastOk() && std::fabs(shown() - (bracket - screws)) < 0.1,
+    check(lastOk() && std::fabs(shown() - (bracket - screws)) < 0.01,
           QStringLiteral("counterbored holes: %1 mm3").arg(vol(shown())));
 
     // 4. A through hole in the upright, placed on its front face.
@@ -1207,7 +1209,7 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     w.commandPanel()->okButton()->click();
     settle();
     const double drilled = bracket - screws - cad::kPi * 16.0 * 8.0;
-    check(lastOk() && std::fabs(shown() - drilled) < 0.1, QStringLiteral("hole through the upright: %1 mm3").arg(vol(shown())));
+    check(lastOk() && std::fabs(shown() - drilled) < 0.01, QStringLiteral("hole through the upright: %1 mm3").arg(vol(shown())));
 
     // 5. Fillet the inside corner between base and upright.
     w.action(QStringLiteral("fillet"))->trigger();
@@ -1220,7 +1222,7 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     w.commandPanel()->okButton()->click();
     settle();
     const double filleted = drilled + (16.0 - cad::kPi * 4.0) * 60.0;
-    check(lastOk() && std::fabs(shown() - filleted) < 0.15, QStringLiteral("inside fillet R4: %1 mm3").arg(vol(shown())));
+    check(lastOk() && std::fabs(shown() - filleted) < 0.05, QStringLiteral("inside fillet R4: %1 mm3").arg(vol(shown())));
 
     // 6. Chamfer the upright's top face and the base's front corners.
     w.action(QStringLiteral("chamfer"))->trigger();

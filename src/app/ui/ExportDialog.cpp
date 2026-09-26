@@ -200,6 +200,9 @@ void ExportDialog::run(const ExportJob &job, const QString &path, bool writeInva
         m_thread = nullptr;
         done(job, path, *result);
     });
+    // OCCT's mesher and booleans recurse deeply; macOS gives secondary threads
+    // only 512 KB of stack by default.
+    m_thread->setStackSize(16u * 1024u * 1024u);
     m_thread->start();
 }
 
