@@ -8,6 +8,9 @@
 #include <GProp_GProps.hxx>
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
+#include <BRepTools.hxx>
+#include <BRepTools_WireExplorer.hxx>
+#include <TopoDS_Wire.hxx>
 #include <BRep_Tool.hxx>
 #include <Poly_PolygonOnTriangulation.hxx>
 #include <Poly_Triangulation.hxx>
@@ -171,10 +174,8 @@ std::shared_ptr<MeshData> tessellateForDisplay(const NamedShape &named, double d
     return mesh;
 }
 
-bool weldedMesh(const TopoDS_Shape &shape, double deflection, double angle, TriMesh &out, std::string &error,
-                double *hairlineGap) {
+bool weldedMesh(const TopoDS_Shape &shape, double deflection, double angle, TriMesh &out, std::string &error) {
     out = TriMesh();
-    if(hairlineGap) *hairlineGap = 0;
     if(shape.IsNull()) {
         error = "nothing to mesh";
         return false;
@@ -205,16 +206,17 @@ bool weldedMesh(const TopoDS_Shape &shape, double deflection, double angle, TriM
         return dx * dx + dy * dy + dz * dz;
     };
 
+    std::vector<int> hairlines;
     for(int fi = 1; fi <= faces.Extent(); ++fi) {
         const TopoDS_Face face = TopoDS::Face(faces(fi));
         TopLoc_Location loc;
+        // Hairline faces get a fan below, whatever the mesher made of them.
+        if(faceWidth(face) < 1e-3) {
+            hairlines.push_back(fi);
+            continue;
+        }
         Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
         if(tri.IsNull()) {
-            const double width = faceWidth(face);
-            if(width < 1e-3) {
-                if(hairlineGap) *hairlineGap = std::max(*hairlineGap, width);
-                continue;
-            }
             error = "a face could not be meshed (face " + std::to_string(fi) + " of " + std::to_string(faces.Extent()) +
                     ": " + describeFace(face) + "; mesher status " + std::to_string(status) + ")";
             return false;
@@ -279,6 +281,44 @@ bool weldedMesh(const TopoDS_Shape &shape, double deflection, double angle, TriM
             const uint32_t ia = uint32_t(nodeId[a]), ib = uint32_t(nodeId[b]), ic = uint32_t(nodeId[c]);
             if(ia == ib || ib == ic || ia == ic) continue;
             out.triangles.push_back({ia, ib, ic});
+        }
+    }
+
+    // Hairline faces (strips under 1 um wide that booleans leave where faces
+    // nearly line up) defeat the mesher. Close each one with a fan over its
+    // boundary, made of the points its neighbours already put on the shared
+    // edges, so the mesh stays closed whatever the discretization.
+    for(int fi : hairlines) {
+        const TopoDS_Face face = TopoDS::Face(faces(fi));
+        const TopoDS_Face forward = TopoDS::Face(face.Oriented(TopAbs_FORWARD));
+        int wires = 0;
+        for(TopExp_Explorer ex(forward, TopAbs_WIRE); ex.More(); ex.Next()) ++wires;
+        if(wires != 1) {
+            error = "a face could not be meshed (face " + std::to_string(fi) + ": " + describeFace(face) + ")";
+            return false;
+        }
+        std::vector<uint32_t> loop;
+        for(BRepTools_WireExplorer wex(BRepTools::OuterWire(forward), forward); wex.More(); wex.Next()) {
+            const TopoDS_Edge edge = wex.Current();
+            if(BRep_Tool::Degenerated(edge)) continue;
+            auto &ids = edgeIds[edges.FindIndex(edge)];
+            if(ids.empty()) { // no meshed face on this edge: its chord
+                TopoDS_Vertex v1, v2;
+                TopExp::Vertices(edge, v1, v2);
+                ids = {vertexId[vertices.FindIndex(v1)], vertexId[vertices.FindIndex(v2)]};
+            }
+            std::vector<uint32_t> seq = ids;
+            if(edge.Orientation() == TopAbs_REVERSED) std::reverse(seq.begin(), seq.end());
+            if(!loop.empty() && loop.back() == seq.front()) seq.erase(seq.begin());
+            loop.insert(loop.end(), seq.begin(), seq.end());
+        }
+        if(loop.size() > 1 && loop.front() == loop.back()) loop.pop_back();
+        const bool reversed = face.Orientation() == TopAbs_REVERSED;
+        for(size_t i = 1; i + 1 < loop.size(); ++i) {
+            uint32_t a = loop[0], b = loop[i], c = loop[i + 1];
+            if(reversed) std::swap(b, c);
+            if(a == b || b == c || a == c) continue;
+            out.triangles.push_back({a, b, c});
         }
     }
     return true;

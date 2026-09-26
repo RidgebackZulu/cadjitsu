@@ -193,15 +193,23 @@ TEST_CASE("a hairline sliver left by a boolean does not stop the STL export") {
         const TopoDS_Shape plate = BRepPrimAPI_MakeBox(60, 40, 8).Shape();
         const TopoDS_Shape upright = BRepPrimAPI_MakeBox(gp_Pnt(0, 32 + gap, 0), gp_Pnt(60, 40 + gap, 48)).Shape();
         const TopoDS_Shape bracket = BRepAlgoAPI_Fuse(plate, upright).Shape();
+        // A shorter, drilled upright: the seam's two sides are split at
+        // different points (T-junctions across the sliver).
+        TopoDS_Shape shortUpright = BRepPrimAPI_MakeBox(gp_Pnt(10, 32 + gap, 8 - gap), gp_Pnt(50, 40 + gap, 48)).Shape();
+        shortUpright = BRepAlgoAPI_Cut(shortUpright, BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(30, 30, 30), gp_Dir(0, 1, 0)), 5, 20).Shape()).Shape();
+        TopoDS_Shape drilledPlate = BRepAlgoAPI_Cut(plate, BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(30, 38, -1), gp_Dir(0, 0, 1)), 1, 10).Shape()).Shape();
+        const TopoDS_Shape tee = BRepAlgoAPI_Fuse(drilledPlate, shortUpright).Shape();
+        for(const TopoDS_Shape &part : {bracket, tee})
         for(auto res : {cad::StlResolution::Coarse, cad::StlResolution::Fine}) {
             cad::StlOptions o;
             o.resolution = res;
             cad::StlExport out;
             std::string error;
-            REQUIRE_MESSAGE(cad::buildStlMesh({bracket}, o, out, error), error);
+            REQUIRE_MESSAGE(cad::buildStlMesh({part}, o, out, error), error);
+            INFO(out.report.summary());
             CHECK(out.report.watertight);
             CHECK(out.report.shells == 1);
-            CHECK(std::fabs(out.report.volume - out.solidVolume) < 0.5);
+            CHECK(out.report.ok);
         }
     }
 }
