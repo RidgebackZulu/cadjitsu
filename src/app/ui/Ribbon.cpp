@@ -5,12 +5,114 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMenu>
+#include <QPainter>
+#include <QPainterPath>
 #include <QStackedWidget>
 #include <QTabBar>
 #include <QToolButton>
 #include <QVBoxLayout>
 
 namespace cadly {
+
+MenuButton::MenuButton(const QString &text, Style style, QWidget *parent) : QToolButton(parent), m_style(style) {
+    setText(text);
+    setPopupMode(QToolButton::InstantPopup);
+    setAutoRaise(true);
+    setFocusPolicy(Qt::NoFocus);
+    setCursor(Qt::PointingHandCursor);
+    auto *menu = new QMenu(this);
+    menu->setStyleSheet(menuStyleSheet());
+    // Rounded corners need a see-through window behind them.
+    menu->setAttribute(Qt::WA_TranslucentBackground);
+    menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
+    connect(menu, &QMenu::aboutToShow, this, [this] {
+        m_open = true;
+        update();
+    });
+    connect(menu, &QMenu::aboutToHide, this, [this] {
+        m_open = false;
+        update();
+    });
+    setMenu(menu);
+}
+
+QString MenuButton::menuStyleSheet() {
+    return QStringLiteral(
+        "QMenu { background: #ffffff; border: 1px solid #c9ced6; border-radius: 8px; padding: 4px; color: #1c2128; }"
+        "QMenu::item { padding: 5px 22px 5px 8px; border-radius: 5px; margin: 1px 0; }"
+        "QMenu::item:selected { background: #e8f0fb; color: #0f1a2a; }"
+        "QMenu::item:disabled { color: #a0a6b0; }"
+        "QMenu::icon { padding-left: 6px; }"
+        "QMenu::separator { height: 1px; background: #e3e6eb; margin: 4px 8px; }");
+}
+
+QFont MenuButton::labelFont() const {
+    QFont f = font();
+    if(m_style == Style::Caption) {
+        f.setPixelSize(10);
+        f.setWeight(QFont::DemiBold);
+        f.setLetterSpacing(QFont::AbsoluteSpacing, 0.4);
+    } else {
+        f.setPixelSize(12);
+        f.setWeight(QFont::Medium);
+    }
+    return f;
+}
+
+QSize MenuButton::sizeHint() const {
+    const QFontMetrics fm(labelFont());
+    const int iconW = icon().isNull() ? 0 : iconSize().width() + 6;
+    const int h = m_style == Style::Caption ? 18 : 26;
+    return QSize(8 + iconW + fm.horizontalAdvance(text()) + 5 + 8 + 8, h);
+}
+
+void MenuButton::enterEvent(QEnterEvent *e) {
+    m_hover = true;
+    update();
+    QToolButton::enterEvent(e);
+}
+
+void MenuButton::leaveEvent(QEvent *e) {
+    m_hover = false;
+    update();
+    QToolButton::leaveEvent(e);
+}
+
+void MenuButton::paintEvent(QPaintEvent *) {
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    const bool lit = m_hover || m_open;
+    const QColor accent(26, 102, 201);
+    const QColor ink = lit ? accent : (m_style == Style::Caption ? QColor(74, 82, 96) : QColor(28, 33, 40));
+    const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
+    if(lit) {
+        p.setPen(m_open ? QPen(QColor(26, 102, 201, 70), 1) : Qt::NoPen);
+        p.setBrush(QColor(26, 102, 201, m_open ? 30 : 20));
+        p.drawRoundedRect(r, r.height() / 2 > 8 ? 6 : 5, r.height() / 2 > 8 ? 6 : 5);
+    }
+    int x = 8;
+    if(!icon().isNull()) {
+        const QSize is = iconSize();
+        icon().paint(&p, QRect(x, (height() - is.height()) / 2, is.width(), is.height()));
+        x += is.width() + 6;
+    }
+    const QFont f = labelFont();
+    p.setFont(f);
+    p.setPen(ink);
+    const QFontMetrics fm(f);
+    const int tw = fm.horizontalAdvance(text());
+    p.drawText(QRect(x, 0, tw + 2, height()), Qt::AlignVCenter | Qt::AlignLeft, text());
+    // The chevron: a small open V (or ^ while the menu is open), stroked, not a glyph.
+    const double cx = x + tw + 5 + 3.5, cy = height() / 2.0 + 0.5;
+    const double w = 3.5, h = m_open ? -2.0 : 2.0;
+    QPainterPath chevron;
+    chevron.moveTo(cx - w, cy - h);
+    chevron.lineTo(cx, cy + h);
+    chevron.lineTo(cx + w, cy - h);
+    p.setPen(QPen(ink, 1.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+    p.drawPath(chevron);
+}
 
 RibbonGroup::RibbonGroup(const QString &title, QWidget *parent) : QWidget(parent) {
     auto *v = new QVBoxLayout(this);
@@ -19,13 +121,8 @@ RibbonGroup::RibbonGroup(const QString &title, QWidget *parent) : QWidget(parent
     m_buttons = new QHBoxLayout;
     m_buttons->setSpacing(1);
     v->addLayout(m_buttons);
-    m_caption = new QToolButton(this);
-    m_caption->setText(title + QStringLiteral(" ▾"));
+    m_caption = new MenuButton(title, MenuButton::Style::Caption, this);
     m_caption->setObjectName(QStringLiteral("ribbonGroupCaption"));
-    m_caption->setPopupMode(QToolButton::InstantPopup);
-    m_caption->setAutoRaise(true);
-    m_caption->setMenu(new QMenu(m_caption));
-    m_caption->setFocusPolicy(Qt::NoFocus);
     v->addWidget(m_caption, 0, Qt::AlignHCenter);
 }
 
@@ -84,7 +181,8 @@ Ribbon::Ribbon(QWidget *parent) : QWidget(parent) {
         "QToolButton { border-radius: 3px; padding: 2px; }"
         "QToolButton:hover { background: rgba(40, 110, 200, 30); }"
         "QToolButton:checked { background: rgba(40, 110, 200, 60); }"
-        "#ribbonGroupCaption { font-size: 10px; color: #4a5260; font-weight: 600; padding: 0 2px; }"
+        "#ribbonGroupCaption, #fileMenuButton { background: transparent; border: none; padding: 0; }"
+        "#ribbonGroupCaption::menu-indicator, #fileMenuButton::menu-indicator { image: none; width: 0; }"
         "#ribbonSeparator { color: #d4d8de; }"));
     auto *v = new QVBoxLayout(this);
     v->setContentsMargins(0, 0, 0, 0);

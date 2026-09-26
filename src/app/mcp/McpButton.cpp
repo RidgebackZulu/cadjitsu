@@ -2,25 +2,38 @@
 
 #include <QPainter>
 #include <QPainterPath>
+#include <QDateTime>
 #include <QRadialGradient>
-#include <QVariantAnimation>
+#include <QTimer>
 
 #include <cmath>
 
 namespace cadly {
+
+namespace {
+constexpr double kSteadyGlow = 0.35; // connected, idle
+constexpr int kPulseMs = 900;
+constexpr int kFrameMs = 33;          // at most ~30 repaints a second, only while pulsing
+} // namespace
 
 McpButton::McpButton(QWidget *parent) : QAbstractButton(parent) {
     setObjectName(QStringLiteral("mcpButton"));
     setCursor(Qt::PointingHandCursor);
     setFocusPolicy(Qt::NoFocus);
     setFixedSize(sizeHint());
-    m_pulse = new QVariantAnimation(this);
-    m_pulse->setStartValue(0.0);
-    m_pulse->setEndValue(1.0);
-    m_pulse->setDuration(1800);
-    m_pulse->setLoopCount(-1);
-    connect(m_pulse, &QVariantAnimation::valueChanged, this, [this](const QVariant &v) {
-        m_glow = 0.5 - 0.5 * std::cos(v.toDouble() * 2.0 * M_PI);
+    m_frame = new QTimer(this);
+    m_frame->setInterval(kFrameMs);
+    m_frame->setTimerType(Qt::CoarseTimer);
+    connect(m_frame, &QTimer::timeout, this, [this] {
+        const double t = double(QDateTime::currentMSecsSinceEpoch() - m_pulseStart) / kPulseMs;
+        if(t >= 1.0 || m_state != McpServer::State::Connected) {
+            m_frame->stop();
+            m_pulseStart = -1;
+            m_glow = m_state == McpServer::State::Connected ? kSteadyGlow : 0.0;
+        } else {
+            // Up and back down to the steady level.
+            m_glow = kSteadyGlow + (1.0 - kSteadyGlow) * std::sin(t * M_PI);
+        }
         update();
     });
     setState(McpServer::State::Off);
@@ -40,14 +53,24 @@ void McpButton::setState(McpServer::State s, const QString &client) {
                        .arg(client.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(client)));
         break;
     }
-    if(s == McpServer::State::Connected) {
-        if(m_pulse->state() != QAbstractAnimation::Running) m_pulse->start();
-    } else {
-        m_pulse->stop();
-        m_glow = 0.0;
+    if(s != McpServer::State::Connected) {
+        m_frame->stop();
+        m_pulseStart = -1;
     }
+    m_glow = s == McpServer::State::Connected ? kSteadyGlow : 0.0;
     update();
 }
+
+void McpButton::pulse() {
+    if(m_state != McpServer::State::Connected) return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // Coalesce: a pulse under way is not restarted before its peak.
+    if(m_pulseStart >= 0 && now - m_pulseStart < kPulseMs / 2) return;
+    m_pulseStart = now;
+    if(!m_frame->isActive()) m_frame->start();
+}
+
+bool McpButton::animating() const { return m_frame->isActive(); }
 
 void McpButton::enterEvent(QEnterEvent *e) {
     m_hover = true;
@@ -62,6 +85,7 @@ void McpButton::leaveEvent(QEvent *e) {
 }
 
 void McpButton::paintEvent(QPaintEvent *) {
+    ++m_paints;
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     const QRectF pill = QRectF(rect()).adjusted(5, 4, -5, -4);
@@ -74,17 +98,17 @@ void McpButton::paintEvent(QPaintEvent *) {
         text = QColor(96, 103, 114);
         break;
     case McpServer::State::Listening:
-        accent = QColor(38, 110, 196);
+        accent = QColor(26, 102, 201); // the theme's accent
         fill = QColor(234, 242, 252);
-        text = QColor(24, 70, 140);
+        text = QColor(20, 66, 140);
         break;
     case McpServer::State::Connected:
-        accent = QColor(24, 170, 90);
-        fill = QColor(225, 248, 234);
-        text = QColor(12, 96, 50);
+        accent = QColor(30, 154, 84);
+        fill = QColor(227, 246, 235);
+        text = QColor(14, 92, 50);
         break;
     }
-    // The glow: a halo that breathes while an agent is connected.
+    // The glow: a steady halo while an agent is connected, brighter during a pulse.
     if(m_state == McpServer::State::Connected) {
         const double spread = 4.0 + 3.0 * m_glow;
         for(int i = 3; i >= 1; --i) {

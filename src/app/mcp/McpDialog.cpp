@@ -330,7 +330,9 @@ void McpDialog::updateSnippet() {
         // and enables the tools.
         text = QStringLiteral("hermes plugins install RidgebackZulu/cadly/plugins/cadly --enable\n"
                               "hermes mcp add cadly --url %1 --auth header\n"
-                              "# When asked for the Bearer token, paste: %2")
+                              "# When asked for the Bearer token, paste: %2\n"
+                              "# No tool-call cap per turn (Hermes' own limit):\n"
+                              "hermes config set agent.max_turns unlimited")
                    .arg(url, token);
         break;
     case 4:

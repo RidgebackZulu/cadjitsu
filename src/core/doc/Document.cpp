@@ -225,6 +225,32 @@ std::optional<bool> Document::sketchVisibility(FeatureId id) const {
     return it->second;
 }
 
+void Document::setPlaneVisible(FeatureId id, bool visible) {
+    if(visible == planeVisible(id)) return;
+    if(visible) m_hiddenPlanes.erase(id);
+    else m_hiddenPlanes.insert(id);
+    touch(false);
+}
+
+bool Document::planeVisible(FeatureId id) const { return !m_hiddenPlanes.count(id); }
+
+const std::vector<std::string> &Document::folderNames() {
+    static const std::vector<std::string> names = {"bodies", "sketches", "construction", "origin"};
+    return names;
+}
+
+void Document::setFolderVisible(const std::string &folder, bool visible) {
+    if(visible == folderVisible(folder)) return;
+    m_folderVisibility[folder] = visible;
+    touch(false);
+}
+
+bool Document::folderVisible(const std::string &folder) const {
+    auto it = m_folderVisibility.find(folder);
+    if(it != m_folderVisibility.end()) return it->second;
+    return folder != "origin";
+}
+
 const SectionAnalysis *Document::section(int id) const {
     for(const auto &s : m_sections)
         if(s.id == id) return &s;
@@ -380,6 +406,9 @@ json Document::snapshot() const {
     for(const auto &[id, visible] : m_sketchVisibility) sketches[std::to_string(id)] = visible;
     json sections = json::array();
     for(const auto &s : m_sections) sections.push_back(s.toJson());
+    std::vector<int> hiddenPlanes(m_hiddenPlanes.begin(), m_hiddenPlanes.end());
+    json folders = json::object();
+    for(const auto &[name, visible] : m_folderVisibility) folders[name] = visible;
     return json{{"features", features},
                 {"marker", m_marker},
                 {"nextId", m_nextId},
@@ -387,6 +416,8 @@ json Document::snapshot() const {
                 {"bodyNames", names},
                 {"hiddenBodies", std::vector<std::string>(m_hiddenBodies.begin(), m_hiddenBodies.end())},
                 {"sketchVisibility", sketches},
+                {"hiddenPlanes", hiddenPlanes},
+                {"folderVisibility", folders},
                 {"sections", sections},
                 {"nextSection", m_nextSection}};
 }
@@ -411,6 +442,12 @@ void Document::restore(const json &snap) {
     const json sketches = snap.value("sketchVisibility", json::object());
     for(auto it = sketches.begin(); it != sketches.end(); ++it)
         if(it.value().is_boolean()) m_sketchVisibility[std::atoi(it.key().c_str())] = it.value().get<bool>();
+    const auto planes = jget<std::vector<int>>(snap, "hiddenPlanes", {});
+    m_hiddenPlanes = std::set<FeatureId>(planes.begin(), planes.end());
+    m_folderVisibility.clear();
+    const json folders = snap.value("folderVisibility", json::object());
+    for(auto it = folders.begin(); it != folders.end(); ++it)
+        if(it.value().is_boolean()) m_folderVisibility[it.key()] = it.value().get<bool>();
     m_sections.clear();
     for(const auto &js : snap.value("sections", json::array())) m_sections.push_back(SectionAnalysis::fromJson(js));
     m_nextSection = jget<int>(snap, "nextSection", 1);
@@ -509,6 +546,8 @@ void Document::clear() {
     m_bodyNames.clear();
     m_hiddenBodies.clear();
     m_sketchVisibility.clear();
+    m_hiddenPlanes.clear();
+    m_folderVisibility.clear();
     m_sections.clear();
     m_nextSection = 1;
     m_undo.clear();

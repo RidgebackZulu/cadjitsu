@@ -33,3 +33,6 @@ hermes mcp add cadly --url http://127.0.0.1:7823/mcp --auth header
 The plugin brings the `cadly-cad` skill. `hermes mcp add` asks for the Bearer token (paste the one from Cadly),
 keeps it in Hermes' secrets, lists Cadly's tools and enables them. Use your port if you changed it; the
 "Hermes Agent" snippet in Cadly's MCP dialog has both lines with your port and token filled in.
+
+If Hermes stops with "maximum number of tool-calling iterations", that is Hermes' own per-turn cap, not Cadly:
+`hermes config set agent.max_turns unlimited` lifts it.

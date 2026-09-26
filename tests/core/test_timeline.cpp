@@ -217,6 +217,38 @@ TEST_CASE("sketch visibility overrides are saved and undone") {
     CHECK_FALSE(doc.sketchVisibility(s).has_value());
 }
 
+TEST_CASE("plane and folder visibility are saved and a hidden folder keeps its items' settings") {
+    Document doc;
+    CHECK(doc.planeVisible(7));
+    CHECK(doc.folderVisible("bodies"));
+    CHECK(doc.folderVisible("construction"));
+    CHECK_FALSE(doc.folderVisible("origin")); // the origin starts hidden
+    doc.setPlaneVisible(7, false);
+    doc.setBodyVisible("b1", false);
+    doc.setFolderVisible("bodies", false);
+    doc.setFolderVisible("origin", true);
+    Document copy;
+    std::string err;
+    REQUIRE(copy.fromJson(doc.toJson(), err));
+    CHECK_FALSE(copy.planeVisible(7));
+    CHECK_FALSE(copy.folderVisible("bodies"));
+    CHECK(copy.folderVisible("origin"));
+    // Showing the folder again brings back each body's own setting.
+    copy.setFolderVisible("bodies", true);
+    CHECK_FALSE(copy.bodyVisible("b1"));
+    CHECK(copy.bodyVisible("b2"));
+    // Files from before these settings load with everything visible (origin hidden).
+    json old = doc.toJson();
+    old.erase("hiddenPlanes");
+    old.erase("folderVisibility");
+    REQUIRE(copy.fromJson(old, err));
+    CHECK(copy.planeVisible(7));
+    CHECK(copy.folderVisible("bodies"));
+    CHECK_FALSE(copy.folderVisible("origin"));
+    copy.clear();
+    CHECK(copy.folderVisible("sketches"));
+}
+
 TEST_CASE("a marker drag is one undo step") {
     Document doc;
     const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {0, 0}, {10, 10}));

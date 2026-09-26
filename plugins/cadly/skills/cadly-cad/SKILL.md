@@ -66,6 +66,13 @@ port. Start every session with `get_design`.
 7. **Export** - `export_stl` (report must say `printable: true`, `shells: 1` for a single part) and/or
    `export_step`. `save_design` keeps the editable history as a `.cadly` file.
 
+**Batch the steps.** Agents often have a limited number of tool calls per turn, so use `batch` to run several
+calls in one: `{"calls": [{"tool": "create_sketch", "arguments": {...}}, {"tool": "extrude", "arguments":
+{"sketch": 1, "distance": 8}}, {"tool": "get_design"}]}`. Calls run in order, each is its own undo step, and the
+batch stops at the first failure (the rest are reported as skipped). Calls cannot read each other's results, so
+batch what you can predict (a new sketch's id is the next feature id, see `get_design`), then inspect and
+batch the next stage (e.g. `list_edges`, then the fillets and holes, then `export_stl`).
+
 ## 4. Picking faces and edges
 
 - Indexes belong to the current model: **list again after every feature**; fillets, holes and combines renumber.
@@ -111,6 +118,9 @@ Keep at least 2 wall thicknesses (~2.5 mm) between a hole and an outside face.
 - `edit_feature {"feature": "Extrude1", "set": {"distance": 12, "operation": "join"}}` - change a feature's
   own values (keys as in its data; lengths in mm, angles in degrees).
 - `suppress`, `delete_feature`, `roll_to` (insert features earlier in history), `undo` / `redo`.
+- `set_visibility {"planes": ["Plane1"], "folders": ["sketches"], "visible": false}` - show or hide bodies,
+  sketches, construction planes, or whole browser folders (`bodies`, `sketches`, `construction`, `origin`); a
+  hidden folder keeps each item's own setting. Tidy up before a `screenshot`.
 - `add_to_sketch` adds geometry to an existing sketch. Bodies already made from it keep their shape; the new
   regions can be extruded as new bodies.
 

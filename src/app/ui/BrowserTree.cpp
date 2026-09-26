@@ -15,6 +15,8 @@ namespace cadly {
 
 namespace {
 
+constexpr int OverriddenRole = Qt::UserRole + 20;
+
 // The eye column: the eye sits in a small rounded button that lights up on
 // hover, so it reads as something to click.
 class EyeDelegate : public QStyledItemDelegate {
@@ -32,8 +34,11 @@ public:
             p->setBrush(QColor(47, 123, 224, 38));
             p->drawRoundedRect(cell, 4, 4);
         }
+        // An item inside a hidden folder: its own setting, faded (the folder overrides it).
+        const bool overridden = index.data(OverriddenRole).toBool();
         const QRect ir(0, 0, 16, 16);
-        ic.paint(p, QRect(ir.translated(option.rect.center() - ir.center())));
+        ic.paint(p, QRect(ir.translated(option.rect.center() - ir.center())), Qt::AlignCenter,
+                 overridden ? QIcon::Disabled : QIcon::Normal);
         p->restore();
     }
 };
@@ -121,6 +126,16 @@ void BrowserTree::rebuild() {
     QTreeWidgetItem *bodies = makeFolder(tr("Bodies"), BodiesFolder);
     QTreeWidgetItem *sketches = makeFolder(tr("Sketches"), SketchesFolder);
     QTreeWidgetItem *construction = makeFolder(tr("Construction"), ConstructionFolder);
+    // Folder eyes: hide or show everything inside, whatever each item says.
+    const bool bodiesOn = m_doc.folderVisible("bodies"), sketchesOn = m_doc.folderVisible("sketches"),
+               planesOn = m_doc.folderVisible("construction");
+    setEye(bodies, bodiesOn);
+    setEye(sketches, sketchesOn);
+    setEye(construction, planesOn);
+    auto child = [](QTreeWidgetItem *it, bool folderOn) {
+        it->setData(1, OverriddenRole, !folderOn);
+        if(!folderOn) it->setToolTip(1, it->toolTip(1) + tr(" (the folder is hidden)"));
+    };
     if(st) {
         for(const cad::Body *b : st->orderedBodies()) {
             auto *it = new QTreeWidgetItem(bodies, {QString::fromStdString(m_doc.bodyName(*b))});
@@ -129,6 +144,7 @@ void BrowserTree::rebuild() {
             it->setIcon(0, icon(IconId::Body));
             it->setFlags(it->flags() | Qt::ItemIsEditable);
             setEye(it, m_doc.bodyVisible(b->id));
+            child(it, bodiesOn);
         }
         for(const auto &[fid, sk] : st->sketches) {
             auto *it = new QTreeWidgetItem(sketches, {QString::fromStdString(sk->name)});
@@ -139,13 +155,16 @@ void BrowserTree::rebuild() {
                 it->setIcon(0, icon(sk->status.isError() ? IconId::Error : IconId::Warning));
                 it->setToolTip(0, QString::fromStdString(sk->status.message));
             }
-            setEye(it, m_view->sketchShown(fid));
+            setEye(it, m_view->sketchShown(fid, true));
+            child(it, sketchesOn);
         }
         for(const auto &[fid, plane] : st->planes) {
             auto *it = new QTreeWidgetItem(construction, {QString::fromStdString(plane->name)});
             it->setData(0, KindRole, PlaneItem);
             it->setData(0, IdRole, fid);
             it->setIcon(0, icon(IconId::PlaneNode));
+            setEye(it, m_doc.planeVisible(fid));
+            child(it, planesOn);
         }
     }
     root->setExpanded(true);
@@ -171,7 +190,20 @@ void BrowserTree::onClicked(QTreeWidgetItem *item, int column) {
         }
         case SketchItem: {
             const cad::FeatureId id = item->data(0, IdRole).toInt();
-            m_doc.setSketchVisible(id, !m_view->sketchShown(id));
+            m_doc.setSketchVisible(id, !m_view->sketchShown(id, true));
+            break;
+        }
+        case PlaneItem: {
+            const cad::FeatureId id = item->data(0, IdRole).toInt();
+            m_doc.setPlaneVisible(id, !m_doc.planeVisible(id));
+            break;
+        }
+        case BodiesFolder:
+        case SketchesFolder:
+        case ConstructionFolder: {
+            const std::string folder = kind == BodiesFolder ? "bodies" : kind == SketchesFolder ? "sketches"
+                                                                                                : "construction";
+            m_doc.setFolderVisible(folder, !m_doc.folderVisible(folder));
             break;
         }
         case SectionItem: {

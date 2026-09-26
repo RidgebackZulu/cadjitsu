@@ -46,9 +46,11 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QEnterEvent>
 #include <QEventLoop>
 #include <QFileInfo>
 #include <QImage>
+#include <QMenu>
 #include <QPainter>
 #include <QKeyEvent>
 #include <QLabel>
@@ -1524,6 +1526,28 @@ bool iconsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
             .save(out.filePath(QString::fromLatin1(name)));
     };
     zoomShot(w.ribbon(), QRect(0, 0, std::min(560, w.ribbon()->width()), w.ribbon()->height()), "icons_ribbon.png");
+    // A group caption hovered, and its menu open.
+    MenuButton *create = nullptr;
+    for(MenuButton *c : w.ribbon()->findChildren<MenuButton *>(QStringLiteral("ribbonGroupCaption")))
+        if(!create && c->isVisible()) create = c;
+    if(create) {
+        check(!create->text().contains(QChar(0x25BE)), QStringLiteral("captions have no text chevron"));
+        QEnterEvent enter(QPointF(5, 5), QPointF(5, 5), create->mapToGlobal(QPointF(5, 5)));
+        QCoreApplication::sendEvent(create, &enter);
+        zoomShot(w.ribbon(), QRect(0, 0, std::min(560, w.ribbon()->width()), w.ribbon()->height()), "icons_ribbon_hover.png");
+        QEvent leave(QEvent::Leave);
+        QCoreApplication::sendEvent(create, &leave);
+        QMenu *menu = create->menu();
+        menu->popup(create->mapToGlobal(QPoint(0, create->height())));
+        processEventsFor(150);
+        check(create->isOpen(), QStringLiteral("the caption shows its menu is open"));
+        zoomShot(w.ribbon(), QRect(0, 0, std::min(560, w.ribbon()->width()), w.ribbon()->height()), "icons_ribbon_open.png");
+        const QPixmap pm = menu->grab();
+        pm.toImage().scaled(pm.width() * 3, pm.height() * 3, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+            .save(out.filePath(QStringLiteral("icons_menu.png")));
+        menu->hide();
+        processEventsFor(50);
+    }
     zoomShot(w.browser(), QRect(0, 0, w.browser()->width(), std::min(200, w.browser()->height())), "icons_browser.png");
     zoomShot(w.timeline(), QRect(0, 0, std::min(560, w.timeline()->width()), w.timeline()->height()),
              "icons_timeline.png");

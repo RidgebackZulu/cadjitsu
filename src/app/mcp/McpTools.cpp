@@ -1,4 +1,5 @@
 #include "mcp/McpTools.h"
+#include "mcp/McpLog.h"
 
 #include "MainWindow.h"
 #include "io/Exporter.h"
@@ -250,6 +251,24 @@ void McpTools::define() {
         }
         return out;
     };
+    // What is shown: every body, sketch and construction plane with its own
+    // setting and whether it is on screen, and the browser folders.
+    auto visibilityJson = [this, &doc](const cad::StatePtr &st) {
+        ModelView *view = m_w.modelView();
+        json folders = json::object();
+        for(const std::string &f : cad::Document::folderNames()) folders[f] = doc.folderVisible(f);
+        json bodies = json::array(), sketches = json::array(), planes = json::array();
+        for(const cad::Body *b : st->orderedBodies())
+            bodies.push_back({{"id", b->id}, {"name", doc.bodyName(*b)}, {"visible", doc.bodyVisible(b->id)},
+                              {"shown", doc.bodyVisible(b->id) && doc.folderVisible("bodies")}});
+        for(const auto &[id, sk] : st->sketches)
+            sketches.push_back({{"id", id}, {"name", sk->name}, {"visible", view->sketchShown(id, true)},
+                                {"shown", view->sketchShown(id)}});
+        for(const auto &[id, p] : st->planes)
+            planes.push_back({{"id", id}, {"name", p->name}, {"visible", doc.planeVisible(id)},
+                              {"shown", doc.planeVisible(id) && doc.folderVisible("construction")}});
+        return json{{"folders", folders}, {"bodies", bodies}, {"sketches", sketches}, {"construction_planes", planes}};
+    };
     // Adds a feature as one undo step; if it cannot be built it is taken out
     // again and the reason returned as an error.
     auto commit = [this, &doc, settle, bodiesJson](std::shared_ptr<cad::Feature> f, const std::string &label) {
@@ -401,9 +420,9 @@ void McpTools::define() {
     // --- inspect -----------------------------------------------------------------------------
     add("get_design",
         "The open design: timeline features (id, type, status, parameters), bodies (volume, area, bounding box, face and "
-        "edge counts), sketches with their profiles, construction planes, parameters, and the history marker. Call this "
-        "first and after edits.",
-        nullptr, {}, [&doc, settle, bodiesJson, sketchJson](const json &) {
+        "edge counts), sketches with their profiles, construction planes, what is visible (and the browser folders), "
+        "parameters, and the history marker. Call this first and after edits.",
+        nullptr, {}, [this, &doc, settle, bodiesJson, sketchJson](const json &) {
             const cad::StatePtr st = settle();
             const cad::ParamTable &params = doc.params();
             json features = json::array();
@@ -430,17 +449,23 @@ void McpTools::define() {
                 json s = sketchJson(*sk);
                 s["id"] = id;
                 s["name"] = sk->name;
+                s["visible"] = m_w.modelView()->sketchShown(id);
                 sketches.push_back(s);
             }
             json planes = json::array();
             for(const auto &[id, p] : st->planes)
-                planes.push_back({{"id", id}, {"name", p->name}, {"origin", pt(p->frame.Location())}, {"normal", dir(p->frame.Direction())}});
+                planes.push_back({{"id", id}, {"name", p->name}, {"origin", pt(p->frame.Location())},
+                                  {"normal", dir(p->frame.Direction())},
+                                  {"visible", doc.planeVisible(id) && doc.folderVisible("construction")}});
+            json folders = json::object();
+            for(const std::string &f : cad::Document::folderNames()) folders[f] = doc.folderVisible(f);
             return json{{"units", "mm, degrees; Z is up (print direction)"},
                         {"features", features},
                         {"marker", doc.marker()},
                         {"bodies", bodiesJson(st)},
                         {"sketches", sketches},
                         {"construction_planes", planes},
+                        {"folders", folders},
                         {"can_undo", doc.canUndo()},
                         {"undo", doc.undoLabel()}};
         });
@@ -972,6 +997,47 @@ void McpTools::define() {
             return json{{"feature", f->id}, {"suppressed", a.value("suppressed", true)}, {"bodies", bodiesJson(settle())}};
         });
 
+    add("set_visibility",
+        "Shows or hides bodies, sketches and construction planes (like the eyes in the browser), or whole browser folders: "
+        "a hidden folder hides everything in it but keeps each item's own setting for when it is shown again. Items are "
+        "ids or names. Returns what is visible afterwards.",
+        {{"bodies", arrayOf(str("body id or name"), "bodies to show or hide")},
+         {"sketches", arrayOf({{"anyOf", json::array({{{"type", "integer"}}, {{"type", "string"}}})}}, "sketch ids or names")},
+         {"planes", arrayOf({{"anyOf", json::array({{{"type", "integer"}}, {{"type", "string"}}})}},
+                            "construction plane ids or names")},
+         {"folders", arrayOf(enumOf({"bodies", "sketches", "construction", "origin"}, "a browser folder"),
+                             "folders to show or hide as a whole")},
+         {"visible", boolean("true to show, false to hide")}},
+        {"visible"}, [&doc, begin, settle, bodyOf, visibilityJson](const json &a) {
+            begin();
+            const bool on = a.at("visible").get<bool>();
+            const cad::StatePtr st = settle();
+            auto idOf = [](const auto &items, const json &v, const char *what) -> cad::FeatureId {
+                for(const auto &[id, item] : items)
+                    if((v.is_number_integer() && v.get<int>() == id) || (v.is_string() && v.get<std::string>() == item->name))
+                        return id;
+                fail(std::string("no ") + what + " " + v.dump() + " (see get_design)");
+            };
+            // Look everything up first, so a bad name changes nothing.
+            std::vector<cad::BodyId> bodies;
+            std::vector<cad::FeatureId> sketches, planes;
+            for(const json &v : a.value("bodies", json::array())) bodies.push_back(bodyOf(st, v)->id);
+            for(const json &v : a.value("sketches", json::array())) sketches.push_back(idOf(st->sketches, v, "sketch"));
+            for(const json &v : a.value("planes", json::array())) planes.push_back(idOf(st->planes, v, "construction plane"));
+            for(const json &v : a.value("folders", json::array())) {
+                const auto &names = cad::Document::folderNames();
+                if(!v.is_string() || std::find(names.begin(), names.end(), v.get<std::string>()) == names.end())
+                    fail("folder must be bodies, sketches, construction or origin");
+            }
+            if(bodies.empty() && sketches.empty() && planes.empty() && a.value("folders", json::array()).empty())
+                fail("name at least one body, sketch, plane or folder");
+            for(const auto &id : bodies) doc.setBodyVisible(id, on);
+            for(auto id : sketches) doc.setSketchVisible(id, on);
+            for(auto id : planes) doc.setPlaneVisible(id, on);
+            for(const json &v : a.value("folders", json::array())) doc.setFolderVisible(v.get<std::string>(), on);
+            return visibilityJson(settle());
+        });
+
     add("delete_feature", "Deletes a feature from the timeline (one undo step).",
         {{"feature", {{"anyOf", json::array({{{"type", "integer"}}, {{"type", "string"}}})}}}}, {"feature"},
         [&doc, begin, settle, featureOf, bodiesJson](const json &a) {
@@ -1162,6 +1228,67 @@ void McpTools::define() {
             return json{{"written", p.toStdString()},
                         {"model_volume_mm3", r3(r.solidVolume)},
                         {"read_back_volume_mm3", r.reimported ? json(r3(r.reimportedVolume)) : json()}};
+        });
+
+    // --- batch -------------------------------------------------------------------------------
+    add("batch",
+        "Runs several tool calls in order, in one request: e.g. create_sketch, extrude, list_edges, fillet, get_design. "
+        "Use it to build a part in a few turns instead of many. Each call is still its own undo step. Results come back "
+        "per call, in order; by default the batch stops at the first failure (later calls are skipped) and reports it. "
+        "Calls cannot use each other's results, so batch steps whose arguments you already know (sketch ids are "
+        "predictable from get_design's features), then inspect and continue.",
+        {{"calls", arrayOf({{"type", "object"},
+                            {"properties", {{"tool", str("tool name, e.g. \"extrude\"")},
+                                            {"arguments", {{"type", "object"}, {"description", "the tool's arguments"}}}}},
+                            {"required", json::array({"tool"})}},
+                           "the calls, run in order")},
+         {"stop_on_error", boolean("stop at the first failed call (default true)")}},
+        {"calls"}, [this](const json &a) {
+            const json calls = a.at("calls");
+            if(!calls.is_array() || calls.empty()) fail("calls must be a non-empty array of {tool, arguments}");
+            const bool stop = a.value("stop_on_error", true);
+            McpLog *log = m_w.mcpLog();
+            json content = json::array();
+            int failed = -1;
+            for(size_t i = 0; i < calls.size(); ++i) {
+                const json &c = calls[i];
+                const std::string name = c.is_object() ? c.value("tool", "") : "";
+                const json args = c.is_object() ? c.value("arguments", json::object()) : json::object();
+                const std::string head = "[" + std::to_string(i + 1) + "/" + std::to_string(calls.size()) + "] " + name;
+                if(failed >= 0 && stop) {
+                    content.push_back({{"type", "text"}, {"text", head + ": skipped (an earlier call failed)"}});
+                    continue;
+                }
+                json r;
+                if(name == "batch") r = textResult("a batch cannot contain another batch", true);
+                else if(name.empty()) r = textResult("each call needs a \"tool\"", true);
+                else {
+                    if(log) log->add(McpEvent::Kind::Call, QStringLiteral("batch"), QString::fromStdString(name),
+                                     QString::fromStdString(args.dump()).left(300));
+                    r = callTool(name, args);
+                }
+                const bool bad = r.value("isError", false);
+                if(bad && failed < 0) failed = int(i);
+                bool first = true;
+                for(const json &item : r.value("content", json::array())) {
+                    if(item.value("type", "") == "text") {
+                        content.push_back({{"type", "text"},
+                                           {"text", (first ? head + (bad ? ": FAILED: " : ": ") : std::string()) +
+                                                        item.value("text", "")}});
+                        first = false;
+                    } else {
+                        content.push_back(item);
+                    }
+                }
+                if(first) content.push_back({{"type", "text"}, {"text", head + (bad ? ": FAILED" : ": done")}});
+            }
+            json result = {{"content", content}};
+            if(failed >= 0) {
+                content.push_back({{"type", "text"}, {"text", "call " + std::to_string(failed + 1) + " failed" +
+                                                                   (stop ? "; the rest were skipped" : "")}});
+                result = {{"content", content}, {"isError", true}};
+            }
+            return result;
         });
 }
 

@@ -115,9 +115,10 @@ void ModelView::setForcedSketches(std::set<cad::FeatureId> ids) {
     refresh();
 }
 
-bool ModelView::sketchShown(cad::FeatureId id) const {
+bool ModelView::sketchShown(cad::FeatureId id, bool ignoreFolder) const {
     if(id == m_hiddenSketch) return false;
     if(m_forcedSketches.count(id)) return true;
+    if(!ignoreFolder && !m_doc.folderVisible("sketches")) return false;
     if(auto v = m_doc.sketchVisibility(id)) return *v;
     return !consumedSketches().count(id);
 }
@@ -125,9 +126,13 @@ bool ModelView::sketchShown(cad::FeatureId id) const {
 void ModelView::setHiddenSketch(cad::FeatureId id) { m_hiddenSketch = id; }
 
 void ModelView::setOriginVisible(bool on) {
-    if(on == m_originVisible) return;
-    m_originVisible = on;
-    refresh();
+    m_doc.setFolderVisible("origin", on); // the document's change refreshes the view
+}
+
+bool ModelView::originVisible() const { return m_doc.folderVisible("origin"); }
+
+bool ModelView::planeShown(cad::FeatureId id) const {
+    return m_originForced || (m_doc.folderVisible("construction") && m_doc.planeVisible(id));
 }
 
 void ModelView::setSectionOverride(std::optional<std::optional<cad::SectionAnalysis>> s) {
@@ -165,7 +170,7 @@ void ModelView::refresh() {
     RenderScene scene;
     std::vector<PickTarget> targets;
     for(const cad::Body *b : m_state->orderedBodies()) {
-        if(!m_doc.bodyVisible(b->id)) continue;
+        if(!m_doc.bodyVisible(b->id) || !m_doc.folderVisible("bodies")) continue;
         RenderBody rb;
         rb.mesh = b->mesh();
         rb.color = defaultBodyColor();
@@ -194,7 +199,10 @@ void ModelView::refresh() {
         scene.lines.push_back(lb);
     };
     // Construction planes: translucent squares with an outline.
+    // Hidden ones (or all, with the Construction folder off) are neither drawn nor
+    // pickable, except while a command asks for a plane.
     for(const auto &[fid, plane] : m_state->planes) {
+        if(!planeShown(fid)) continue;
         const Quad q = constructionPlaneQuad(*plane);
         square(q, kPlaneFill, kPlaneEdge);
         m_planeQuads.push_back({planeItem(fid), q});
@@ -238,7 +246,9 @@ void ModelView::refresh() {
     for(const auto &[fid, sk] : m_state->sketches) {
         if(fid == m_hiddenSketch) continue;
         const auto vis = m_doc.sketchVisibility(fid);
-        if(!m_forcedSketches.count(fid) && !(vis ? *vis : !used.count(fid))) continue;
+        if(!m_forcedSketches.count(fid) &&
+           (!m_doc.folderVisible("sketches") || !(vis ? *vis : !used.count(fid))))
+            continue;
         m_shownSketches.insert(fid);
         onScreen.insert(sk.get());
         // Only shown sketches are triangulated (each result once).

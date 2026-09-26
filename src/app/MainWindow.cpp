@@ -150,6 +150,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
         if(s == McpServer::State::Connected)
             statusBar()->showMessage(tr("An AI agent connected over MCP: %1").arg(m_mcp->clientName()), 6000);
     });
+    connect(m_mcp, &McpServer::activity, this, [this] { m_mcpButton->pulse(); });
     m_mcp->apply(McpSettings::load());
 }
 
@@ -554,19 +555,15 @@ void MainWindow::buildActions() {
 
 void MainWindow::buildRibbon() {
     // File / undo buttons left of the workspace tabs, as in Fusion's toolbar.
-    auto *fileButton = new QToolButton(m_ribbon);
+    auto *fileButton = new MenuButton(tr("File"), MenuButton::Style::Button, m_ribbon);
     fileButton->setObjectName(QStringLiteral("fileMenuButton"));
-    fileButton->setText(tr("File"));
     fileButton->setIcon(icon(IconId::Open));
-    fileButton->setPopupMode(QToolButton::InstantPopup);
-    fileButton->setAutoRaise(true);
-    fileButton->setFocusPolicy(Qt::NoFocus);
-    auto *fileMenu = new QMenu(fileButton);
+    fileButton->setIconSize(QSize(18, 18));
+    QMenu *fileMenu = fileButton->menu();
     for(const char *name : {"newDocument", "open", "save", "saveAs"}) fileMenu->addAction(action(QString::fromLatin1(name)));
     fileMenu->addSeparator();
     fileMenu->addAction(action(QStringLiteral("export")));
     fileMenu->addAction(action(QStringLiteral("print3d")));
-    fileButton->setMenu(fileMenu);
     m_ribbon->addLeadingWidget(fileButton);
     for(const char *name : {"save", "undo", "redo"}) {
         auto *b = new QToolButton(m_ribbon);

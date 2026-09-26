@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QToolButton>
 #include <QWidget>
 
 #include <vector>
@@ -12,6 +13,35 @@ class QTabBar;
 class QToolButton;
 
 namespace cadly {
+
+// A button that drops down a menu (ribbon group captions, the File button):
+// its label (and icon, if any) followed by a small drawn chevron, a soft
+// rounded highlight on hover, and the chevron flipped up while the menu is
+// open. Replaces Qt's menu-indicator arrow.
+class MenuButton : public QToolButton {
+    Q_OBJECT
+
+public:
+    enum class Style { Caption, Button };
+    MenuButton(const QString &text, Style style, QWidget *parent = nullptr);
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override { return sizeHint(); }
+    bool isOpen() const { return m_open; }
+
+    // The style sheet every Cadly drop-down menu uses.
+    static QString menuStyleSheet();
+
+protected:
+    void paintEvent(QPaintEvent *e) override;
+    void enterEvent(QEnterEvent *e) override;
+    void leaveEvent(QEvent *e) override;
+
+private:
+    QFont labelFont() const;
+    Style m_style;
+    bool m_hover = false;
+    bool m_open = false;
+};
 
 // A group of tools on a ribbon tab ("CREATE", "MODIFY"...): large icon buttons
 // with a caption underneath that drops down a menu listing every tool, like
@@ -25,10 +55,11 @@ public:
     void addAction(QAction *action, bool onBar = true);
     void addSeparator();
     QToolButton *buttonFor(QAction *action) const;
+    MenuButton *caption() const { return m_caption; }
 
 private:
     QHBoxLayout *m_buttons;
-    QToolButton *m_caption;
+    MenuButton *m_caption;
     std::vector<std::pair<QAction *, QToolButton *>> m_map;
 };
 

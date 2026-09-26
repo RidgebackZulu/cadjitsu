@@ -9,10 +9,12 @@
 #include "mcp/McpDialog.h"
 #include "mcp/McpLog.h"
 #include "mcp/McpServer.h"
+#include "model/ModelView.h"
 #include "selftest/TestUtil.h"
 #include "viewport/Viewport.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QFile>
 #include <QImage>
 #include <QLabel>
@@ -21,11 +23,10 @@
 #include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTcpServer>
 #include <QTemporaryDir>
 #include <QTreeWidget>
-#include <QComboBox>
-#include <QSpinBox>
 #include <QtTest>
 
 #include <nlohmann/json.hpp>
@@ -161,6 +162,101 @@ private slots:
         // The session ends: back to listening.
         QCOMPARE(post({}, kToken, {}, QStringLiteral("/mcp"), "DELETE").status, 200);
         QCOMPARE(m_window->mcpButton()->state(), McpServer::State::Listening);
+    }
+
+    // After a restart (Apply with a new port or token) the agent keeps using its
+    // old session id: its calls work and the button shows it is connected.
+    void aResumedSessionAfterARestartCountsAsConnected() {
+        initialize();
+        const QByteArray old = m_session;
+        McpSettings s = m_window->mcpServer()->settings();
+        s.port = freePort();
+        m_port = s.port;
+        QVERIFY(m_window->mcpServer()->apply(s));
+        QCOMPARE(m_window->mcpButton()->state(), McpServer::State::Listening);
+        m_session = old;
+        const auto [err, design] = tool("get_design");
+        QVERIFY2(!err, design.dump().c_str());
+        QCOMPARE(m_window->mcpServer()->state(), McpServer::State::Connected);
+        QCOMPARE(m_window->mcpButton()->state(), McpServer::State::Connected);
+        QCOMPARE(m_window->mcpServer()->clientName(), QStringLiteral("cadly-test 1.0")); // remembered
+    }
+
+    // Connected and idle: the button does not repaint at all; a request makes it
+    // pulse once, briefly, at a modest frame rate.
+    void theButtonOnlyAnimatesBrieflyAfterActivity() {
+        initialize();
+        McpButton *b = m_window->mcpButton();
+        QTRY_VERIFY_WITH_TIMEOUT(!b->animating(), 3000);
+        QVERIFY(b->glow() > 0.05); // the steady glow
+        int before = b->paintCount();
+        QTest::qWait(1500);
+        QCOMPARE(b->paintCount(), before);
+        before = b->paintCount();
+        for(int i = 0; i < 5; ++i) rpc("ping");
+        QVERIFY(b->animating());
+        QTRY_VERIFY_WITH_TIMEOUT(!b->animating(), 3000);
+        const int frames = b->paintCount() - before;
+        QVERIFY2(frames > 3 && frames <= 60, qPrintable(QString::number(frames)));
+    }
+
+    void setVisibilityHidesPlanesBodiesAndFolders() {
+        initialize();
+        QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {20, 20}}}}}})
+                     .first);
+        const auto [e1, ex] = tool("extrude", {{"sketch", 1}, {"distance", 5}});
+        QVERIFY2(!e1, ex.dump().c_str());
+        const auto [e2, pl] = tool("offset_plane", {{"base", "XY"}, {"offset", 10}});
+        QVERIFY2(!e2, pl.dump().c_str());
+        const std::string body = ex["bodies"][0]["name"];
+        // A plane by name, a body by name, and a whole folder.
+        auto [e3, vis] = tool("set_visibility", {{"planes", {"Plane1"}}, {"visible", false}});
+        if(e3) { // the plane may be named after its feature id
+            const json d = tool("get_design").second;
+            std::tie(e3, vis) = tool("set_visibility", {{"planes", {d["construction_planes"][0]["id"]}}, {"visible", false}});
+        }
+        QVERIFY2(!e3, vis.dump().c_str());
+        QCOMPARE(vis["construction_planes"][0]["visible"].get<bool>(), false);
+        QVERIFY(m_window->modelView()->planeQuads().empty());
+        const auto [e4, v2] = tool("set_visibility", {{"bodies", {body}}, {"folders", {"sketches"}}, {"visible", false}});
+        QVERIFY2(!e4, v2.dump().c_str());
+        QCOMPARE(v2["bodies"][0]["visible"].get<bool>(), false);
+        QCOMPARE(v2["folders"]["sketches"].get<bool>(), false);
+        const json d = tool("get_design").second;
+        QCOMPARE(d["folders"]["sketches"].get<bool>(), false);
+        QCOMPARE(d["bodies"][0]["visible"].get<bool>(), false);
+        QCOMPARE(d["construction_planes"][0]["visible"].get<bool>(), false);
+        // A bad name changes nothing.
+        QVERIFY(tool("set_visibility", {{"bodies", {"NoSuchBody"}}, {"folders", {"construction"}}, {"visible", false}}).first);
+        QVERIFY(m_window->document().folderVisible("construction"));
+    }
+
+    void aBatchBuildsAPartInOneCall() {
+        initialize();
+        const json calls = {
+            {{"tool", "create_sketch"},
+             {"arguments", {{"plane", "XY"}, {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {30, 20}}}}}}}},
+            {{"tool", "extrude"}, {"arguments", {{"sketch", 1}, {"distance", 10}}}},
+            {{"tool", "get_design"}}};
+        const json r = rpc("tools/call", {{"name", "batch"}, {"arguments", {{"calls", calls}}}})["result"];
+        QVERIFY2(!r.value("isError", false), r.dump().c_str());
+        const json &content = r["content"];
+        QCOMPARE(int(content.size()), 3);
+        QVERIFY(content[1]["text"].get<std::string>().rfind("[2/3] extrude: ", 0) == 0);
+        QCOMPARE(int(m_window->document().features().size()), 2);
+        // A failing call stops the batch; the rest are skipped.
+        const json bad = {{{"tool", "fillet"}, {"arguments", {{"edges", {{{"body", "Body1"}, {"index", 999}}}}, {"radius", 1}}}},
+                          {{"tool", "extrude"}, {"arguments", {{"sketch", 1}, {"distance", 3}}}}};
+        const json r2 = rpc("tools/call", {{"name", "batch"}, {"arguments", {{"calls", bad}}}})["result"];
+        QVERIFY(r2.value("isError", false));
+        QVERIFY(r2["content"][1]["text"].get<std::string>().find("skipped") != std::string::npos);
+        QCOMPARE(int(m_window->document().features().size()), 2);
+        // No batches inside batches.
+        const json nested = {{{"tool", "batch"}, {"arguments", {{"calls", calls}}}}};
+        const json r3 = rpc("tools/call", {{"name", "batch"}, {"arguments", {{"calls", nested}}}})["result"];
+        QVERIFY(r3.value("isError", false));
+        QCOMPARE(int(m_window->document().features().size()), 2);
     }
 
     void aPartBuiltThroughTools() {

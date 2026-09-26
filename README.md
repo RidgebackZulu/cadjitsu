@@ -245,6 +245,11 @@ Everything an agent does is ordinary history: one undo step per tool call, visib
   secrets and enables Cadly's tools. Install the `plugins/cadly` folder, not the repository itself: the repository
   is the app's source, whose build and CI scripts (sudo, binary patching) Hermes' plugin scanner rightly flags.
   See [plugins/cadly/README.md](plugins/cadly/README.md).
+- **"You've reached the maximum number of tool-calling iterations"** comes from the agent, not from Cadly (its
+  MCP server has no limit). In Hermes it is the per-turn cap `agent.max_turns`; recent versions default to
+  unlimited, older installs wrote a number. Lift it with `hermes config set agent.max_turns unlimited` (and
+  delete any `HERMES_MAX_ITERATIONS=` line from `~/.hermes/.env`). The Cadly skill also teaches agents the `batch`
+  tool, which runs many steps in one call.
 - **Tools:** see [the tool reference](plugins/cadly/skills/cadly-cad/references/tools.md) (generated from the app
   with `Cadly --mcp-tools`).
 

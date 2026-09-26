@@ -6,7 +6,7 @@ Lengths are millimetres, angles degrees. Numeric arguments also take expressions
 
 ## `get_design`
 
-The open design: timeline features (id, type, status, parameters), bodies (volume, area, bounding box, face and edge counts), sketches with their profiles, construction planes, parameters, and the history marker. Call this first and after edits.
+The open design: timeline features (id, type, status, parameters), bodies (volume, area, bounding box, face and edge counts), sketches with their profiles, construction planes, what is visible (and the browser folders), parameters, and the history marker. Call this first and after edits.
 
 No arguments.
 
@@ -174,6 +174,18 @@ Suppresses (or unsuppresses) a feature: it is skipped, as if it were not there.
 | `feature` **(required)** | integer or string |  |
 | `suppressed` | boolean | default true |
 
+## `set_visibility`
+
+Shows or hides bodies, sketches and construction planes (like the eyes in the browser), or whole browser folders: a hidden folder hides everything in it but keeps each item's own setting for when it is shown again. Items are ids or names. Returns what is visible afterwards.
+
+| Argument | Type | Description |
+|---|---|---|
+| `bodies` | array of string | bodies to show or hide |
+| `folders` | array of `bodies` / `sketches` / `construction` / `origin` | folders to show or hide as a whole |
+| `planes` | array of integer or string | construction plane ids or names |
+| `sketches` | array of integer or string | sketch ids or names |
+| `visible` **(required)** | boolean | true to show, false to hide |
+
 ## `delete_feature`
 
 Deletes a feature from the timeline (one undo step).
@@ -278,3 +290,12 @@ Exports bodies as a STEP file (AP242 by default); it is read back to check the v
 | `bodies` | array of string | default: every visible body |
 | `path` **(required)** | string | absolute path, ending .step |
 | `schema` | `ap242` / `ap214` | default ap242 |
+
+## `batch`
+
+Runs several tool calls in order, in one request: e.g. create_sketch, extrude, list_edges, fillet, get_design. Use it to build a part in a few turns instead of many. Each call is still its own undo step. Results come back per call, in order; by default the batch stops at the first failure (later calls are skipped) and reports it. Calls cannot use each other's results, so batch steps whose arguments you already know (sketch ids are predictable from get_design's features), then inspect and continue.
+
+| Argument | Type | Description |
+|---|---|---|
+| `calls` **(required)** | array of objects | the calls, run in order |
+| `stop_on_error` | boolean | stop at the first failed call (default true) |

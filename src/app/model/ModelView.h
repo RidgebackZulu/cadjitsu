@@ -104,7 +104,9 @@ public:
     // A sketch drawn by its editor instead (while it is being edited).
     void setHiddenSketch(cad::FeatureId id);
     void setOriginVisible(bool on);
-    bool originVisible() const { return m_originVisible; }
+    bool originVisible() const;
+    // A construction plane is drawn and pickable (its own and the folder's setting).
+    bool planeShown(cad::FeatureId id) const;
     // Shows the origin planes while a command wants a plane picked.
     void setOriginForced(bool on);
     // Sketches kept visible by a running command (its profiles' sketches).
@@ -118,7 +120,8 @@ public:
     std::optional<cad::SectionAnalysis> shownSection() const;
     // Sketches are shown until a displayed feature uses them, unless the user
     // switched them on or off.
-    bool sketchShown(cad::FeatureId id) const;
+    // `ignoreFolder`: the sketch's own setting, whatever the Sketches folder says.
+    bool sketchShown(cad::FeatureId id, bool ignoreFolder = false) const;
 
     // The sketch profile under a canvas position, if any (nearest along the ray).
     struct ProfilePick {
@@ -161,7 +164,7 @@ private:
     bool accepts(const PickHit &hit) const;
     std::optional<std::pair<SelectionItem, float>> pickPlane(QPointF px) const;
     std::optional<SelectionItem> pickSketchPoint(QPointF px) const;
-    bool originPlanesShown() const { return m_originVisible || m_originForced; }
+    bool originPlanesShown() const { return originVisible() || m_originForced; }
     void updateHighlights();
     void updateStats();
     void pruneSelection();
@@ -180,7 +183,6 @@ private:
     InputMarks m_marks;
     QString m_stats;
     SelectFilter m_filter;
-    bool m_originVisible = false;
     bool m_originForced = false;
     std::optional<std::optional<cad::SectionAnalysis>> m_sectionOverride;
     std::optional<QVector4D> m_clip;

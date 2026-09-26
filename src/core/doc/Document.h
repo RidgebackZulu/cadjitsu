@@ -74,6 +74,14 @@ public:
     // user switched them on or off explicitly.
     void setSketchVisible(FeatureId id, bool visible);
     std::optional<bool> sketchVisibility(FeatureId id) const;
+    void setPlaneVisible(FeatureId id, bool visible);
+    bool planeVisible(FeatureId id) const;
+    // Browser folders ("bodies", "sketches", "construction", "origin"): hiding one
+    // hides everything in it without changing the items' own settings. Origin is
+    // hidden by default, the others are shown.
+    static const std::vector<std::string> &folderNames();
+    void setFolderVisible(const std::string &folder, bool visible);
+    bool folderVisible(const std::string &folder) const;
 
     // --- Section analyses (one is shown at a time) --------------------------------
     const std::vector<SectionAnalysis> &sections() const { return m_sections; }
@@ -147,6 +155,8 @@ private:
     std::map<BodyId, std::string> m_bodyNames;
     std::set<BodyId> m_hiddenBodies;
     std::map<FeatureId, bool> m_sketchVisibility;
+    std::set<FeatureId> m_hiddenPlanes;
+    std::map<std::string, bool> m_folderVisibility; // explicit settings only
     std::vector<SectionAnalysis> m_sections;
     int m_nextSection = 1;
 

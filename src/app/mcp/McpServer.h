@@ -68,6 +68,8 @@ public:
 
 signals:
     void stateChanged(cadly::McpServer::State state);
+    // A request was handled (the button pulses once).
+    void activity();
 
 private:
     struct Session {
@@ -99,6 +101,8 @@ private:
     QString m_error;
     std::map<QString, Session> m_sessions;
     QString m_lastSession;
+    // Client names by session id; kept across restarts so resumed sessions are named.
+    std::map<QString, QString> m_knownClients;
     std::map<QTcpSocket *, QByteArray> m_buffers;
     std::deque<std::pair<QPointer<QTcpSocket>, Request>> m_queue;
     bool m_busy = false;

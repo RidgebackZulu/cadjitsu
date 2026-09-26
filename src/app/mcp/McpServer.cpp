@@ -9,6 +9,8 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTimer>
+
+#include <algorithm>
 #include <QUuid>
 
 using json = nlohmann::json;
@@ -268,7 +270,30 @@ void McpServer::handle(QTcpSocket *socket, const Request &r) {
         respond(socket, 400, QByteArray::fromStdString(rpcError(nullptr, -32700, "parse error").dump()));
         return;
     }
-    if(m_sessions.count(sessionId)) m_sessions[sessionId].lastSeen = QDateTime::currentDateTime();
+    // Any authenticated request is activity. A session id this server does not know
+    // (from before a restart: clients keep using theirs) or none at all is taken as
+    // a live session rather than ignored, so the button shows the agent is there.
+    const bool initializing = (msg.is_object() && msg.value("method", "") == "initialize") ||
+                              (msg.is_array() && std::any_of(msg.begin(), msg.end(), [](const json &m) {
+                                   return m.is_object() && m.value("method", "") == "initialize";
+                               }));
+    // Without a session id only tool use counts (a bare ping is not an agent).
+    const auto usesTools = [](const json &m) {
+        return m.is_object() && m.value("method", "").rfind("tools/", 0) == 0;
+    };
+    const bool counts = !sessionId.isEmpty() || usesTools(msg) ||
+                        (msg.is_array() && std::any_of(msg.begin(), msg.end(), usesTools));
+    if(!initializing && counts) {
+        auto it = m_sessions.find(sessionId);
+        if(it == m_sessions.end()) {
+            const QString client = m_knownClients.count(sessionId) ? m_knownClients.at(sessionId) : tr("MCP client");
+            it = m_sessions.emplace(sessionId, Session{client, QDateTime::currentDateTime()}).first;
+            m_log->add(McpEvent::Kind::Connect, client,
+                       sessionId.isEmpty() ? tr("Connected (no session)") : tr("Session resumed"));
+        }
+        it->second.lastSeen = QDateTime::currentDateTime();
+        m_lastSession = sessionId;
+    }
     json out;
     bool anyReply = false;
     if(msg.is_array()) {
@@ -289,6 +314,7 @@ void McpServer::handle(QTcpSocket *socket, const Request &r) {
     if(anyReply) respond(socket, 200, QByteArray::fromStdString(out.dump()), "application/json", extra);
     else respond(socket, 202, QByteArray(), "application/json", extra);
     updateState();
+    emit activity();
 }
 
 json McpServer::dispatch(const json &msg, QString &sessionId, bool &isNotification) {
@@ -308,6 +334,7 @@ json McpServer::dispatch(const json &msg, QString &sessionId, bool &isNotificati
         if(info.contains("version")) client += QLatin1Char(' ') + QString::fromStdString(info.value("version", ""));
         sessionId = QUuid::createUuid().toString(QUuid::WithoutBraces);
         m_sessions[sessionId] = {client, QDateTime::currentDateTime()};
+        m_knownClients[sessionId] = client;
         m_lastSession = sessionId;
         std::string version = kProtocols[0];
         const std::string asked = params.value("protocolVersion", "");
@@ -322,8 +349,7 @@ json McpServer::dispatch(const json &msg, QString &sessionId, bool &isNotificati
                     "(the print direction). Call get_design first. Sketch, extrude (new bodies by default), combine, "
                     "fillet/chamfer/hole, then export_stl and check the printability report."}});
     }
-    if(!sessionId.isEmpty() && m_sessions.count(sessionId)) m_lastSession = sessionId;
-    const QString client = clientOf(sessionId.isEmpty() ? m_lastSession : sessionId);
+    const QString client = clientOf(sessionId);
     if(method == "notifications/initialized" || method.rfind("notifications/", 0) == 0) return {};
     if(method == "ping") return ok(json::object());
     if(method == "tools/list") return ok({{"tools", m_tools->toolList()}});

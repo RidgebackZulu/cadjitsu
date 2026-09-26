@@ -4,6 +4,7 @@
 #include "TestRegistry.h"
 
 #include "MainWindow.h"
+#include "features/ConstructionPlaneFeature.h"
 #include "command/Command.h"
 #include "command/CommandPanel.h"
 #include "command/ExtrudeCommand.h"
@@ -407,6 +408,67 @@ private slots:
         QTest::mouseClick(b->viewport(), Qt::LeftButton, Qt::NoModifier,
                           QPoint(b->columnViewportPosition(1) + 10, b->visualItemRect(origin).center().y()));
         QVERIFY(view()->originVisible());
+    }
+
+    void browserFolderAndPlaneEyes() {
+        baseSketch();
+        QVERIFY(waitForFrames(vp(), 1));
+        extrudeBase(QStringLiteral("10"));
+        auto plane = std::make_shared<cad::ConstructionPlaneFeature>();
+        plane->base = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        plane->offset = doc().makeSlot("30");
+        plane->angle = doc().makeSlot("0");
+        const cad::FeatureId pid = doc().addFeature(plane);
+        settle();
+        QCOMPARE(int(view()->planeQuads().size()), 1);
+        BrowserTree *b = m_window->browser();
+        auto clickEye = [&](QTreeWidgetItem *item) {
+            QTest::mouseClick(b->viewport(), Qt::LeftButton, Qt::NoModifier,
+                              QPoint(b->columnViewportPosition(1) + 10, b->visualItemRect(item).center().y()));
+            QCoreApplication::processEvents();
+            settle();
+        };
+        // A construction plane's own eye.
+        QTreeWidgetItem *construction = b->folder(QStringLiteral("Construction"));
+        QVERIFY(construction && construction->childCount() == 1);
+        construction->setExpanded(true);
+        clickEye(construction->child(0));
+        QVERIFY(!doc().planeVisible(pid));
+        QVERIFY(view()->planeQuads().empty()); // not drawn, not pickable
+        clickEye(b->folder(QStringLiteral("Construction"))->child(0));
+        QVERIFY(doc().planeVisible(pid));
+        QCOMPARE(int(view()->planeQuads().size()), 1);
+        // The Construction folder's eye overrides it, and keeps its setting.
+        clickEye(b->folder(QStringLiteral("Construction")));
+        QVERIFY(!doc().folderVisible("construction"));
+        QVERIFY(view()->planeQuads().empty());
+        QVERIFY(doc().planeVisible(pid));
+        clickEye(b->folder(QStringLiteral("Construction")));
+        QCOMPARE(int(view()->planeQuads().size()), 1);
+        // The Bodies folder hides every body; showing it again restores each body's own state.
+        const cad::BodyId id = view()->state()->bodies.begin()->first;
+        clickEye(b->folder(QStringLiteral("Bodies")));
+        QVERIFY(!doc().folderVisible("bodies"));
+        QVERIFY(vp()->pickTargets().empty());
+        QVERIFY(doc().bodyVisible(id));
+        // An item's eye still works while its folder is hidden (it is only overridden).
+        clickEye(b->folder(QStringLiteral("Bodies"))->child(0));
+        QVERIFY(!doc().bodyVisible(id));
+        clickEye(b->folder(QStringLiteral("Bodies")));
+        QVERIFY(vp()->pickTargets().empty()); // the body itself is still off
+        doc().setBodyVisible(id, true);
+        settle();
+        QCOMPARE(int(vp()->pickTargets().size()), 1);
+        // The Sketches folder.
+        const cad::FeatureId sid = doc().features()[0]->id;
+        doc().setSketchVisible(sid, true);
+        QVERIFY(view()->sketchShown(sid));
+        clickEye(b->folder(QStringLiteral("Sketches")));
+        QVERIFY(!view()->sketchShown(sid));
+        QVERIFY(view()->sketchShown(sid, true));
+        // The origin's state is in the document now (saved with the design).
+        view()->setOriginVisible(true);
+        QVERIFY(doc().folderVisible("origin"));
     }
 
     void browserRenamesBodies() {
