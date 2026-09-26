@@ -2,6 +2,7 @@
 
 #include "topo/NamedShape.h"
 
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -16,6 +17,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <unordered_map>
 
 namespace cad {
@@ -24,23 +26,40 @@ double defaultDeflection(double modelSize) { return std::clamp(modelSize * 0.000
 
 namespace {
 
-bool everyFaceMeshed(const TopoDS_Shape &shape) {
-    for(TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
-        TopLoc_Location loc;
-        if(BRep_Tool::Triangulation(TopoDS::Face(ex.Current()), loc).IsNull()) return false;
-    }
-    return true;
+bool hasTriangulation(const TopoDS_Face &face) {
+    TopLoc_Location loc;
+    return !BRep_Tool::Triangulation(face, loc).IsNull();
 }
 
-TopoDS_Shape meshedCopy(const TopoDS_Shape &shape, double deflection, double angle) {
+TopoDS_Shape meshedCopy(const TopoDS_Shape &shape, double deflection, double angle, int *status = nullptr) {
     BRepBuilderAPI_Copy copier(shape, Standard_True, Standard_False);
     TopoDS_Shape copy = copier.Shape();
     BRepMesh_IncrementalMesh mesher(copy, deflection, Standard_False, angle, Standard_True);
-    if(everyFaceMeshed(copy)) return copy;
-    // The parallel mesher occasionally leaves a face without triangulation;
-    // mesh again on this thread alone.
-    BRepMesh_IncrementalMesh again(copy, deflection, Standard_False, angle, Standard_False);
+    if(status) *status = mesher.GetStatusFlags();
+    // A face the mesher gave up on (it happens with tight tolerances on some
+    // platforms) is meshed again on its own, on this thread, and then with
+    // looser tolerances, before the caller reports it.
+    for(TopExp_Explorer ex(copy, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face face = TopoDS::Face(ex.Current());
+        for(double scale : {1.0, 4.0, 20.0}) {
+            if(hasTriangulation(face)) break;
+            BRepMesh_IncrementalMesh again(face, deflection * scale, Standard_False, std::min(angle * scale, 0.5),
+                                           Standard_False);
+        }
+    }
     return copy;
+}
+
+std::string describeFace(const TopoDS_Face &face) {
+    BRepAdaptor_Surface surf(face);
+    static const char *names[] = {"plane", "cylinder", "cone", "sphere", "torus", "bezier", "bspline",
+                                  "revolution", "extrusion", "offset", "other"};
+    const int t = std::clamp(int(surf.GetType()), 0, 10);
+    char buf[160];
+    std::snprintf(buf, sizeof buf, "%s, tolerance %.2g, u %.4g..%.4g, v %.4g..%.4g", names[t],
+                  BRep_Tool::Tolerance(face), surf.FirstUParameter(), surf.LastUParameter(),
+                  surf.FirstVParameter(), surf.LastVParameter());
+    return buf;
 }
 
 } // namespace
@@ -148,7 +167,8 @@ bool weldedMesh(const TopoDS_Shape &shape, double deflection, double angle, TriM
         error = "nothing to mesh";
         return false;
     }
-    const TopoDS_Shape copy = meshedCopy(shape, deflection, angle);
+    int status = 0;
+    const TopoDS_Shape copy = meshedCopy(shape, deflection, angle, &status);
 
     TopTools_IndexedMapOfShape vertices, edges, faces;
     TopExp::MapShapes(copy, TopAbs_VERTEX, vertices);
@@ -178,7 +198,8 @@ bool weldedMesh(const TopoDS_Shape &shape, double deflection, double angle, TriM
         TopLoc_Location loc;
         Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
         if(tri.IsNull()) {
-            error = "a face could not be meshed";
+            error = "a face could not be meshed (face " + std::to_string(fi) + " of " + std::to_string(faces.Extent()) +
+                    ": " + describeFace(face) + "; mesher status " + std::to_string(status) + ")";
             return false;
         }
         const gp_Trsf trsf = loc.Transformation();
