@@ -180,6 +180,63 @@ private slots:
         QVERIFY((f - QVector3D(-1, 1, -1).normalized()).length() < 1e-4f);
     }
 
+    void viewCubePicksFacesBevelledEdgesAndCorners() {
+        vp()->setStandardView(StandardView::Home, false);
+        const QQuaternion rot = vp()->camera().rotation;
+        const QRect cube = ViewCube::rect(vp()->size());
+        const QMatrix4x4 m = ViewCube::viewProjection(rot);
+        auto px = [&](QVector3D p) {
+            const QVector3D ndc = m.map(p);
+            return QPointF(cube.left() + (ndc.x() + 1) * 0.5 * cube.width(),
+                           cube.top() + (1 - ndc.y()) * 0.5 * cube.height());
+        };
+        // Points on the chamfered surface: face centre, the middle of the
+        // FRONT/RIGHT bevel, the FRONT/RIGHT/TOP corner triangle.
+        QCOMPARE(ViewCube::hitTest(px({0, -1, 0}), vp()->size(), rot).value_or(QVector3D()), QVector3D(0, -1, 0));
+        QCOMPARE(ViewCube::hitTest(px({0.89f, -0.89f, 0}), vp()->size(), rot).value_or(QVector3D()),
+                 QVector3D(1, -1, 0));
+        QCOMPARE(ViewCube::hitTest(px({0.93f, -0.93f, 0.93f}), vp()->size(), rot).value_or(QVector3D()),
+                 QVector3D(1, -1, 1));
+        // Beside the cube: nothing.
+        QVERIFY(!ViewCube::hitTest(QPointF(cube.left() + 2, cube.top() + 2), vp()->size(), rot));
+    }
+
+    void viewCubeArrowsTurnToTheNeighbouringFace() {
+        vp()->setStandardView(StandardView::Home, false);
+        QVERIFY(!vp()->cubeFaceOn());
+        QCOMPARE(int(vp()->cubeControlAt(vp()->cubeControlShape(Viewport::CubeControl::Up).boundingRect().center())),
+                 int(Viewport::CubeControl::None));
+        vp()->setStandardView(StandardView::Front, false);
+        QVERIFY(vp()->cubeFaceOn());
+        auto click = [&](Viewport::CubeControl c) {
+            const QPointF at = vp()->cubeControlShape(c).boundingRect().center();
+            QCOMPARE(int(vp()->cubeControlAt(at)), int(c));
+            send(vp(), QEvent::MouseButtonPress, at, Qt::LeftButton, Qt::LeftButton);
+            send(vp(), QEvent::MouseButtonRelease, at, Qt::LeftButton, Qt::NoButton);
+        };
+        // FRONT, then the arrow above: looking down at TOP.
+        click(Viewport::CubeControl::Up);
+        QTRY_VERIFY_WITH_TIMEOUT(vp()->camera().forward().z() < -0.9999f, 2000);
+        vp()->setStandardView(StandardView::Front, false);
+        // The arrow on the right: looking at RIGHT (along -X).
+        click(Viewport::CubeControl::Right);
+        QTRY_VERIFY_WITH_TIMEOUT(vp()->camera().forward().x() < -0.9999f, 2000);
+    }
+
+    void viewCubeRollArrowsRollTheView() {
+        vp()->setStandardView(StandardView::Front, false);
+        const QVector3D forward = vp()->camera().forward();
+        const QVector3D up0 = vp()->camera().rotation.rotatedVector(QVector3D(0, 1, 0));
+        const QPointF at = vp()->cubeControlShape(Viewport::CubeControl::RollCw).boundingRect().center();
+        QCOMPARE(int(vp()->cubeControlAt(at)), int(Viewport::CubeControl::RollCw));
+        vp()->pressCubeControl(Viewport::CubeControl::RollCw);
+        QTRY_VERIFY_WITH_TIMEOUT(
+            std::fabs(QVector3D::dotProduct(vp()->camera().rotation.rotatedVector(QVector3D(0, 1, 0)), up0)) < 1e-4f,
+            2000);
+        QVERIFY((vp()->camera().forward() - forward).length() < 1e-4f);
+        QVERIFY(vp()->cubeFaceOn());
+    }
+
     // --- picking and selection ------------------------------------------------------
     void hoverFindsTheFaceUnderTheCursor() {
         const QPointF px = vp()->camera().project(QVector3D(45, 25.5f, 22)); // boss top ring

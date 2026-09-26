@@ -9,6 +9,7 @@
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QToolButton>
 #include <QToolTip>
 #include <QWheelEvent>
@@ -22,7 +23,7 @@ namespace {
 constexpr int kItem = 30;       // feature icon size
 constexpr int kGap = 6;         // space between icons
 constexpr int kLeft = 142;      // playback buttons area
-constexpr int kTop = 7;
+constexpr int kTop = 9;
 
 IconId iconFor(cad::FeatureType t) {
     switch(t) {
@@ -41,7 +42,7 @@ QToolButton *playButton(QWidget *parent, IconId id, const QString &tip, const ch
     auto *b = new QToolButton(parent);
     b->setObjectName(QString::fromLatin1(name));
     b->setIcon(icon(id));
-    b->setIconSize(QSize(16, 16));
+    b->setIconSize(QSize(14, 14));
     b->setAutoRaise(true);
     b->setToolTip(tip);
     b->setFocusPolicy(Qt::NoFocus);
@@ -54,9 +55,11 @@ TimelineWidget::TimelineWidget(cad::Document &doc, QWidget *parent) : QWidget(pa
     setObjectName(QStringLiteral("timeline"));
     setMouseTracking(true);
     setAttribute(Qt::WA_StyledBackground);
-    setStyleSheet(QStringLiteral("#timeline { background: #eef0f3; border-top: 1px solid #c9ced6; }"
-                                 "QToolButton { border-radius: 3px; padding: 2px; color: #1c2128; }"
-                                 "QToolButton:hover { background: rgba(40, 110, 200, 35); }"));
+    setStyleSheet(QStringLiteral("#timeline { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f4f6f9,"
+                                 " stop:1 #e8ecf1); border-top: 1px solid #c9ced6; }"
+                                 "QToolButton { border: none; border-radius: 5px; padding: 3px; background: transparent; }"
+                                 "QToolButton:hover { background: rgba(47, 123, 224, 38); }"
+                                 "QToolButton:pressed { background: rgba(47, 123, 224, 75); }"));
     m_first = playButton(this, IconId::TimelineFirst, tr("Go to the beginning"), "timelineFirst");
     m_back = playButton(this, IconId::TimelineBack, tr("Step back"), "timelineBack");
     m_forward = playButton(this, IconId::TimelineForward, tr("Step forward"), "timelineForward");
@@ -156,44 +159,119 @@ cad::Status TimelineWidget::statusOf(int index) const {
 void TimelineWidget::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
+    const qreal dpr = devicePixelRatioF();
+
+    // The playback buttons sit in one rounded, segmented control.
+    {
+        const QRectF group(m_first->geometry().left() - 3.5, m_first->geometry().top() - 3.5,
+                           m_last->geometry().right() - m_first->geometry().left() + 8, 31);
+        QLinearGradient g(group.topLeft(), group.bottomLeft());
+        g.setColorAt(0, QColor(255, 255, 255));
+        g.setColorAt(1, QColor(226, 231, 238));
+        p.setPen(QPen(QColor(178, 187, 200), 1));
+        p.setBrush(g);
+        p.drawRoundedRect(group, 7, 7);
+        p.setPen(QPen(QColor(206, 213, 223), 1));
+        for(QToolButton *b : {m_back, m_forward, m_last}) {
+            const qreal x = b->geometry().left() - 2.5;
+            p.drawLine(QPointF(x, group.top() + 6), QPointF(x, group.bottom() - 6));
+        }
+    }
+
     p.setClipRect(QRect(kLeft, 0, width() - kLeft, height()));
     const auto &features = m_doc.features();
     const int marker = shownMarker();
-    // The track.
-    p.setPen(Qt::NoPen);
-    p.setBrush(QColor(214, 219, 226));
-    p.drawRoundedRect(QRectF(kLeft + 4, kTop - 2, width() - kLeft - 8, kItem + 6), 5, 5);
+
+    // The track: a soft inset groove.
+    const QRectF track(kLeft + 4, kTop - 3, width() - kLeft - 8, kItem + 8);
+    QLinearGradient tg(track.topLeft(), track.bottomLeft());
+    tg.setColorAt(0, QColor(203, 210, 220));
+    tg.setColorAt(0.25, QColor(216, 222, 230));
+    tg.setColorAt(1, QColor(228, 232, 238));
+    p.setPen(QPen(QColor(186, 194, 206), 1));
+    p.setBrush(tg);
+    p.drawRoundedRect(track, 7, 7);
+
     for(int i = 0; i < int(features.size()); ++i) {
         const auto &f = features[size_t(i)];
         const QRect r = itemRect(i);
         const bool after = i >= marker;
+        const bool selected = i == m_selected, hover = i == m_hover;
         const cad::Status st = statusOf(i);
-        QColor fill(250, 251, 253), border(150, 158, 170);
-        if(st.isError()) fill = QColor(250, 205, 200), border = QColor(200, 60, 50);
-        else if(st.severity == cad::Severity::Warning) fill = QColor(252, 236, 180), border = QColor(200, 150, 30);
-        if(i == m_selected) border = QColor(30, 110, 220);
-        if(i == m_hover) fill = fill.darker(106);
         p.setOpacity(after ? 0.4 : 1.0);
-        p.setPen(QPen(border, i == m_selected ? 2.0 : 1.0));
-        p.setBrush(fill);
-        p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 4, 4);
-        const QColor accent = f->suppressed ? QColor(150, 150, 150) : QColor(38, 110, 196);
-        icon(iconFor(f->type()), accent).paint(&p, r.adjusted(4, 4, -4, -4));
-        if(f->suppressed) {
-            p.setPen(QPen(QColor(120, 120, 120), 1.6));
-            p.drawLine(r.bottomLeft() + QPoint(4, -4), r.topRight() + QPoint(-4, 4));
+        QRectF chip = QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5);
+        if(hover && !after) chip.translate(0, -1);
+        // Shadow, lifted a little more on hover.
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(20, 40, 70, hover ? 60 : 34));
+        p.drawRoundedRect(chip.translated(0, hover ? 2.0 : 1.2), 6, 6);
+        if(selected) {
+            p.setBrush(QColor(47, 123, 224, 70));
+            p.drawRoundedRect(chip.adjusted(-2.5, -2.5, 2.5, 2.5), 8, 8);
         }
+        QLinearGradient cg(chip.topLeft(), chip.bottomLeft());
+        cg.setColorAt(0, hover ? QColor(255, 255, 255) : QColor(253, 254, 255));
+        cg.setColorAt(1, hover ? QColor(226, 236, 248) : QColor(230, 235, 242));
+        p.setPen(QPen(selected ? QColor(36, 110, 214) : QColor(160, 170, 184), selected ? 1.6 : 1.0));
+        p.setBrush(cg);
+        p.drawRoundedRect(chip, 6, 6);
+        // Inner highlight along the top.
+        p.setPen(QPen(QColor(255, 255, 255, 200), 1));
+        p.drawLine(QPointF(chip.left() + 5, chip.top() + 1.2), QPointF(chip.right() - 5, chip.top() + 1.2));
+
+        const QRect ir = chip.toAlignedRect().adjusted(4, 4, -4, -4);
+        const QPixmap pm = icon(iconFor(f->type()))
+                               .pixmap(ir.size(), dpr, f->suppressed ? QIcon::Disabled : QIcon::Normal);
+        p.drawPixmap(ir, pm);
+
+        // Status badges in the corner.
+        auto badge = [&](const QColor &c, const QString &glyph) {
+            const QRectF b(chip.right() - 10, chip.top() - 3, 13, 13);
+            p.setPen(QPen(Qt::white, 1.4));
+            p.setBrush(c);
+            p.drawEllipse(b);
+            QFont font = p.font();
+            font.setPixelSize(10);
+            font.setBold(true);
+            p.setFont(font);
+            p.setPen(Qt::white);
+            p.drawText(b, Qt::AlignCenter, glyph);
+        };
+        if(f->suppressed) {
+            p.setPen(QPen(QColor(120, 128, 140), 1.8, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(QPointF(chip.left() + 5, chip.bottom() - 5), QPointF(chip.right() - 5, chip.top() + 5));
+        }
+        if(st.isError()) badge(QColor(214, 48, 38), QStringLiteral("!"));
+        else if(st.severity == cad::Severity::Warning) badge(QColor(232, 160, 20), QStringLiteral("!"));
     }
     p.setOpacity(1.0);
-    // The history marker: a bar with a grip.
-    const int mx = markerX();
-    const QColor mc = m_editing != cad::kNoFeature ? QColor(230, 140, 20) : QColor(40, 90, 170);
+
+    // The history marker: a slim bar with a rounded, gripped flag on top.
+    const qreal mx = markerX() + 0.5;
+    const bool editing = m_editing != cad::kNoFeature;
+    const QColor top = editing ? QColor(255, 178, 70) : QColor(88, 156, 240);
+    const QColor bottom = editing ? QColor(222, 118, 12) : QColor(28, 88, 184);
     p.setPen(Qt::NoPen);
-    p.setBrush(mc);
-    p.drawRoundedRect(QRectF(mx - 2, kTop - 4, 4, kItem + 10), 2, 2);
-    QPolygonF grip;
-    grip << QPointF(mx - 6, kTop - 5) << QPointF(mx + 6, kTop - 5) << QPointF(mx, kTop + 3);
-    p.drawPolygon(grip);
+    p.setBrush(QColor(20, 40, 70, 50));
+    p.drawRoundedRect(QRectF(mx - 1.5 + 1, kTop - 1, 3, kItem + 8), 1.5, 1.5);
+    p.setBrush(bottom);
+    p.drawRoundedRect(QRectF(mx - 1.5, kTop - 2, 3, kItem + 8), 1.5, 1.5);
+    const QRectF flag(mx - 6, 1.5, 12, 11);
+    QLinearGradient fg(flag.topLeft(), flag.bottomLeft());
+    fg.setColorAt(0, top);
+    fg.setColorAt(1, bottom);
+    QPainterPath fp;
+    fp.addRoundedRect(flag, 3.5, 3.5);
+    QPolygonF tip;
+    tip << QPointF(mx - 4, flag.bottom() - 1) << QPointF(mx + 4, flag.bottom() - 1) << QPointF(mx, flag.bottom() + 4);
+    fp.addPolygon(tip);
+    fp.setFillRule(Qt::WindingFill);
+    p.setPen(QPen(bottom.darker(130), 1));
+    p.setBrush(fg);
+    p.drawPath(fp.simplified());
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(255, 255, 255, 210));
+    for(int k = -1; k <= 1; ++k) p.drawEllipse(QPointF(mx + k * 3.0, flag.center().y() - 0.5), 1.0, 1.0);
 }
 
 void TimelineWidget::mousePressEvent(QMouseEvent *e) {
@@ -269,7 +347,7 @@ void TimelineWidget::showMenu(int index, QPoint globalPos) {
         if(ok && !n.trimmed().isEmpty()) m_doc.renameFeature(id, n.trimmed().toStdString());
     });
     menu.addSeparator();
-    menu.addAction(icon(IconId::Error), tr("Delete"), this, [this, id] { m_doc.deleteFeature(id); });
+    menu.addAction(icon(IconId::Delete), tr("Delete"), this, [this, id] { m_doc.deleteFeature(id); });
     menu.exec(globalPos);
 }
 

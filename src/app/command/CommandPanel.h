@@ -123,6 +123,7 @@ private:
     void addRow(const QString &label, QWidget *field);
 
     QLabel *m_title;
+    QLabel *m_titleIcon;
     QWidget *m_body;
     QGridLayout *m_rows;
     QLabel *m_message;

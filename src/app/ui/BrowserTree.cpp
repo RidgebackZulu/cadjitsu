@@ -6,10 +6,39 @@
 #include <QContextMenuEvent>
 #include <QHeaderView>
 #include <QMenu>
+#include <QPainter>
+#include <QStyledItemDelegate>
 
 #include <set>
 
 namespace cadly {
+
+namespace {
+
+// The eye column: the eye sits in a small rounded button that lights up on
+// hover, so it reads as something to click.
+class EyeDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        const QIcon ic = index.data(Qt::DecorationRole).value<QIcon>();
+        if(ic.isNull()) return QStyledItemDelegate::paint(p, option, index);
+        p->save();
+        p->setRenderHint(QPainter::Antialiasing);
+        const QRectF cell = QRectF(option.rect).adjusted(2.5, 1.5, -2.5, -1.5);
+        if(option.state & QStyle::State_MouseOver) {
+            p->setPen(QPen(QColor(47, 123, 224, 120), 1));
+            p->setBrush(QColor(47, 123, 224, 38));
+            p->drawRoundedRect(cell, 4, 4);
+        }
+        const QRect ir(0, 0, 16, 16);
+        ic.paint(p, QRect(ir.translated(option.rect.center() - ir.center())));
+        p->restore();
+    }
+};
+
+} // namespace
 
 BrowserTree::BrowserTree(cad::Document &doc, ModelView *view, QWidget *parent)
     : QTreeWidget(parent), m_doc(doc), m_view(view) {
@@ -21,6 +50,8 @@ BrowserTree::BrowserTree(cad::Document &doc, ModelView *view, QWidget *parent)
     header()->setSectionResizeMode(1, QHeaderView::Fixed);
     header()->resizeSection(1, 26);
     setIconSize(QSize(16, 16));
+    setItemDelegateForColumn(1, new EyeDelegate(this));
+    setMouseTracking(true);
     setIndentation(14);
     setFocusPolicy(Qt::ClickFocus);
     setEditTriggers(QAbstractItemView::EditKeyPressed | QAbstractItemView::SelectedClicked);

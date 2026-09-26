@@ -145,6 +145,11 @@ CommandPanel::CommandPanel(QWidget *canvas) : QFrame(canvas) {
     v->setContentsMargins(10, 8, 10, 10);
     v->setSpacing(6);
     auto *titleRow = new QHBoxLayout;
+    titleRow->setSpacing(7);
+    m_titleIcon = new QLabel(this);
+    m_titleIcon->setObjectName(QStringLiteral("commandIcon"));
+    m_titleIcon->setFixedSize(22, 22);
+    titleRow->addWidget(m_titleIcon);
     m_title = new QLabel(this);
     m_title->setObjectName(QStringLiteral("commandTitle"));
     titleRow->addWidget(m_title, 1);
@@ -194,7 +199,7 @@ void CommandPanel::begin(const QString &title, IconId id) {
     m_labels.clear();
     m_nextRow = 0;
     m_title->setText(title.toUpper());
-    Q_UNUSED(id);
+    m_titleIcon->setPixmap(icon(id).pixmap(QSize(22, 22), devicePixelRatioF()));
     setMessage({});
     setOkEnabled(true);
     show();

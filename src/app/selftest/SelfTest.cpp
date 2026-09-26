@@ -20,8 +20,11 @@
 #include "mcp/McpDialog.h"
 #include "mcp/McpLog.h"
 #include "mcp/McpServer.h"
+#include "ui/BrowserTree.h"
 #include "ui/ExportDialog.h"
+#include "ui/Icons.h"
 #include "ui/MarkingMenu.h"
+#include "ui/Ribbon.h"
 #include "ui/TimelineWidget.h"
 #include "viewport/ViewCube.h"
 #include "viewport/Viewport.h"
@@ -46,6 +49,7 @@
 #include <QEventLoop>
 #include <QFileInfo>
 #include <QImage>
+#include <QPainter>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
@@ -1452,6 +1456,109 @@ bool mcpScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
+
+// The icon set on contact sheets: every icon at the sizes the UI uses, and
+// large, to review; each must render something at 16 px.
+bool iconsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
+    bool ok = true;
+    auto check = [&](bool c, const QString &what) {
+        log << (c ? "  ok   " : "  FAIL ") << what << "\n";
+        ok = ok && c;
+    };
+    const std::vector<IconId> ids = allIcons();
+    const int sizes[] = {16, 20, 24, 32, 48};
+    const int cellW = 16 + 20 + 24 + 32 + 48 + 6 * 8 + 150, cellH = 64;
+    const int cols = 3, rows = int((ids.size() + cols - 1) / cols);
+    QImage sheet(cols * cellW, rows * cellH, QImage::Format_ARGB32_Premultiplied);
+    sheet.fill(QColor(0xF4, 0xF6, 0xF9));
+    QImage large(8 * 144, int((ids.size() + 7) / 8) * 160, QImage::Format_ARGB32_Premultiplied);
+    large.fill(QColor(0xF4, 0xF6, 0xF9));
+    QPainter p(&sheet), pl(&large);
+    QFont font = p.font();
+    font.setPixelSize(12);
+    p.setFont(font);
+    pl.setFont(font);
+    int blank = 0;
+    for(size_t i = 0; i < ids.size(); ++i) {
+        const int cx = int(i % cols) * cellW, cy = int(i / cols) * cellH;
+        if(i / cols % 2) p.fillRect(cx, cy, cellW, cellH, QColor(0xEC, 0xF0, 0xF5));
+        p.setPen(QColor(0x40, 0x4C, 0x5C));
+        p.drawText(QRect(cx + 8, cy, 142, cellH), Qt::AlignVCenter, iconName(ids[i]));
+        int x = cx + 150;
+        for(int sz : sizes) {
+            const QImage img = iconImage(ids[i], sz);
+            p.drawImage(x, cy + (cellH - sz) / 2, img);
+            x += sz + 8;
+            if(sz == 16) {
+                int opaque = 0;
+                for(int yy = 0; yy < img.height(); ++yy)
+                    for(int xx = 0; xx < img.width(); ++xx) opaque += qAlpha(img.pixel(xx, yy)) > 128;
+                if(opaque < 12) {
+                    ++blank;
+                    log << "         " << iconName(ids[i]) << " is almost empty at 16 px\n";
+                }
+            }
+        }
+        const int lx = int(i % 8) * 144, ly = int(i / 8) * 160;
+        pl.drawImage(lx + 8, ly + 6, iconImage(ids[i], 128));
+        pl.setPen(QColor(0x40, 0x4C, 0x5C));
+        pl.drawText(QRect(lx, ly + 136, 144, 20), Qt::AlignCenter, iconName(ids[i]));
+    }
+    p.end();
+    pl.end();
+    sheet.save(out.filePath(QStringLiteral("icons_sheet.png")));
+    large.save(out.filePath(QStringLiteral("icons_large.png")));
+    check(blank == 0, QStringLiteral("all %1 icons render at 16 px").arg(ids.size()));
+
+    // The icons in place, at 3x: ribbon, browser, timeline and the view cube.
+    buildDemoBracket(w.document());
+    w.waitForModel(60000);
+    w.viewport()->setStandardView(StandardView::Home, false);
+    w.viewport()->fitAll(false);
+    waitForFrames(w.viewport(), 2);
+    processEventsFor(100);
+    auto zoomShot = [&](QWidget *wid, QRect area, const char *name) {
+        const QPixmap pm = wid->grab(area.isNull() ? wid->rect() : area);
+        pm.toImage()
+            .scaled(pm.width() * 3, pm.height() * 3, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+            .save(out.filePath(QString::fromLatin1(name)));
+    };
+    zoomShot(w.ribbon(), QRect(0, 0, std::min(560, w.ribbon()->width()), w.ribbon()->height()), "icons_ribbon.png");
+    zoomShot(w.browser(), QRect(0, 0, w.browser()->width(), std::min(200, w.browser()->height())), "icons_browser.png");
+    zoomShot(w.timeline(), QRect(0, 0, std::min(560, w.timeline()->width()), w.timeline()->height()),
+             "icons_timeline.png");
+    Viewport *vp = w.viewport();
+    const QRect cube = ViewCube::rect(vp->size()).adjusted(-16, -10, 10, 16);
+    auto cubeShot = [&](const char *name) {
+        waitForFrames(vp, 2);
+        processEventsFor(60);
+        w.grab(QRect(vp->mapTo(&w, cube.topLeft()), cube.size()))
+            .toImage()
+            .scaled(cube.width() * 4, cube.height() * 4, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+            .save(out.filePath(QString::fromLatin1(name)));
+    };
+    cubeShot("icons_viewcube.png");
+    // Hovering an edge of the cube.
+    {
+        const QMatrix4x4 m = ViewCube::viewProjection(vp->camera().rotation);
+        const QVector3D ndc = m.map(QVector3D(0.95f, -0.95f, 0.0f)); // FRONT/RIGHT edge
+        const QRect r = ViewCube::rect(vp->size());
+        const QPointF px(r.left() + (ndc.x() + 1) * 0.5 * r.width(), r.top() + (1 - ndc.y()) * 0.5 * r.height());
+        sendMouse(vp, QEvent::MouseMove, px, Qt::NoButton, Qt::NoButton);
+        cubeShot("icons_viewcube_hover_edge.png");
+    }
+    // Square to the front: the turn and roll arrows appear.
+    vp->setStandardView(StandardView::Front, false);
+    sendMouse(vp, QEvent::MouseMove, vp->cubeControlShape(Viewport::CubeControl::Right).boundingRect().center(),
+              Qt::NoButton, Qt::NoButton);
+    check(vp->cubeFaceOn(), QStringLiteral("the front view is square to a face"));
+    cubeShot("icons_viewcube_front.png");
+    sendMouse(vp, QEvent::MouseMove, QPointF(10, vp->height() / 2.0), Qt::NoButton, Qt::NoButton);
+    vp->setStandardView(StandardView::Home, false);
+    w.grab().save(out.filePath(QStringLiteral("icons_window.png")));
+    return ok;
+}
+
 const std::map<QString, Scenario> &scenarios() {
     static const std::map<QString, Scenario> s = {
         {QStringLiteral("smoke"), smokeScenario},
@@ -1462,6 +1569,7 @@ const std::map<QString, Scenario> &scenarios() {
         {QStringLiteral("section"), sectionScenario},
         {QStringLiteral("acceptance"), acceptanceScenario},
         {QStringLiteral("mcp"), mcpScenario},
+        {QStringLiteral("icons"), iconsScenario},
     };
     return s;
 }

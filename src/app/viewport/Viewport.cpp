@@ -11,6 +11,7 @@
 #include <QMouseEvent>
 #include <QNativeGestureEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QToolButton>
 #include <QVariantAnimation>
 #include <QWheelEvent>
@@ -46,7 +47,13 @@ Viewport::Viewport(QWidget *parent) : QRhiWidget(parent) {
     m_homeButton->setObjectName(QStringLiteral("viewCubeHome"));
     m_homeButton->setIcon(icon(IconId::Home));
     m_homeButton->setIconSize(QSize(16, 16));
-    m_homeButton->setAutoRaise(true);
+    m_homeButton->setFixedSize(26, 26);
+    m_homeButton->setStyleSheet(QStringLiteral(
+        "#viewCubeHome { border: 1px solid rgba(120, 135, 155, 150); border-radius: 13px;"
+        " background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255,255,255,235), stop:1 rgba(222,229,238,235)); }"
+        "#viewCubeHome:hover { border-color: #2f7be0;"
+        " background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ffffff, stop:1 #d6e6fb); }"
+        "#viewCubeHome:pressed { background: #c4dbf8; }"));
     m_homeButton->setToolTip(tr("Home view"));
     m_homeButton->setFocusPolicy(Qt::NoFocus);
     connect(m_homeButton, &QToolButton::clicked, this, [this] {
@@ -281,7 +288,13 @@ void Viewport::changed() {
 }
 
 void Viewport::updateHover(QPointF pos) {
-    const auto cube = ViewCube::hitTest(pos, size(), m_camera.rotation);
+    const CubeControl control = cubeControlAt(pos);
+    if(control != m_cubeControlHover) {
+        m_cubeControlHover = control;
+        m_overlay->update();
+    }
+    const auto cube = control == CubeControl::None ? ViewCube::hitTest(pos, size(), m_camera.rotation)
+                                                   : std::optional<QVector3D>();
     if(cube != m_cubeHover) {
         m_cubeHover = cube;
         update();
@@ -326,6 +339,14 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
     m_dragMoved = false;
     m_dragButton = e->button();
     m_drag = Drag::None;
+
+    if(e->button() == Qt::LeftButton) {
+        const CubeControl control = cubeControlAt(pos);
+        if(control != CubeControl::None) {
+            pressCubeControl(control);
+            return;
+        }
+    }
 
     // View drags, as the mouse settings bind them.
     auto bound = [&](MouseBindings::Drag a, MouseBindings::Drag b) {
@@ -523,6 +544,10 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
 }
 
 void Viewport::leaveEvent(QEvent *e) {
+    if(m_cubeControlHover != CubeControl::None) {
+        m_cubeControlHover = CubeControl::None;
+        m_overlay->update();
+    }
     if(m_hover.valid() || m_cubeHover) {
         m_hover = PickHit();
         m_cubeHover.reset();
@@ -541,11 +566,128 @@ void Viewport::resizeEvent(QResizeEvent *e) {
     m_overlay->setGeometry(rect());
     m_navBar->reposition();
     const QRect cube = ViewCube::rect(size());
-    m_homeButton->move(cube.left() - 6, cube.top() - 4);
+    m_homeButton->move(cube.left() - 2, cube.top() - 2);
     m_homeButton->raise();
 }
 
+namespace {
+
+// A thick circular arc from a0 to a1 (degrees, screen: 0 = right, 90 = down)
+// ending in an arrowhead at a1.
+QPainterPath arcArrow(QPointF c, double r, double a0, double a1, double width, double head) {
+    const double dir = a1 > a0 ? 1.0 : -1.0;
+    const double headAng = head / r * 180.0 / M_PI * dir;
+    const double e = a1 - headAng;
+    auto at = [&](double rr, double a) {
+        const double t = a * M_PI / 180.0;
+        return QPointF(c.x() + rr * std::cos(t), c.y() + rr * std::sin(t));
+    };
+    const double ro = r + width / 2, ri = r - width / 2;
+    QPainterPath path;
+    const int n = 16;
+    path.moveTo(at(ro, a0));
+    for(int i = 1; i <= n; ++i) path.lineTo(at(ro, a0 + (e - a0) * i / n));
+    path.lineTo(at(r + width * 1.2, e));
+    path.lineTo(at(r, a1));
+    path.lineTo(at(r - width * 1.2, e));
+    for(int i = n; i >= 0; --i) path.lineTo(at(ri, a0 + (e - a0) * i / n));
+    path.closeSubpath();
+    return path;
+}
+
+} // namespace
+
+bool Viewport::cubeFaceOn() const {
+    const QVector3D f = m_camera.rotation.rotatedVector(QVector3D(0, 0, -1));
+    return std::max({std::fabs(f.x()), std::fabs(f.y()), std::fabs(f.z())}) > 0.9995f;
+}
+
+QPainterPath Viewport::cubeControlShape(CubeControl control) const {
+    const QPointF c = ViewCube::centre(size());
+    const double u = ViewCube::pixelsPerUnit();
+    const double d = u + 12.0; // arrow base distance from the centre
+    QPainterPath path;
+    auto triangle = [&](QPointF dir) {
+        const QPointF side(-dir.y(), dir.x());
+        const QPointF base = c + dir * d;
+        QPolygonF t;
+        t << base + dir * 9.0 << base + side * 8.0 << base - side * 8.0;
+        path.addPolygon(t);
+        path.closeSubpath();
+    };
+    switch(control) {
+    case CubeControl::Up: triangle(QPointF(0, -1)); break;
+    case CubeControl::Down: triangle(QPointF(0, 1)); break;
+    case CubeControl::Left: triangle(QPointF(-1, 0)); break;
+    case CubeControl::Right: triangle(QPointF(1, 0)); break;
+    case CubeControl::RollCcw: path = arcArrow(c, u + 25.0, -50.0, -88.0, 5.5, 9.0); break;
+    case CubeControl::RollCw: path = arcArrow(c, u + 25.0, -40.0, -2.0, 5.5, 9.0); break;
+    case CubeControl::None: break;
+    }
+    return path;
+}
+
+Viewport::CubeControl Viewport::cubeControlAt(QPointF pos) const {
+    if(!cubeFaceOn()) return CubeControl::None;
+    for(CubeControl c : {CubeControl::Up, CubeControl::Down, CubeControl::Left, CubeControl::Right,
+                         CubeControl::RollCcw, CubeControl::RollCw}) {
+        QPainterPathStroker grow;
+        grow.setWidth(8.0);
+        const QPainterPath shape = cubeControlShape(c);
+        if(shape.contains(pos) || grow.createStroke(shape).contains(pos)) return c;
+    }
+    return CubeControl::None;
+}
+
+void Viewport::pressCubeControl(CubeControl control) {
+    // Turns about the camera's own axes; the target and distance stay.
+    QQuaternion turn;
+    switch(control) {
+    case CubeControl::Up: turn = QQuaternion::fromAxisAndAngle(1, 0, 0, -90); break;
+    case CubeControl::Down: turn = QQuaternion::fromAxisAndAngle(1, 0, 0, 90); break;
+    case CubeControl::Left: turn = QQuaternion::fromAxisAndAngle(0, 1, 0, -90); break;
+    case CubeControl::Right: turn = QQuaternion::fromAxisAndAngle(0, 1, 0, 90); break;
+    case CubeControl::RollCcw: turn = QQuaternion::fromAxisAndAngle(0, 0, 1, -90); break;
+    case CubeControl::RollCw: turn = QQuaternion::fromAxisAndAngle(0, 0, 1, 90); break;
+    case CubeControl::None: return;
+    }
+    // Snap the result to the exact axes so repeated turns do not drift.
+    const QQuaternion q = (m_camera.rotation * turn).normalized();
+    auto snap = [](QVector3D v) {
+        int k = 0;
+        for(int i = 1; i < 3; ++i)
+            if(std::fabs(v[i]) > std::fabs(v[k])) k = i;
+        QVector3D out;
+        out[k] = v[k] > 0 ? 1.0f : -1.0f;
+        return out;
+    };
+    const QVector3D x = snap(q.rotatedVector(QVector3D(1, 0, 0))), y = snap(q.rotatedVector(QVector3D(0, 1, 0)));
+    const QQuaternion snapped = QQuaternion::fromAxes(x, y, QVector3D::crossProduct(x, y)).normalized();
+    m_cubeControlHover = CubeControl::None;
+    animateTo(snapped, m_camera.target, m_camera.distance);
+}
+
 void Viewport::paintOverlay(QPainter &p) {
+    if(cubeFaceOn()) {
+        p.save();
+        p.setRenderHint(QPainter::Antialiasing);
+        for(CubeControl c : {CubeControl::Up, CubeControl::Down, CubeControl::Left, CubeControl::Right,
+                             CubeControl::RollCcw, CubeControl::RollCw}) {
+            const QPainterPath shape = cubeControlShape(c);
+            const bool hot = c == m_cubeControlHover;
+            const QRectF b = shape.boundingRect();
+            QLinearGradient g(b.topLeft(), b.bottomLeft());
+            g.setColorAt(0, hot ? QColor(110, 170, 245) : QColor(255, 255, 255, 240));
+            g.setColorAt(1, hot ? QColor(34, 102, 210) : QColor(214, 223, 235, 240));
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(15, 30, 55, 40));
+            p.drawPath(shape.translated(0, 1.2));
+            p.setPen(QPen(hot ? QColor(24, 80, 170) : QColor(125, 140, 160), 1.0));
+            p.setBrush(g);
+            p.drawPath(shape);
+        }
+        p.restore();
+    }
     if(!m_box.isNull()) {
         const bool crossing = m_lastPos.x() < m_pressPos.x();
         QPen pen(crossing ? QColor(40, 150, 70) : QColor(40, 110, 210), 1.2, crossing ? Qt::DashLine : Qt::SolidLine);

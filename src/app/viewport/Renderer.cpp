@@ -211,11 +211,14 @@ void Renderer::createPipelines() {
     p.cubeIbuf->create();
     p.pending->uploadStaticBuffer(p.cubeIbuf.get(), ci.data());
     p.cubeIndexCount = quint32(ci.size());
-    const QImage atlas = ViewCube::labelAtlas(2.0);
-    p.cubeTex.reset(rhi->newTexture(QRhiTexture::RGBA8, atlas.size()));
+    // Labels at 4x with mipmaps: sharp on HiDPI screens and at grazing angles.
+    const QImage atlas = ViewCube::labelAtlas(4.0);
+    p.cubeTex.reset(rhi->newTexture(QRhiTexture::RGBA8, atlas.size(), 1,
+                                    QRhiTexture::MipMapped | QRhiTexture::UsedWithGenerateMips));
     p.cubeTex->create();
     p.pending->uploadTexture(p.cubeTex.get(), atlas);
-    p.cubeSampler.reset(rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None,
+    p.pending->generateMips(p.cubeTex.get());
+    p.cubeSampler.reset(rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::Linear,
                                         QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
     p.cubeSampler->create();
     p.cubeUbo.reset(rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(CubeUniforms)));
@@ -273,10 +276,12 @@ void Renderer::createPipelines() {
     gridLayout.setBindings({{2 * sizeof(float)}});
     gridLayout.setAttributes({{0, 0, QRhiVertexInputAttribute::Float2, 0}});
     QRhiVertexInputLayout cubeLayout;
-    cubeLayout.setBindings({{8 * sizeof(float)}});
+    cubeLayout.setBindings({{ViewCube::kFloatsPerVertex * sizeof(float)}});
     cubeLayout.setAttributes({{0, 0, QRhiVertexInputAttribute::Float3, 0},
                               {0, 1, QRhiVertexInputAttribute::Float3, 3 * sizeof(float)},
-                              {0, 2, QRhiVertexInputAttribute::Float2, 6 * sizeof(float)}});
+                              {0, 2, QRhiVertexInputAttribute::Float2, 6 * sizeof(float)},
+                              {0, 3, QRhiVertexInputAttribute::Float3, 8 * sizeof(float)},
+                              {0, 4, QRhiVertexInputAttribute::Float, 11 * sizeof(float)}});
 
     p.bg = make("background.vert", "background.frag", empty, false, false, NoBlend, p.bgSrb.get());
     p.mesh = make("mesh.vert", "mesh.frag", meshLayout, true, true, NoBlend, p.srb.get());

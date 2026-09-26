@@ -38,11 +38,7 @@ QPointF unit(QPointF v) {
 
 // Glyph drawn next to the cursor for an inferred or snapped relation.
 void paintHint(QPainter &p, QPointF at, IconId id) {
-    const QRectF r(at.x() + 10, at.y() + 10, 16, 16);
-    p.setPen(QPen(QColor(150, 158, 170), 1.0));
-    p.setBrush(QColor(255, 255, 255, 230));
-    p.drawRoundedRect(r, 3, 3);
-    icon(id).paint(&p, r.adjusted(1, 1, -1, -1).toRect());
+    paintGlyphChip(p, QRectF(at.x() + 10, at.y() + 10, 18, 18), icon(id), QColor(160, 170, 184));
 }
 
 std::optional<IconId> snapHint(const SketchSnap &s) {

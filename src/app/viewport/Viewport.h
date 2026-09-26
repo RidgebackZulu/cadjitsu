@@ -8,6 +8,7 @@
 
 #include <QColor>
 #include <QPointer>
+#include <QPainterPath>
 #include <QRhiWidget>
 
 #include <functional>
@@ -88,6 +89,14 @@ public:
     // Schedules a repaint of the 3D view and its overlay (after tool state changes).
     void refreshOverlay();
 
+    // Controls around the view cube, shown when looking square at a face
+    // (Fusion's): arrows that turn to the neighbouring face, and roll arrows.
+    enum class CubeControl { None, Up, Down, Left, Right, RollCcw, RollCw };
+    bool cubeFaceOn() const;
+    QPainterPath cubeControlShape(CubeControl c) const;
+    CubeControl cubeControlAt(QPointF pos) const;
+    void pressCubeControl(CubeControl c);
+
 signals:
     void hoverChanged(const cadly::PickHit &hit);
     // Every cursor move over the canvas (hit.screen is the position), for
@@ -149,6 +158,7 @@ private:
     bool m_dragMoved = false;
     PickHit m_hover;
     std::optional<QVector3D> m_cubeHover;
+    CubeControl m_cubeControlHover = CubeControl::None;
     QRectF m_box;
 
     QString m_backendName;

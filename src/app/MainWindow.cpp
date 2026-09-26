@@ -472,10 +472,10 @@ void MainWindow::buildActions() {
                                 [this] { openExportDialog(ExportJob::Format::Stl); });
     print->setToolTip(tr("3D Print (%1): export a watertight STL, checked for printing")
                           .arg(print->shortcut().toString(QKeySequence::NativeText)));
-    QAction *settings = makeAction("settings", tr("Settings..."), IconId::Display, QKeySequence::Preferences,
+    QAction *settings = makeAction("settings", tr("Settings..."), IconId::Settings, QKeySequence::Preferences,
                                    [this] { openSettings(); });
     settings->setMenuRole(QAction::PreferencesRole);
-    makeAction("mcpServer", tr("MCP Server..."), IconId::Display, {}, [this] { openMcpDialog(); });
+    makeAction("mcpServer", tr("MCP Server..."), IconId::McpServer, {}, [this] { openMcpDialog(); });
     makeAction("undo", tr("Undo"), IconId::Undo, QKeySequence::Undo, [this] { undo(); });
     QAction *redo = makeAction("redo", tr("Redo"), IconId::Redo, QKeySequence::Redo, [this] { this->redo(); });
     redo->setShortcuts({QKeySequence::Redo, QKeySequence(Qt::CTRL | Qt::Key_Y)});
@@ -485,7 +485,7 @@ void MainWindow::buildActions() {
         m_modelView->setOriginVisible(!m_modelView->originVisible());
         m_browser->rebuild();
     });
-    makeAction("repeatCommand", tr("Repeat"), IconId::Redo, {}, [this] {
+    makeAction("repeatCommand", tr("Repeat"), IconId::Repeat, {}, [this] {
         if(QAction *last = action(m_lastCommand)) last->trigger();
     });
 
@@ -543,7 +543,7 @@ void MainWindow::buildActions() {
     }
     m_sketchOnly.push_back(makeAction("sketchConstruction", tr("Normal / Construction"), IconId::Construction,
                                       QKeySequence(Qt::Key_X), [this] { m_sketch->toggleConstruction(); }));
-    QAction *del = makeAction("sketchDelete", tr("Delete"), IconId::Error, QKeySequence::Delete,
+    QAction *del = makeAction("sketchDelete", tr("Delete"), IconId::Delete, QKeySequence::Delete,
                               [this] { m_sketch->deleteSelection(); });
     del->setShortcuts({QKeySequence(Qt::Key_Delete), QKeySequence(Qt::Key_Backspace)});
     m_sketchOnly.push_back(del);

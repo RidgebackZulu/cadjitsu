@@ -1527,16 +1527,14 @@ void SketchEditor::paintGlyphs(QPainter &p) {
         off = l > 1e-6 ? off / l * 15.0 : QPointF(12, -12);
         QPointF pos = base + off;
         const int k = stack[{int(std::floor(pos.x() / 8)), int(std::floor(pos.y() / 8))}]++;
-        pos += QPointF(k * 17.0, 0.0);
-        const QRectF r(pos.x() - 8, pos.y() - 8, 16, 16);
+        pos += QPointF(k * 20.0, 0.0);
+        const QRectF r(pos.x() - 9, pos.y() - 9, 18, 18);
         const bool isSel = selectedConstraints.count(c->id) > 0;
         const bool isHot = hover.kind == Kind::Constraint && hover.id == c->id;
         const bool bad = contains(m_solve.failed, c->id);
-        const QColor accent = bad ? kFailedColor : isSel ? kSelectedColor.darker(120) : QColor(38, 110, 196);
-        p.setPen(QPen(isSel || isHot ? accent : QColor(150, 158, 170), 1.0));
-        p.setBrush(isHot ? QColor(225, 238, 255, 240) : QColor(255, 255, 255, 225));
-        p.drawRoundedRect(r, 3, 3);
-        icon(glyphIcon(c->type), accent).paint(&p, r.adjusted(1, 1, -1, -1).toRect());
+        const QColor accent = bad ? kFailedColor : isSel ? kSelectedColor.darker(120) : kIconAccent;
+        paintGlyphChip(p, r, icon(glyphIcon(c->type), accent), isSel || isHot ? accent : QColor(160, 170, 184),
+                       isHot);
         m_glyphRects.push_back({c->id, r});
     }
 }
