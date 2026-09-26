@@ -1,0 +1,18 @@
+# Linux development / CI environment (conda-forge). Mac builds use Homebrew instead:
+#   brew install qt opencascade eigen ninja cmake
+name: cadly
+channels:
+  - conda-forge
+dependencies:
+  - qt6-main=6.9
+  - occt=7.9.3=novtk*
+  - eigen=3.4.0
+  - cmake>=3.24
+  - ninja
+  - c-compiler
+  - cxx-compiler
+  - pkg-config
+  - libgl-devel
+  - libopengl-devel
+  - libegl-devel
+  - ccache

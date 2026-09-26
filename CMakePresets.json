@@ -1,0 +1,44 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "linux-conda",
+      "displayName": "Linux (conda-forge env from scripts/bootstrap_env.sh)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_PREFIX_PATH": "$env{CADLY_ENV}",
+        "CMAKE_BUILD_RPATH": "$env{CADLY_ENV}/lib"
+      }
+    },
+    {
+      "name": "macos-brew",
+      "displayName": "macOS Apple Silicon (Homebrew qt, opencascade, eigen)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "/opt/homebrew/opt/qt;/opt/homebrew/opt/opencascade;/opt/homebrew/opt/eigen;/opt/homebrew",
+        "CMAKE_OSX_ARCHITECTURES": "arm64"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "linux-conda", "configurePreset": "linux-conda" },
+    { "name": "macos-brew", "configurePreset": "macos-brew" }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-conda",
+      "configurePreset": "linux-conda",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "macos-brew",
+      "configurePreset": "macos-brew",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

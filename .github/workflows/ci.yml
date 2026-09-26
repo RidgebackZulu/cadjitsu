@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (conda-forge, Xvfb)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-file: env/environment.yml
+          environment-name: cadly
+          cache-environment: true
+
+      - name: Install Xvfb and Mesa
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb x11-utils libgl1-mesa-dri libglx-mesa0 libegl-mesa0
+
+      - name: Configure
+        run: CADLY_ENV="$CONDA_PREFIX" cmake --preset linux-conda
+
+      - name: Build
+        run: cmake --build --preset linux-conda
+
+      - name: Core tests
+        run: ctest --preset linux-conda -L core
+
+      - name: App tests
+        run: ctest --preset linux-conda -L app
+
+      - name: Self tests
+        run: |
+          for t in $(scripts/run_xvfb.sh build/linux/src/app/Cadly --list-selftests); do
+            scripts/run_xvfb.sh build/linux/src/app/Cadly --selftest=$t --out out/linux
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-selftest-screenshots
+          path: out/linux
+          if-no-files-found: ignore
+
+  macos:
+    name: macOS Apple Silicon (Homebrew, Metal)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew update --quiet || true
+          brew install --quiet qt opencascade eigen ninja
+          brew list --versions qt opencascade eigen
+
+      - name: Configure
+        run: cmake --preset macos-brew
+
+      - name: Build
+        run: cmake --build --preset macos-brew
+
+      - name: Core tests
+        run: ctest --preset macos-brew -L core
+
+      - name: App tests
+        run: ctest --preset macos-brew -L app
+
+      - name: Self tests (Metal)
+        run: |
+          for t in $(build/macos/src/app/Cadly.app/Contents/MacOS/Cadly --list-selftests); do
+            build/macos/src/app/Cadly.app/Contents/MacOS/Cadly --selftest=$t --out out/macos
+          done
+
+      - name: Bundle Cadly.app
+        run: |
+          cp -R build/macos/src/app/Cadly.app out/Cadly.app
+          "$(brew --prefix qt)/bin/macdeployqt" out/Cadly.app -always-overwrite
+          codesign --force --deep --sign - out/Cadly.app
+          out/Cadly.app/Contents/MacOS/Cadly --selftest=smoke --out out/macos-bundled
+          (cd out && ditto -c -k --keepParent Cadly.app Cadly-macos-arm64.zip)
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-selftest-screenshots
+          path: |
+            out/macos
+            out/macos-bundled
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cadly-macos-arm64
+          path: out/Cadly-macos-arm64.zip
