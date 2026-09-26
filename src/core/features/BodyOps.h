@@ -21,6 +21,9 @@ struct BooleanResult {
     Handle(BRepTools_History) history;
 };
 
+// Faces and edges closer than this (mm) are treated as coincident by booleans.
+inline constexpr double kBooleanFuzz = 1e-6;
+
 BooleanResult runBoolean(BoolOp op, const std::vector<const NamedShape *> &args,
                          const std::vector<const NamedShape *> &tools, const std::string &prefix);
 

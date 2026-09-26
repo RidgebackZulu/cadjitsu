@@ -1161,7 +1161,7 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
         return false;
     }
     processEventsFor(450);
-    rectangle({0, 32, 8}, {60, 40, 8});
+    rectangle({60, 40, 8}, {0, 32, 8}); // from the plate's back corner, which it snaps to
     w.action(QStringLiteral("extrude"))->trigger();
     ex = extrudeCommand();
     if(!ex) return false;
@@ -1176,7 +1176,7 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     settle();
     const double bracket = base + 60.0 * 8.0 * 40.0;
     check(doc.features().size() == 4 && w.modelView()->state()->bodies.size() == 1 &&
-              std::fabs(shown() - bracket) < 1e-6,
+              std::fabs(shown() - bracket) < 1e-3, // the solver places points to ~1e-7 mm
           QStringLiteral("upright joined: one body, %1 mm3").arg(vol(shown())));
 
     // 3. Two counterbored screw holes through the base.

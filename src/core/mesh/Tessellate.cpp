@@ -4,6 +4,8 @@
 
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
@@ -48,6 +50,14 @@ TopoDS_Shape meshedCopy(const TopoDS_Shape &shape, double deflection, double ang
         }
     }
     return copy;
+}
+
+// Mean width of a face, 2 x area / perimeter: for a thin strip, its width.
+double faceWidth(const TopoDS_Face &face) {
+    GProp_GProps area, perimeter;
+    BRepGProp::SurfaceProperties(face, area);
+    BRepGProp::LinearProperties(face, perimeter);
+    return perimeter.Mass() > 0 ? 2.0 * area.Mass() / perimeter.Mass() : 0.0;
 }
 
 std::string describeFace(const TopoDS_Face &face) {
@@ -161,8 +171,10 @@ std::shared_ptr<MeshData> tessellateForDisplay(const NamedShape &named, double d
     return mesh;
 }
 
-bool weldedMesh(const TopoDS_Shape &shape, double deflection, double angle, TriMesh &out, std::string &error) {
+bool weldedMesh(const TopoDS_Shape &shape, double deflection, double angle, TriMesh &out, std::string &error,
+                double *hairlineGap) {
     out = TriMesh();
+    if(hairlineGap) *hairlineGap = 0;
     if(shape.IsNull()) {
         error = "nothing to mesh";
         return false;
@@ -198,6 +210,11 @@ bool weldedMesh(const TopoDS_Shape &shape, double deflection, double angle, TriM
         TopLoc_Location loc;
         Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
         if(tri.IsNull()) {
+            const double width = faceWidth(face);
+            if(width < 1e-3) {
+                if(hairlineGap) *hairlineGap = std::max(*hairlineGap, width);
+                continue;
+            }
             error = "a face could not be meshed (face " + std::to_string(fi) + " of " + std::to_string(faces.Extent()) +
                     ": " + describeFace(face) + "; mesher status " + std::to_string(status) + ")";
             return false;

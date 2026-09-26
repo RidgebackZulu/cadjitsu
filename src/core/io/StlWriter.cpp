@@ -71,14 +71,16 @@ bool buildStlMesh(const std::vector<TopoDS_Shape> &solids, const StlOptions &opt
 
     double deflection, angle;
     stlTolerances(options, deflection, angle);
-    if(!weldedMesh(shape, deflection, angle * M_PI / 180.0, out.mesh, error)) return false;
+    double hairline = 0;
+    if(!weldedMesh(shape, deflection, angle * M_PI / 180.0, out.mesh, error, &hairline)) return false;
 
     out.solidVolume = volumeOf(shape);
     const double tol = std::max(areaOf(shape) * deflection * 1.5, 1e-6 * out.solidVolume);
     out.report = validateMesh(out.mesh, out.solidVolume, tol);
     if(!out.report.watertight) {
         // Fallback: weld coincident vertices by distance and re-check.
-        weldByDistance(out.mesh, std::max(deflection * 1e-3, 1e-6));
+        // (and across hairline faces the mesher left out).
+        weldByDistance(out.mesh, std::max({deflection * 1e-3, 1e-6, hairline * 1.5}));
         out.report = validateMesh(out.mesh, out.solidVolume, tol);
     }
     return true;

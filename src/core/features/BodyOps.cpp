@@ -36,6 +36,11 @@ BooleanResult runBoolean(BoolOp op, const std::vector<const NamedShape *> &args,
     algo->SetTools(t);
     algo->SetNonDestructive(Standard_True);
     algo->SetRunParallel(Standard_False);
+    // Sketch-solved coordinates are good to ~1e-7 mm, right at OCCT's own
+    // confusion tolerance, so faces drawn onto existing ones can miss them by
+    // a hair and leave sliver faces the mesher cannot handle. Treat anything
+    // closer than 1 nm as touching (wider hairlines are handled at export).
+    algo->SetFuzzyValue(kBooleanFuzz);
     algo->Build();
     if(algo->HasErrors() || !algo->IsDone()) {
         r.error = "the boolean operation failed";
@@ -133,8 +138,17 @@ bool validateResult(NamedShape &shape, const std::string &prefix, Status &status
             for(TopExp_Explorer ex(img, TopAbs_FACE); ex.More(); ex.Next()) h->AddModified(shape.face(i), ex.Current());
         }
     }
+    // Only tolerances and curves on surface adjusted (typical after faces
+    // were merged across the booleans' fuzzy gap): nothing to tell the user.
+    auto count = [](const TopoDS_Shape &sh, TopAbs_ShapeEnum kind) {
+        TopTools_IndexedMapOfShape m;
+        TopExp::MapShapes(sh, kind, m);
+        return m.Extent();
+    };
+    const bool sameTopology = count(fixed, TopAbs_FACE) == count(shape.shape(), TopAbs_FACE) &&
+                              count(fixed, TopAbs_EDGE) == count(shape.shape(), TopAbs_EDGE);
     shape = propagateNames(fixed, {&shape}, h, prefix);
-    status.merge(Status::warning("the result needed repair"));
+    if(!sameTopology) status.merge(Status::warning("the result needed repair"));
     return true;
 }
 

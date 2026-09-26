@@ -54,8 +54,11 @@ std::shared_ptr<MeshData> tessellateForDisplay(const NamedShape &shape, double d
 
 // Watertight mesh: vertices on shared B-rep edges are shared between faces.
 // Returns false (with a message) if the shape could not be meshed.
+// Hairline faces the mesher cannot triangulate (strips narrower than 1 um
+// that booleans leave where two faces nearly line up) are left out; the
+// widest one is reported in `hairlineGap` so the caller can weld across it.
 bool weldedMesh(const TopoDS_Shape &shape, double deflection, double angularDeflection, TriMesh &out,
-                std::string &error);
+                std::string &error, double *hairlineGap = nullptr);
 
 // Merges vertices closer than `tolerance` (fallback welding) and drops
 // triangles that became degenerate.

@@ -3,11 +3,15 @@
 #include <doctest.h>
 
 #include "TestModels.h"
+#include "features/BodyOps.h"
 #include "io/StepIO.h"
 #include "io/StlWriter.h"
 #include "mesh/MeshValidator.h"
 
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -179,4 +183,51 @@ TEST_CASE("STEP export keeps names and volumes") {
     CHECK(total == doctest::Approx(8000 + 3.14159265358979 * 9 * 30).epsilon(1e-6));
     CHECK(std::find(names.begin(), names.end(), "Bracket") != names.end());
     CHECK(std::find(names.begin(), names.end(), "Pin") != names.end());
+}
+
+TEST_CASE("a hairline sliver left by a boolean does not stop the STL export") {
+    // An upright drawn a hair off the plate's back face: the join leaves a
+    // strip of face far narrower than the mesher can triangulate.
+    for(double gap : {1e-7, 5e-7, 2e-6, 1e-5}) {
+        CAPTURE(gap);
+        const TopoDS_Shape plate = BRepPrimAPI_MakeBox(60, 40, 8).Shape();
+        const TopoDS_Shape upright = BRepPrimAPI_MakeBox(gp_Pnt(0, 32 + gap, 0), gp_Pnt(60, 40 + gap, 48)).Shape();
+        const TopoDS_Shape bracket = BRepAlgoAPI_Fuse(plate, upright).Shape();
+        for(auto res : {cad::StlResolution::Coarse, cad::StlResolution::Fine}) {
+            cad::StlOptions o;
+            o.resolution = res;
+            cad::StlExport out;
+            std::string error;
+            REQUIRE_MESSAGE(cad::buildStlMesh({bracket}, o, out, error), error);
+            CHECK(out.report.watertight);
+            CHECK(out.report.shells == 1);
+            CHECK(std::fabs(out.report.volume - out.solidVolume) < 0.5);
+        }
+    }
+}
+
+TEST_CASE("joining a body drawn a hair off another leaves no sliver faces") {
+    // The sketch solver places points to ~1e-7 mm; an upright drawn onto the
+    // plate's back edge can miss it by that much.
+    for(double gap : {1e-7, 5e-7, 9e-7}) {
+        CAPTURE(gap);
+        const NamedShape plate(BRepPrimAPI_MakeBox(60, 40, 8).Shape(), {});
+        const NamedShape upright(BRepPrimAPI_MakeBox(gp_Pnt(0, 32 + gap, 8 - gap), gp_Pnt(60, 40 + gap, 48)).Shape(), {});
+        const BooleanResult r = runBoolean(BoolOp::Fuse, {&plate}, {&upright}, "t");
+        REQUIRE(r.ok);
+        int faces = 0;
+        for(TopExp_Explorer ex(r.shape.shape(), TopAbs_FACE); ex.More(); ex.Next()) {
+            GProp_GProps g;
+            BRepGProp::SurfaceProperties(ex.Current(), g);
+            CHECK(g.Mass() > 1e-3);
+            ++faces;
+        }
+        CHECK(faces == 8); // an L-shaped prism: 6 sides and 2 ends
+        StlOptions o;
+        o.resolution = StlResolution::Fine;
+        StlExport out;
+        std::string error;
+        REQUIRE_MESSAGE(buildStlMesh({r.shape.shape()}, o, out, error), error);
+        CHECK(out.report.ok);
+    }
 }
