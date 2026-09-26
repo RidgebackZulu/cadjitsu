@@ -43,7 +43,7 @@ Each CI run uploads an ad-hoc-signed `Cadly-macos-arm64` artifact.
 2. Clear the quarantine flag once: `xattr -dr com.apple.quarantine Cadly.app`.
 3. Open `Cadly.app`.
 
-The bundle is built for Apple Silicon and draws with Metal. Before the zip is uploaded, CI runs the `acceptance` self test on the packaged app itself.
+The bundle is built for Apple Silicon, draws with Metal and needs macOS 15 (Sequoia) or later. It is self-contained: after `macdeployqt`, `scripts/macos_bundle_fix.py` points every library reference into the bundle and fails the build if anything still leads outside it. Before the zip is uploaded, CI hides Homebrew and runs the `acceptance` self test on the packaged app itself. On an older macOS, build locally (see above).
 
 ## Building on Linux
 
