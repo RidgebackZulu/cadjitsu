@@ -191,7 +191,7 @@ The canvas can be used the same way in every style: picking, commands and sectio
 
 **MAKE > 3D Print** (Cmd+P) and **File > Export…** open the same dialog: 3D Print starts on STL, Export on STEP.
 - **Bodies:** every visible body, or only the selected ones (bodies, or the bodies of selected faces and edges). If something is selected when the dialog opens, it starts on the selection.
-- **STL (3D printing):** Refinement is Coarse, Medium, Fine or Custom (chord and angle tolerances). **Merge bodies into one solid** unites bodies that touch or overlap, so the slicer gets one watertight solid. Binary or ASCII.
+- **STL (3D printing):** Refinement is Coarse, Medium, Fine or Custom (chord and angle tolerances; each preset shows its own). **Merge bodies into one solid** unites bodies that touch or overlap, so the slicer gets one watertight solid. Binary or ASCII. **Open in my slicer afterwards** hands the file to the app your computer opens `.stl` files with (PrusaSlicer, Bambu Studio, Cura…); the choice and the last export folder are remembered.
 - **Printability check:** the mesh is welded along the model's edges and checked before it is written:
   - every edge is shared by exactly two triangles, facing opposite ways (watertight, manifold);
   - no degenerate triangles;

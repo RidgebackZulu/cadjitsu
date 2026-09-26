@@ -32,7 +32,8 @@ public:
 
     void setFormat(ExportJob::Format f);
     ExportJob::Format format() const;
-    // Exports to `path` without asking for a file name (tests, scripts).
+    // Exports to `path` without asking for a file name (tests, scripts). Such
+    // exports are never handed to the slicer.
     void setOutputPath(const QString &path) { m_presetPath = path; }
     // Answer to "the mesh has problems, write it anyway?" when not asking.
     void setWriteInvalid(bool on) { m_writeInvalid = on; }
@@ -58,7 +59,7 @@ private:
     cad::Document &m_doc;
     QComboBox *m_format, *m_bodies, *m_refinement, *m_schema;
     QDoubleSpinBox *m_chord, *m_angle;
-    QCheckBox *m_binary, *m_merge;
+    QCheckBox *m_binary, *m_merge, *m_openAfter;
     QGroupBox *m_stlBox, *m_stepBox;
     QLabel *m_report;
     QPushButton *m_export, *m_close;

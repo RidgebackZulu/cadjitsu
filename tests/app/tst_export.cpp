@@ -24,6 +24,7 @@
 #include <QFileInfo>
 #include <QLabel>
 #include <QPushButton>
+#include <QSettings>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -189,6 +190,28 @@ private slots:
         QVERIFY(dlg);
         dlg->reject();
         QTRY_VERIFY(dlg.isNull());
+    }
+
+    void openInSlicerIsRemembered() {
+        QSettings().remove(QStringLiteral("export/openInSlicer"));
+        box(0, 0, 10, 10, 10);
+        m_window->refresh();
+        QPointer<ExportDialog> dlg = open("print3d");
+        QVERIFY(dlg);
+        auto *slicer = dlg->findChild<QCheckBox *>(QStringLiteral("exportOpenAfter"));
+        QVERIFY(slicer && !slicer->isChecked());
+        slicer->setChecked(true);
+        dlg->reject();
+        QTRY_VERIFY(dlg.isNull());
+        dlg = open("print3d");
+        QVERIFY(dlg);
+        slicer = dlg->findChild<QCheckBox *>(QStringLiteral("exportOpenAfter"));
+        QVERIFY(slicer && slicer->isChecked());
+        // A scripted export (a preset path) is written but never handed to an app.
+        QVERIFY(exportTo(dlg, path("scripted.stl")));
+        QVERIFY(dlg->lastResult().ok);
+        slicer->setChecked(false);
+        QVERIFY(!QSettings().value(QStringLiteral("export/openInSlicer")).toBool());
     }
 
     void nothingToExport() {

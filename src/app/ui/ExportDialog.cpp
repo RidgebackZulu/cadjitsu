@@ -6,7 +6,9 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -16,8 +18,10 @@
 #include <QLocale>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSettings>
 #include <QStandardItemModel>
 #include <QThread>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include <memory>
@@ -78,6 +82,15 @@ ExportDialog::ExportDialog(ModelView &view, cad::Document &doc, QWidget *parent)
     m_merge->setChecked(true);
     m_merge->setToolTip(tr("Bodies that touch or overlap are united, so the printer gets one watertight solid."));
     stl->addRow(QString(), m_merge);
+    // Fusion's "Send to 3D print utility": hand the file to the slicer.
+    m_openAfter = new QCheckBox(tr("Open in my slicer afterwards"), m_stlBox);
+    m_openAfter->setObjectName(QStringLiteral("exportOpenAfter"));
+    m_openAfter->setToolTip(tr("Opens the STL with the app your computer uses for .stl files "
+                               "(PrusaSlicer, Bambu Studio, Cura…)."));
+    m_openAfter->setChecked(QSettings().value(QStringLiteral("export/openInSlicer"), false).toBool());
+    connect(m_openAfter, &QCheckBox::toggled, this,
+            [](bool on) { QSettings().setValue(QStringLiteral("export/openInSlicer"), on); });
+    stl->addRow(QString(), m_openAfter);
     v->addWidget(m_stlBox);
 
     m_stepBox = new QGroupBox(tr("STEP"), this);
@@ -162,9 +175,13 @@ void ExportDialog::startExport() {
     if(path.isEmpty()) {
         const bool stl = job.format == ExportJob::Format::Stl;
         const QString name = QString::fromStdString(job.solids.size() == 1 ? job.solids.front().name : std::string("design"));
-        path = QFileDialog::getSaveFileName(this, tr("Export"), name + (stl ? QStringLiteral(".stl") : QStringLiteral(".step")),
+        QSettings settings;
+        const QString dir = settings.value(QStringLiteral("export/lastDir")).toString();
+        const QString file = name + (stl ? QStringLiteral(".stl") : QStringLiteral(".step"));
+        path = QFileDialog::getSaveFileName(this, tr("Export"), dir.isEmpty() ? file : QDir(dir).filePath(file),
                                             stl ? tr("STL files (*.stl)") : tr("STEP files (*.step *.stp)"));
         if(path.isEmpty()) return;
+        settings.setValue(QStringLiteral("export/lastDir"), QFileInfo(path).absolutePath());
     }
     run(job, path, m_writeInvalid);
 }
@@ -213,6 +230,9 @@ void ExportDialog::done(const ExportJob &job, const QString &path, const ExportR
     }
     m_report->setText(text);
     adjustSize();
+    // Only files the user chose go on to the slicer (scripted exports never open apps).
+    if(r.ok && job.format == ExportJob::Format::Stl && m_openAfter->isChecked() && m_presetPath.isEmpty())
+        QDesktopServices::openUrl(QUrl::fromLocalFile(path));
     // A mesh that fails the check is written only if the user says so.
     if(!r.ok && r.meshChecked && !r.report.ok && m_ask) {
         const auto answer =
