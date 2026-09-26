@@ -8,6 +8,7 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepTools_WireExplorer.hxx>
+#include <Bnd_Box.hxx>
 #include <TopExp.hxx>
 #include <TopoDS.hxx>
 
@@ -170,9 +171,20 @@ FeatureResult HoleFeature::compute(const StatePtr &input, const ComputeContext &
         double dia = 0.0, dep = 0.0, tip = 0.0;
         if(!ctx.value(diameter, dia, st)) return {input, st};
         if(dia <= 0.0) return {input, Status::error("the hole diameter must be positive")};
-        const double big = 2.0 * input->modelSize() + 10.0;
         if(extent == ExtentType::ThroughAll) {
-            dep = big;
+            // Just past the far side of the model.
+            Bnd_Box box;
+            for(const auto &kv : input->bodies) box.Add(boundingBox(kv.second->shape.shape()));
+            double far = 0.0;
+            if(!box.IsVoid()) {
+                double x0, y0, z0, x1, y1, z1;
+                box.Get(x0, y0, z0, x1, y1, z1);
+                for(const gp_Pnt &c : centres)
+                    for(double x : {x0, x1})
+                        for(double y : {y0, y1})
+                            for(double z : {z0, z1}) far = std::max(far, gp_Vec(c, gp_Pnt(x, y, z)).Dot(-gp_Vec(up)));
+            }
+            dep = far + 0.01 * input->modelSize() + 1.0;
         } else {
             if(!ctx.value(depth, dep, st)) return {input, st};
             if(dep <= 0.0) return {input, Status::error("the hole depth must be positive")};
@@ -228,25 +240,25 @@ FeatureResult HoleFeature::compute(const StatePtr &input, const ComputeContext &
         std::vector<const NamedShape *> toolPtrs;
         for(const auto &t : tools) toolPtrs.push_back(&t);
 
-        if(targets.empty()) {
-            const TopoDS_Shape all = [&] {
-                std::vector<TopoDS_Shape> v;
-                for(const auto &t : tools) v.push_back(t.shape());
-                return makeCompound(v);
-            }();
-            targets = bodiesInteracting(*input, all, false);
-        }
-        if(targets.empty()) return {input, Status::error("the hole does not touch any body")};
+        const TopoDS_Shape all = [&] {
+            std::vector<TopoDS_Shape> v;
+            for(const auto &t : tools) v.push_back(t.shape());
+            return makeCompound(v);
+        }();
+        // Shown translucent while previewed (also when the hole fails).
+        const std::shared_ptr<const Body> shown = toolBody(NamedShape(all, {}));
+        if(targets.empty()) targets = bodiesInteracting(*input, all, false);
+        if(targets.empty()) return {input, Status::error("the hole does not touch any body"), shown};
 
         auto out = std::make_shared<ModelState>(*input);
         const std::string prefix = "f" + std::to_string(id);
         for(const auto &b : targets) {
             BooleanResult br = runBoolean(BoolOp::Cut, {&input->body(b)->shape}, toolPtrs, prefix);
-            if(!br.ok) return {input, Status::error(br.error)};
-            if(!validateResult(br.shape, prefix, st)) return {input, st};
+            if(!br.ok) return {input, Status::error(br.error), shown};
+            if(!validateResult(br.shape, prefix, st)) return {input, st, shown};
             replaceBody(*out, b, br.shape);
         }
-        return {out, st};
+        return {out, st, shown};
     });
 }
 

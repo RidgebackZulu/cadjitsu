@@ -31,6 +31,9 @@ const cad::ExtentType kExtents[] = {cad::ExtentType::Distance, cad::ExtentType::
 const cad::BodyOperation kOperations[] = {cad::BodyOperation::Join, cad::BodyOperation::Cut,
                                           cad::BodyOperation::Intersect, cad::BodyOperation::NewBody};
 
+const QColor kActiveInput(20, 100, 225);
+const QColor kOtherInput(120, 150, 200);
+
 template <class T, size_t N> int indexIn(const T (&list)[N], T v) {
     for(size_t i = 0; i < N; ++i)
         if(list[i] == v) return int(i);
@@ -55,17 +58,17 @@ void ExtrudeCommand::setup() {
     CommandPanel &panel = *m_ctx.panel;
     if(isEditing()) m_original = std::dynamic_pointer_cast<const cad::ExtrudeFeature>(doc.feature(m_editing));
     const QStringList extents = {tr("Distance"), tr("To Object"), tr("All")};
-    m_profilesField = panel.addSelection(tr("Profiles"), tr("Select profiles or faces"), "extrudeProfiles");
+    m_fields[Profiles] = panel.addSelection(tr("Profiles"), tr("Select profiles or faces"), "extrudeProfiles");
     m_direction = panel.addChoice(tr("Direction"), {tr("One Side"), tr("Two Sides"), tr("Symmetric")}, "extrudeDirection");
     m_extent = panel.addChoice(tr("Extent Type"), extents, "extrudeExtent");
-    m_objectField = panel.addSelection(tr("Object"), tr("Select a face"), "extrudeObject");
+    m_fields[Object] = panel.addSelection(tr("Object"), tr("Select a face"), "extrudeObject");
     m_distanceField = panel.addValue(tr("Distance"), cad::ValueKind::Length, evaluator(), "extrudeDistance");
     m_flip = panel.addCheck(tr("Flip"), "extrudeFlip");
     m_taperField = panel.addValue(tr("Taper Angle"), cad::ValueKind::Angle, evaluator(), "extrudeTaper");
     m_taperField->setToolTip(tr("Positive angles flare the sides outwards, negative angles draw them in."));
     m_sideTwo = panel.addSection(tr("Side Two"));
     m_extent2 = panel.addChoice(tr("Extent Type"), extents, "extrudeExtent2");
-    m_object2Field = panel.addSelection(tr("Object"), tr("Select a face"), "extrudeObject2");
+    m_fields[Object2] = panel.addSelection(tr("Object"), tr("Select a face"), "extrudeObject2");
     m_distance2Field = panel.addValue(tr("Distance"), cad::ValueKind::Length, evaluator(), "extrudeDistance2");
     m_taper2Field = panel.addValue(tr("Taper Angle"), cad::ValueKind::Angle, evaluator(), "extrudeTaper2");
     m_operation = panel.addChoice(tr("Operation"), {tr("Join"), tr("Cut"), tr("Intersect"), tr("New Body")},
@@ -75,10 +78,10 @@ void ExtrudeCommand::setup() {
         return s.empty() ? doc.makeSlot(fallback) : s;
     };
     if(m_original) {
-        m_profiles = m_original->profiles;
-        m_faces = m_original->faces;
-        m_object = m_original->toObject;
-        m_object2 = m_original->toObject2;
+        for(const auto &p : m_original->profiles) m_refs[Profiles].push_back(InputRef::ofProfile(p));
+        for(const auto &f : m_original->faces) m_refs[Profiles].push_back(InputRef::ofTopo(f));
+        if(!m_original->toObject.empty()) m_refs[Object].push_back(InputRef::ofTopo(m_original->toObject));
+        if(!m_original->toObject2.empty()) m_refs[Object2].push_back(InputRef::ofTopo(m_original->toObject2));
         m_distance = slot(m_original->distance, "10 mm");
         m_taper = slot(m_original->taper, "0 deg");
         m_distance2 = slot(m_original->distance2, "10 mm");
@@ -96,45 +99,27 @@ void ExtrudeCommand::setup() {
         m_taper2 = doc.makeSlot("0 deg");
         m_operation->setCurrentIndex(indexIn(kOperations, cad::BodyOperation::NewBody));
         // Start from what is selected, as in Fusion (select a profile, press E).
-        const cad::StatePtr st = m_ctx.view->state();
-        m_profiles = m_initial;
-        const std::vector<SelectionItem> picked =
-            m_initial.empty() ? m_ctx.view->selection().items() : std::vector<SelectionItem>{};
-        for(const auto &it : picked) {
-            if(it.kind == SelectionItem::Kind::Profile) {
-                if(const cad::Profile *p = m_ctx.view->profileOf(it)) m_profiles.push_back({it.feature, it.key, p->sample});
-            } else if(it.kind == SelectionItem::Kind::Face && st) {
-                const cad::Body *b = st->body(it.body);
-                gp_Pln pln;
-                if(b && cad::planeOfFace(b->shape.face(it.index), pln))
-                    m_faces.push_back(cad::makeTopoRef(*b, cad::TopoKind::Face, it.index));
+        for(const auto &p : m_initial) m_refs[Profiles].push_back(InputRef::ofProfile(p));
+        if(m_initial.empty())
+            for(const auto &it : m_ctx.view->selection().items()) {
+                const auto r = inputRefOf(*m_ctx.view, it);
+                const bool planarFace = it.kind == SelectionItem::Kind::Face && m_ctx.view->planeRefOf(it);
+                if(r && (r->kind == SelectionItem::Kind::Profile || planarFace)) m_refs[Profiles].push_back(*r);
             }
-        }
     }
     m_distanceField->setExpression(QString::fromStdString(m_distance.expr));
     m_taperField->setExpression(QString::fromStdString(m_taper.expr));
     m_distance2Field->setExpression(QString::fromStdString(m_distance2.expr));
     m_taper2Field->setExpression(QString::fromStdString(m_taper2.expr));
 
-    connect(m_profilesField, &SelectionField::activated, this, [this] { activate(Field::Profiles); });
-    connect(m_objectField, &SelectionField::activated, this, [this] { activate(Field::Object); });
-    connect(m_object2Field, &SelectionField::activated, this, [this] { activate(Field::Object2); });
-    connect(m_profilesField, &SelectionField::cleared, this, [this] {
-        m_profiles.clear();
-        m_faces.clear();
-        activate(Field::Profiles);
-        changed();
-    });
-    connect(m_objectField, &SelectionField::cleared, this, [this] {
-        m_object = cad::TopoRef();
-        activate(Field::Object);
-        changed();
-    });
-    connect(m_object2Field, &SelectionField::cleared, this, [this] {
-        m_object2 = cad::TopoRef();
-        activate(Field::Object2);
-        changed();
-    });
+    for(Field f : {Profiles, Object, Object2}) {
+        connect(m_fields[f], &SelectionField::activated, this, [this, f] { activate(f); });
+        connect(m_fields[f], &SelectionField::cleared, this, [this, f] {
+            m_refs[f].clear();
+            activate(f);
+            changed();
+        });
+    }
     m_lastExtent = kExtents[m_extent->currentIndex()];
     connect(m_extent, &QComboBox::currentIndexChanged, this, [this](int i) {
         // All carries on the way the arrow pointed.
@@ -163,7 +148,7 @@ void ExtrudeCommand::setup() {
         changed();
     };
 
-    activate(Field::Profiles);
+    activate(Profiles);
     updateRows();
     updateArrow();
     chooseOperation();
@@ -178,110 +163,76 @@ void ExtrudeCommand::updateRows() {
     CommandPanel &panel = *m_ctx.panel;
     const cad::ExtentType e1 = kExtents[m_extent->currentIndex()], e2 = kExtents[m_extent2->currentIndex()];
     const bool two = kDirections[m_direction->currentIndex()] == cad::ExtrudeDirection::TwoSides;
-    panel.setRowVisible(m_objectField, e1 == cad::ExtentType::ToObject);
+    panel.setRowVisible(m_fields[Object], e1 == cad::ExtentType::ToObject);
     panel.setRowVisible(m_distanceField, e1 == cad::ExtentType::Distance);
     panel.setRowVisible(m_flip, e1 == cad::ExtentType::ThroughAll &&
                                     kDirections[m_direction->currentIndex()] == cad::ExtrudeDirection::OneSide);
     m_sideTwo->setVisible(two);
     panel.setRowVisible(m_extent2, two);
-    panel.setRowVisible(m_object2Field, two && e2 == cad::ExtentType::ToObject);
+    panel.setRowVisible(m_fields[Object2], two && e2 == cad::ExtentType::ToObject);
     panel.setRowVisible(m_distance2Field, two && e2 == cad::ExtentType::Distance);
     panel.setRowVisible(m_taper2Field, two);
-    if(m_active == Field::Object && e1 != cad::ExtentType::ToObject) activate(Field::Profiles);
-    if(m_active == Field::Object2 && !(two && e2 == cad::ExtentType::ToObject)) activate(Field::Profiles);
+    if(m_active == Object && e1 != cad::ExtentType::ToObject) activate(Profiles);
+    if(m_active == Object2 && !(two && e2 == cad::ExtentType::ToObject)) activate(Profiles);
     // Picking a target face comes next when To Object is chosen.
-    if(e1 == cad::ExtentType::ToObject && m_object.empty() && m_active == Field::Profiles && profileCount() > 0)
-        activate(Field::Object);
+    if(e1 == cad::ExtentType::ToObject && m_refs[Object].empty() && m_active == Profiles && profileCount() > 0)
+        activate(Object);
 }
 
 void ExtrudeCommand::activate(Field f) {
     m_active = f;
-    m_profilesField->setActive(f == Field::Profiles);
-    m_objectField->setActive(f == Field::Object);
-    m_object2Field->setActive(f == Field::Object2);
-    // Profiles take sketch regions and planar faces; objects are faces.
-    m_ctx.view->setSelectable(true, false, false, false, f == Field::Profiles);
-    showSelection();
+    for(Field g : {Profiles, Object, Object2}) m_fields[g]->setActive(g == f);
+    // Profiles take sketch regions and planar faces; objects are one planar face.
+    SelectFilter sf;
+    sf.edges = sf.vertices = sf.bodies = false;
+    sf.planarFacesOnly = true;
+    sf.profiles = f == Profiles;
+    m_ctx.view->setFilter(sf);
+    updateMarks();
 }
 
-// Shows the active field's inputs as the canvas selection.
-void ExtrudeCommand::showSelection() {
-    const cad::StatePtr st = m_ctx.view->state();
-    SelectionSet sel;
-    auto addFace = [&](const cad::TopoRef &ref) {
-        if(ref.empty() || !st) return;
-        const cad::ResolvedRef r = cad::resolveRef(*st, ref);
-        if(!r.ok) return;
-        SelectionItem it;
-        it.kind = SelectionItem::Kind::Face;
-        it.body = r.body->id;
-        it.index = r.index;
-        sel.add(it);
-    };
-    if(m_active == Field::Profiles) {
-        for(const auto &p : m_profiles) {
-            SelectionItem it;
-            it.kind = SelectionItem::Kind::Profile;
-            it.feature = p.sketch;
-            it.key = p.key;
-            sel.add(it);
-        }
-        for(const auto &f : m_faces) addFace(f);
-    } else {
-        addFace(m_active == Field::Object ? m_object : m_object2);
-    }
-    m_syncing = true;
-    m_ctx.view->setSelection(sel);
-    m_syncing = false;
-    m_profilesField->setCount(profileCount());
-    m_objectField->setCount(m_object.empty() ? 0 : 1);
-    m_object2Field->setCount(m_object2.empty() ? 0 : 1);
+// Draws the inputs on the model the extrude starts from.
+void ExtrudeCommand::updateMarks() {
+    ModelView::InputMarks marks;
+    if(const cad::StatePtr base = baseState())
+        for(Field f : {Profiles, Object, Object2})
+            for(size_t i = 0; i < m_refs[f].size(); ++i)
+                markInput(*m_ctx.view, *base, m_refs[f][i], int(f) * 1000 + int(i),
+                          f == m_active ? kActiveInput : kOtherInput, marks);
+    m_ctx.view->setInputMarks(std::move(marks));
+    for(Field f : {Profiles, Object, Object2}) m_fields[f]->setCount(int(m_refs[f].size()));
 }
 
-void ExtrudeCommand::selectionChanged() {
-    if(m_syncing) return;
-    const cad::StatePtr st = m_ctx.view->state();
-    if(!st) return;
-    // Faces the preview itself made are not inputs.
-    const cad::FeatureId self = isEditing() ? m_editing : m_ctx.doc->nextFeatureId();
-    const std::string ownPrefix = "f" + std::to_string(self) + "/";
-    auto faceRef = [&](const SelectionItem &it, cad::TopoRef &out) {
-        const cad::Body *b = st->body(it.body);
-        if(!b || it.index < 1 || it.index > b->shape.faceCount()) return false;
-        gp_Pln pln;
-        if(!cad::planeOfFace(b->shape.face(it.index), pln)) return false;
-        out = cad::makeTopoRef(*b, cad::TopoKind::Face, it.index);
-        return out.name.rfind(ownPrefix, 0) != 0;
-    };
-    const SelectionSet &sel = m_ctx.view->selection();
-    if(m_active == Field::Profiles) {
-        std::vector<cad::ProfileRef> profiles;
-        std::vector<cad::TopoRef> faces;
-        for(const auto &it : sel.items()) {
-            if(it.kind == SelectionItem::Kind::Profile) {
-                if(const cad::Profile *p = m_ctx.view->profileOf(it)) profiles.push_back({it.feature, it.key, p->sample});
-            } else if(it.kind == SelectionItem::Kind::Face) {
-                cad::TopoRef r;
-                if(faceRef(it, r)) faces.push_back(r);
-            }
-        }
-        m_profiles = std::move(profiles);
-        m_faces = std::move(faces);
+void ExtrudeCommand::picked(const std::optional<SelectionItem> &item, const PickHit &, Qt::KeyboardModifiers) {
+    if(!item) return;
+    const std::optional<InputRef> r = inputRefOf(*m_ctx.view, *item);
+    // The preview's own faces are not inputs.
+    if(!r || r->createdBy(isEditing() ? m_editing : m_ctx.doc->nextFeatureId())) return;
+    const bool face = item->kind == SelectionItem::Kind::Face && m_ctx.view->planeRefOf(*item).has_value();
+    if(m_active == Profiles) {
+        // Clicks add and remove, as in Fusion's command inputs.
+        if(r->kind != SelectionItem::Kind::Profile && !face) return;
+        toggleRef(m_refs[Profiles], *r);
     } else {
-        cad::TopoRef picked;
-        for(const auto &it : sel.items()) {
-            cad::TopoRef r;
-            if(it.kind == SelectionItem::Kind::Face && faceRef(it, r)) picked = r;
-        }
-        (m_active == Field::Object ? m_object : m_object2) = picked;
+        if(!face) return;
+        m_refs[m_active] = {*r};
     }
-    showSelection();
+    updateMarks();
+    changed();
+}
+
+void ExtrudeCommand::markClicked(int tag) {
+    const size_t f = size_t(tag / 1000), i = size_t(tag % 1000);
+    if(f > 2 || i >= m_refs[f].size()) return;
+    m_refs[f].erase(m_refs[f].begin() + std::ptrdiff_t(i));
+    updateMarks();
     changed();
 }
 
 std::set<cad::FeatureId> ExtrudeCommand::sketchesToShow() const {
     std::set<cad::FeatureId> out;
-    for(const auto &p : m_profiles) out.insert(p.sketch);
+    for(const auto &r : m_refs[Profiles])
+        if(r.kind == SelectionItem::Kind::Profile) out.insert(r.profile.sketch);
     return out;
 }
 
@@ -292,9 +243,8 @@ void ExtrudeCommand::changed() {
 }
 
 void ExtrudeCommand::previewed(const cad::StatePtr &) {
-    // Face inputs are re-found in the model now on screen; the base model may
-    // only now be known (it is computed in the background).
-    showSelection();
+    // The base model may only now be known (it is computed in the background).
+    updateMarks();
     updateArrow();
     if(chooseOperation()) emit inputsChanged();
 }
@@ -302,19 +252,19 @@ void ExtrudeCommand::previewed(const cad::StatePtr &) {
 bool ExtrudeCommand::inputPoint(gp_Pnt &p, gp_Dir &n) const {
     const cad::StatePtr st = baseState();
     if(!st) return false;
-    for(const auto &pr : m_profiles) {
-        const cad::SketchResult *sk = nullptr;
-        cad::Status s;
-        const cad::Profile *prof = cad::resolveProfile(*st, pr, sk, s);
-        if(!prof || !sk) continue;
-        p = sk->toWorld(prof->sample);
-        n = sk->frame.Direction();
-        return true;
-    }
-    for(const auto &fr : m_faces) {
-        const cad::ResolvedRef r = cad::resolveRef(*st, fr);
-        if(!r.ok) continue;
-        const TopoDS_Face face = TopoDS::Face(r.shape);
+    for(const auto &r : m_refs[Profiles]) {
+        if(r.kind == SelectionItem::Kind::Profile) {
+            const cad::SketchResult *sk = nullptr;
+            cad::Status s;
+            const cad::Profile *prof = cad::resolveProfile(*st, r.profile, sk, s);
+            if(!prof || !sk) continue;
+            p = sk->toWorld(prof->sample);
+            n = sk->frame.Direction();
+            return true;
+        }
+        const cad::ResolvedRef res = cad::resolveRef(*st, r.topo);
+        if(!res.ok) continue;
+        const TopoDS_Face face = TopoDS::Face(res.shape);
         gp_Pln pln;
         if(!cad::planeOfFace(face, pln)) continue;
         GProp_GProps g;
@@ -387,18 +337,18 @@ bool ExtrudeCommand::chooseOperation() {
 }
 
 std::shared_ptr<cad::Feature> ExtrudeCommand::build(QString &why) {
-    if(m_profiles.empty() && m_faces.empty()) {
+    if(m_refs[Profiles].empty()) {
         why = tr("Select profiles or planar faces to extrude.");
         return nullptr;
     }
     const cad::ExtrudeDirection dir = kDirections[m_direction->currentIndex()];
     const cad::ExtentType e1 = kExtents[m_extent->currentIndex()], e2 = kExtents[m_extent2->currentIndex()];
     const bool two = dir == cad::ExtrudeDirection::TwoSides;
-    if(e1 == cad::ExtentType::ToObject && m_object.empty()) {
+    if(e1 == cad::ExtentType::ToObject && m_refs[Object].empty()) {
         why = tr("Select the face to extrude to.");
         return nullptr;
     }
-    if(two && e2 == cad::ExtentType::ToObject && m_object2.empty()) {
+    if(two && e2 == cad::ExtentType::ToObject && m_refs[Object2].empty()) {
         why = tr("Select the face to extrude side two to.");
         return nullptr;
     }
@@ -414,8 +364,12 @@ std::shared_ptr<cad::Feature> ExtrudeCommand::build(QString &why) {
 
     auto f = m_original ? std::static_pointer_cast<cad::ExtrudeFeature>(m_original->clone())
                         : std::make_shared<cad::ExtrudeFeature>();
-    f->profiles = m_profiles;
-    f->faces = m_faces;
+    f->profiles.clear();
+    f->faces.clear();
+    for(const auto &r : m_refs[Profiles]) {
+        if(r.kind == SelectionItem::Kind::Profile) f->profiles.push_back(r.profile);
+        else f->faces.push_back(r.topo);
+    }
     f->direction = dir;
     f->extent = e1;
     f->extent2 = e2;
@@ -428,8 +382,8 @@ std::shared_ptr<cad::Feature> ExtrudeCommand::build(QString &why) {
         f->distance2 = {};
         f->taper2 = {};
     }
-    f->toObject = e1 == cad::ExtentType::ToObject ? m_object : cad::TopoRef();
-    f->toObject2 = two && e2 == cad::ExtentType::ToObject ? m_object2 : cad::TopoRef();
+    f->toObject = e1 == cad::ExtentType::ToObject ? m_refs[Object].front().topo : cad::TopoRef();
+    f->toObject2 = two && e2 == cad::ExtentType::ToObject ? m_refs[Object2].front().topo : cad::TopoRef();
     f->flip = e1 == cad::ExtentType::ThroughAll && dir == cad::ExtrudeDirection::OneSide && m_flip->isChecked();
     f->operation = operation();
     f->participants.clear();

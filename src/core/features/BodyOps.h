@@ -30,6 +30,8 @@ NamedShape unifyNamed(const NamedShape &shape, const std::string &prefix);
 // Adds one new body per solid of `shape` (ids "b<fid>", "b<fid>.2", ... by
 // decreasing volume; default names "BodyN").
 std::vector<BodyId> addNewBodies(ModelState &state, const NamedShape &shape, FeatureId fid);
+// A display-only body for FeatureResult::tool.
+std::shared_ptr<const Body> toolBody(const NamedShape &shape);
 
 // Replaces body `id` with the solids of `result`: the largest keeps the id,
 // others become "<id>.2", "<id>.3"... Removes the body if `result` is empty.

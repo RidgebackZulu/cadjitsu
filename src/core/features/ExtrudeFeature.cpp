@@ -302,9 +302,27 @@ FeatureResult ExtrudeFeature::compute(const StatePtr &input, const ComputeContex
         };
         std::vector<Trim> trims;
         // `sign` is +1 for side 1 (along n) and -1 for side 2.
+        // All reaches just past the far side of the model (every input face
+        // swept along its own normal).
+        auto throughLength = [&](int sign) {
+            double far = 0.0;
+            if(!box.IsVoid()) {
+                double x0, y0, z0, x1, y1, z1;
+                box.Get(x0, y0, z0, x1, y1, z1);
+                for(const auto &in : inputs) {
+                    gp_Pln pl;
+                    if(!planeOfFace(in.face, pl)) continue;
+                    const gp_Vec d = gp_Vec(flip ? in.normal.Reversed() : in.normal) * double(sign);
+                    for(double x : {x0, x1})
+                        for(double y : {y0, y1})
+                            for(double z : {z0, z1}) far = std::max(far, gp_Vec(pl.Location(), gp_Pnt(x, y, z)).Dot(d));
+                }
+            }
+            return far + 0.01 * (big - 10.0) + 1.0;
+        };
         auto sideLength = [&](ExtentType e, const ParamSlot &slot, const TopoRef &target, int sign, double &v) {
             if(e == ExtentType::ThroughAll) {
-                v = big;
+                v = throughLength(sign);
                 return true;
             }
             if(e == ExtentType::ToObject) {
@@ -501,7 +519,11 @@ FeatureResult ExtrudeFeature::compute(const StatePtr &input, const ComputeContex
             tool = br.shape;
         }
 
-        // 4. Apply the operation.
+        // 4. Apply the operation. Cuts and intersections show their tool while
+        // previewed (also when they fail).
+        const std::shared_ptr<const Body> shown =
+            operation == BodyOperation::Cut || operation == BodyOperation::Intersect ? toolBody(tool) : nullptr;
+        auto fail = [&](Status s) { return FeatureResult{input, std::move(s), shown}; };
         auto out = std::make_shared<ModelState>(*input);
         std::vector<BodyId> parts;
         if(operation != BodyOperation::NewBody) {
@@ -526,25 +548,25 @@ FeatureResult ExtrudeFeature::compute(const StatePtr &input, const ComputeContex
         case BodyOperation::Cut:
         case BodyOperation::Intersect: {
             if(parts.empty())
-                return {input, Status::error(operation == BodyOperation::Cut ? "there is no body to cut"
-                                                                             : "there is no body to intersect")};
+                return fail(Status::error(operation == BodyOperation::Cut ? "there is no body to cut"
+                                                                          : "there is no body to intersect"));
             const BoolOp op = operation == BodyOperation::Cut ? BoolOp::Cut : BoolOp::Common;
             for(const auto &p : parts) {
                 const Body *body = input->body(p);
                 BooleanResult br = runBoolean(op, {&body->shape}, {&tool}, prefix);
-                if(!br.ok) return {input, Status::error(br.error)};
+                if(!br.ok) return fail(Status::error(br.error));
                 if(solidsOf(br.shape.shape()).empty()) {
                     out->bodies.erase(p);
                     st.merge(Status::warning(body->name + " was removed entirely"));
                     continue;
                 }
-                if(!validateResult(br.shape, prefix, st)) return {input, st};
+                if(!validateResult(br.shape, prefix, st)) return fail(st);
                 replaceBody(*out, p, br.shape);
             }
             break;
         }
         }
-        return {out, st};
+        return {out, st, shown};
     });
 }
 

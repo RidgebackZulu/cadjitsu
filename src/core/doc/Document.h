@@ -19,6 +19,7 @@ struct TimelineEvaluation {
     std::vector<uint64_t> keys;     // cache key after each feature (all features)
     std::vector<StatePtr> states;   // state after features[0..i] (computed prefix only)
     std::vector<Status> statuses;   // status of each computed feature
+    std::vector<std::shared_ptr<const Body>> tools; // FeatureResult::tool of each computed feature
 };
 
 // Computes timeline states [computed, upTo) on top of `eval`, using and

@@ -41,15 +41,21 @@ FeatureResult CombineFeature::compute(const StatePtr &input, const ComputeContex
                                                                   : BoolOp::Fuse;
         std::vector<const NamedShape *> toolShapes;
         for(const auto &b : ts) toolShapes.push_back(&input->body(b)->shape);
+        std::shared_ptr<const Body> shown;
+        if(operation == BodyOperation::Cut && !keepTools) {
+            std::vector<TopoDS_Shape> v;
+            for(const NamedShape *s : toolShapes) v.push_back(s->shape());
+            shown = toolBody(NamedShape(makeCompound(v), {}));
+        }
         BooleanResult br = runBoolean(op, {&input->body(t)->shape}, toolShapes, prefix);
-        if(!br.ok) return {input, Status::error(br.error)};
+        if(!br.ok) return {input, Status::error(br.error), shown};
 
         auto out = std::make_shared<ModelState>(*input);
         if(solidsOf(br.shape.shape()).empty()) {
             out->bodies.erase(t);
             st.merge(Status::warning("the target body was removed entirely"));
         } else {
-            if(!validateResult(br.shape, prefix, st)) return {input, st};
+            if(!validateResult(br.shape, prefix, st)) return {input, st, shown};
             replaceBody(*out, t, br.shape);
         }
         if(!keepTools) {
@@ -58,7 +64,7 @@ FeatureResult CombineFeature::compute(const StatePtr &input, const ComputeContex
                 if(operation == BodyOperation::Join) out->mergedInto[b] = t;
             }
         }
-        return {out, st};
+        return {out, st, shown};
     });
 }
 

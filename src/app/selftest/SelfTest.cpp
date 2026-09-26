@@ -3,7 +3,11 @@
 #include "MainWindow.h"
 #include "command/Command.h"
 #include "command/CommandPanel.h"
+#include "command/CombineCommand.h"
+#include "command/EdgeCommands.h"
 #include "command/ExtrudeCommand.h"
+#include "command/HoleCommand.h"
+#include "command/PlaneCommand.h"
 #include "model/ModelView.h"
 #include "selftest/DemoModels.h"
 #include "selftest/TestUtil.h"
@@ -39,6 +43,7 @@
 
 #include <gp_Pln.hxx>
 
+#include <array>
 #include <functional>
 #include <map>
 
@@ -706,12 +711,171 @@ bool plateScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
+// M5: Offset Plane, Fillet, Chamfer, Hole and Combine through their dialogs,
+// with screenshots of each live preview, then Edit Feature, the timeline and
+// a check against a from-scratch evaluation.
+bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
+    Viewport *vp = w.viewport();
+    cad::Document &doc = w.document();
+    bool ok = true;
+    auto check = [&](bool cond, const QString &what) {
+        log << (cond ? "  ok   " : "  FAIL ") << what << "\n";
+        log.flush();
+        ok &= cond;
+    };
+    auto shot = [&](const char *name) {
+        waitForFrames(vp, 2);
+        processEventsFor(30);
+        w.grab().save(out.filePath(QString::fromLatin1(name)));
+    };
+    auto settle = [&] {
+        w.waitForModel(60000);
+        waitForFrames(vp, 1);
+    };
+    auto at = [&](double x, double y, double z) { return vp->camera().project(QVector3D(float(x), float(y), float(z))); };
+    auto type = [&](ValueField *f, const QString &text) {
+        f->setFocus();
+        f->selectAll();
+        typeText(w, text);
+    };
+    auto shown = [&] { return modelVolume(w.modelView()->state()); };
+    auto lastOk = [&] { return doc.statusOf(doc.features().back()->id).isOk(); };
+
+    // A 60 x 40 x 20 plate (sketching and extruding are covered by `plate`).
+    auto s = std::make_shared<cad::SketchFeature>();
+    s->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+    s->sketch.addRectangle({0, 0}, {60, 40});
+    const cad::FeatureId sid = doc.addFeature(s);
+    auto e = std::make_shared<cad::ExtrudeFeature>();
+    for(const auto &p : doc.stateAt(doc.marker())->sketches.at(sid)->profiles) e->profiles.push_back({sid, p.key, p.sample});
+    e->distance = doc.makeSlot("20 mm");
+    doc.addFeature(e);
+    w.refresh();
+    vp->setStandardView(StandardView::Home, false);
+    vp->fitAll(false);
+    waitForFrames(vp, 2);
+
+    // Fillet the four vertical edges (clicks add them).
+    w.action(QStringLiteral("fillet"))->trigger();
+    auto *fillet = qobject_cast<FilletCommand *>(w.commands()->command());
+    if(!fillet) return false;
+    for(const auto &p : {std::array<double, 2>{0, 0}, {60, 0}, {60, 40}}) clickAt(vp, at(p[0], p[1], 10));
+    type(fillet->radiusField(), QStringLiteral("6"));
+    settle();
+    check(fillet->edgeCount() == 3 && lastOk() && shown() < 48000.0 - 3 * 20 * 36 * (1 - cad::kPi / 4) + 1.0,
+          QStringLiteral("Fillet: 3 edges at 6 mm previewed (%1 mm3; %2 edges, radius '%3', '%4')")
+              .arg(shown(), 0, 'f', 2)
+              .arg(fillet->edgeCount())
+              .arg(fillet->radiusField()->expression(), w.commandPanel()->message()));
+    shot("features_1_fillet.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+
+    // Chamfer the top face's edges.
+    w.action(QStringLiteral("chamfer"))->trigger();
+    auto *chamfer = qobject_cast<ChamferCommand *>(w.commands()->command());
+    if(!chamfer) return false;
+    clickAt(vp, at(30, 20, 20));
+    type(chamfer->distanceField(), QStringLiteral("1.5"));
+    settle();
+    check(chamfer->edgeCount() == 1 && w.commandPanel()->okButton()->isEnabled(),
+          QStringLiteral("Chamfer: the top face's edges at 1.5 mm previewed (%1 picked, '%2')")
+              .arg(chamfer->edgeCount())
+              .arg(w.commandPanel()->message()));
+    shot("features_2_chamfer.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(lastOk(), QStringLiteral("Chamfer committed"));
+
+    // Two counterbored holes clicked onto the top face.
+    w.action(QStringLiteral("hole"))->trigger();
+    auto *hole = qobject_cast<HoleCommand *>(w.commands()->command());
+    if(!hole) return false;
+    hole->typeBox()->setCurrentIndex(1);
+    hole->extentBox()->setCurrentIndex(1);
+    clickAt(vp, at(18, 20, 20));
+    clickAt(vp, at(42, 20, 20));
+    settle();
+    check(hole->holeCount() == 2 && w.modelView()->evaluation()->tool != nullptr,
+          QStringLiteral("Hole: two counterbored holes, the drills shown translucent"));
+    shot("features_3_hole.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(lastOk(), QStringLiteral("Hole committed"));
+
+    // An offset plane above the plate, turned 20 degrees.
+    w.action(QStringLiteral("offsetPlane"))->trigger();
+    auto *plane = qobject_cast<PlaneCommand *>(w.commands()->command());
+    if(!plane) return false;
+    clickAt(vp, at(30, 8, 20));
+    type(plane->offsetField(), QStringLiteral("25"));
+    type(plane->angleField(), QStringLiteral("20"));
+    settle();
+    check(plane->hasBase() && w.modelView()->state()->planes.size() == 1, QStringLiteral("Offset Plane previewed"));
+    shot("features_4_plane.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(lastOk(), QStringLiteral("Offset Plane committed"));
+
+    // A second body, then Combine / Cut it from the plate.
+    auto s2 = std::make_shared<cad::SketchFeature>();
+    s2->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+    s2->sketch.addCircle(cad::Vec2{60, 40}, 12);
+    const cad::FeatureId sid2 = doc.addFeature(s2);
+    auto e2 = std::make_shared<cad::ExtrudeFeature>();
+    for(const auto &p : doc.stateAt(doc.marker())->sketches.at(sid2)->profiles) e2->profiles.push_back({sid2, p.key, p.sample});
+    e2->distance = doc.makeSlot("30 mm");
+    e2->operation = cad::BodyOperation::NewBody;
+    doc.addFeature(e2);
+    w.refresh();
+    waitForFrames(vp, 2);
+    const double before = shown();
+    w.action(QStringLiteral("combine"))->trigger();
+    auto *combine = qobject_cast<CombineCommand *>(w.commands()->command());
+    if(!combine) return false;
+    clickAt(vp, at(10, 20, 20));
+    clickAt(vp, at(60 + 12 * 0.7, 40 - 12 * 0.7, 30));
+    combine->operationBox()->setCurrentIndex(1);
+    settle();
+    check(combine->hasTarget() && combine->toolCount() == 1 && w.modelView()->state()->bodies.size() == 1 &&
+              shown() < before - 1000.0,
+          QStringLiteral("Combine: cutting the cylinder out of the plate previewed"));
+    shot("features_5_combine.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(lastOk(), QStringLiteral("Combine committed"));
+
+    // Edit Feature on the fillet: the same dialog with its three edges.
+    w.editFeature(doc.features()[2]->id);
+    fillet = qobject_cast<FilletCommand *>(w.commands()->command());
+    check(fillet && fillet->isEditing() && fillet->edgeCount() == 3 &&
+              fillet->radiusField()->expression() == QStringLiteral("6"),
+          QStringLiteral("Edit Feature reopens the fillet with its edges and radius"));
+    shot("features_6_edit_fillet.png");
+    w.commandPanel()->cancelButton()->click();
+    settle();
+
+    // Everything recomputes the same from scratch.
+    cad::Document fresh;
+    std::string error;
+    fresh.fromJson(doc.toJson(), error);
+    bool allOk = true;
+    for(const auto &f : fresh.features()) allOk &= fresh.statusOf(f->id).isOk();
+    check(allOk && std::fabs(modelVolume(fresh.displayedState()) - shown()) < 1e-6,
+          QStringLiteral("the design recomputes from scratch to the same %1 mm3").arg(shown(), 0, 'f', 2));
+    vp->setStandardView(StandardView::Home, false);
+    vp->fitAll(false);
+    shot("features_7_done.png");
+    return ok;
+}
+
 const std::map<QString, Scenario> &scenarios() {
     static const std::map<QString, Scenario> s = {
         {QStringLiteral("smoke"), smokeScenario},
         {QStringLiteral("views"), viewsScenario},
         {QStringLiteral("sketch"), sketchScenario},
         {QStringLiteral("plate"), plateScenario},
+        {QStringLiteral("features"), featuresScenario},
     };
     return s;
 }

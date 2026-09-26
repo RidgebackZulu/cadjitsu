@@ -12,6 +12,7 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QStyle>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -44,7 +45,14 @@ void ValueField::revalidate() {
         else tip = QString::fromStdString(r.error);
     }
     setToolTip(tip);
-    setStyleSheet(m_value ? QString() : QStringLiteral("QLineEdit { border: 1px solid #d23c3c; background: #fff3f2; }"));
+    // Styled by the panel (red when the value does not evaluate).
+    const bool invalid = !m_value;
+    if(property("invalid").toBool() != invalid) {
+        setProperty("invalid", invalid);
+        style()->unpolish(this);
+        style()->polish(this);
+        update();
+    }
 }
 
 // --- SelectionField ----------------------------------------------------------------
@@ -102,7 +110,11 @@ CommandPanel::CommandPanel(QWidget *canvas) : QFrame(canvas) {
         "#commandMessage { font-size: 11px; }"
         "#commandOk { background: #1a66c9; color: white; border-radius: 3px; padding: 4px 16px; border: none; }"
         "#commandOk:disabled { background: #9db6d8; }"
-        "#commandCancel { border-radius: 3px; padding: 4px 12px; }"));
+        "#commandCancel { border-radius: 3px; padding: 4px 12px; }"
+        "cadly--ValueField { border: 1px solid #b9c0ca; border-radius: 3px; padding: 2px 4px; background: white;"
+        " font-size: 12px; }"
+        "cadly--ValueField:focus { border: 1px solid #1a66c9; }"
+        "cadly--ValueField[invalid=\"true\"] { border: 1px solid #d23c3c; background: #fff3f2; }"));
     auto *v = new QVBoxLayout(this);
     v->setContentsMargins(10, 8, 10, 10);
     v->setSpacing(6);
@@ -170,6 +182,10 @@ void CommandPanel::addRow(const QString &label, QWidget *field) {
     auto *l = new QLabel(label, m_body);
     m_rows->addWidget(l, m_nextRow, 0);
     m_rows->addWidget(field, m_nextRow, 1);
+    // Shown now, not from the event loop: commands put the keyboard into
+    // their first value box right away.
+    l->show();
+    field->show();
     m_labels[field] = l;
     ++m_nextRow;
     adjustSize();
@@ -212,6 +228,7 @@ QLabel *CommandPanel::addSection(const QString &title) {
     auto *l = new QLabel(title.toUpper(), m_body);
     l->setObjectName(QStringLiteral("commandSection"));
     m_rows->addWidget(l, m_nextRow++, 0, 1, 2);
+    l->show();
     return l;
 }
 

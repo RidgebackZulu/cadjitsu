@@ -13,6 +13,7 @@ std::shared_ptr<const MeshData> Body::mesh(double deflection) const {
         const KernelLock lock(kernelMutex());
         const double d = deflection > 0 ? deflection : defaultDeflection(bboxDiagonal(shape.shape()));
         m_mesh = tessellateForDisplay(shape, d);
+        m_meshed.store(true, std::memory_order_release);
     });
     return m_mesh;
 }

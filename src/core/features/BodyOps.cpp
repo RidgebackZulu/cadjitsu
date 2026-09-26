@@ -57,6 +57,14 @@ NamedShape unifyNamed(const NamedShape &shape, const std::string &prefix) {
     return propagateNames(unify.Shape(), {&shape}, unify.History(), prefix);
 }
 
+std::shared_ptr<const Body> toolBody(const NamedShape &shape) {
+    auto b = std::make_shared<Body>();
+    b->id = "tool";
+    b->name = "tool";
+    b->shape = shape;
+    return b;
+}
+
 std::vector<BodyId> addNewBodies(ModelState &state, const NamedShape &shape, FeatureId fid) {
     std::vector<TopoDS_Solid> solids = solidsOf(shape.shape());
     std::vector<std::pair<double, TopoDS_Solid>> sized;

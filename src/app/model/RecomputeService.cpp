@@ -71,11 +71,20 @@ void RecomputeService::run() {
         result->state = job->marker > 0 ? eval.states[size_t(job->marker) - 1] : std::make_shared<const cad::ModelState>();
         result->statuses = eval.statuses;
         result->preview = job->preview;
+        if(job->preview && job->marker > 0) result->tool = eval.tools[size_t(job->marker) - 1];
         // Tessellate what will be drawn, so the UI thread never waits for it.
         for(const auto &kv : result->state->bodies) {
             if(job->cancel) break;
             kv.second->mesh();
         }
+        if(result->tool && !job->cancel) result->tool->mesh();
+        // A preview's command draws its inputs on the model before the
+        // previewed feature: tessellate that too.
+        if(job->preview && job->marker >= 2)
+            for(const auto &kv : eval.states[size_t(job->marker) - 2]->bodies) {
+                if(job->cancel) break;
+                kv.second->mesh();
+            }
         if(job->cancel) continue;
         QMetaObject::invokeMethod(this, [this, result] { deliver(result); }, Qt::QueuedConnection);
 
@@ -87,9 +96,10 @@ void RecomputeService::run() {
 }
 
 void RecomputeService::deliver(EvaluationPtr result) {
+    if(result->id == m_requested) setBusy(false);
+    if(result->id <= m_superseded) return;
     if(m_latest && result->id < m_latest->id) return;
     m_latest = result;
-    if(result->id == m_requested) setBusy(false);
     emit finished(result);
 }
 

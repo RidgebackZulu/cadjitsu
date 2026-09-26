@@ -65,11 +65,13 @@ int evaluateTimeline(const std::vector<FeaturePtr> &features, const ParamTable &
         if(f.suppressed) {
             eval.states.push_back(prev);
             eval.statuses.push_back(Status::ok());
+            eval.tools.push_back(nullptr);
             continue;
         }
         if(auto hit = cache.find(eval.keys[i])) {
             eval.states.push_back(hit->state);
             eval.statuses.push_back(hit->status);
+            eval.tools.push_back(hit->tool);
             prev = hit->state;
             continue;
         }
@@ -83,9 +85,10 @@ int evaluateTimeline(const std::vector<FeaturePtr> &features, const ParamTable &
         }
         if(cancel && cancel->load()) break; // a cancelled result may be incomplete
         if(!r.state) r.state = prev;
-        cache.insert(eval.keys[i], {r.state, r.status});
+        cache.insert(eval.keys[i], {r.state, r.status, r.tool});
         eval.states.push_back(r.state);
         eval.statuses.push_back(r.status);
+        eval.tools.push_back(r.tool);
         prev = r.state;
         ++computed;
     }
@@ -273,12 +276,14 @@ StatePtr Document::knownStateAt(int index) {
         if(m_features[i]->suppressed) {
             m_eval.states.push_back(prev);
             m_eval.statuses.push_back(Status::ok());
+            m_eval.tools.push_back(nullptr);
             continue;
         }
         const auto hit = m_cache->find(m_eval.keys[i]);
         if(!hit) return nullptr;
         m_eval.states.push_back(hit->state);
         m_eval.statuses.push_back(hit->status);
+        m_eval.tools.push_back(hit->tool);
         prev = hit->state;
     }
     return m_eval.states[size_t(index) - 1];

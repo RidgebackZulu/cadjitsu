@@ -49,8 +49,15 @@ struct ComputeContext {
 };
 
 struct FeatureResult {
+    FeatureResult() = default;
+    FeatureResult(StatePtr s, Status st, std::shared_ptr<const Body> t = nullptr)
+        : state(std::move(s)), status(std::move(st)), tool(std::move(t)) {}
+
     StatePtr state;
     Status status;
+    // Display only: the material a cut or hole removes, shown translucent
+    // while the feature is previewed.
+    std::shared_ptr<const Body> tool;
 };
 
 // A timeline entry. Features are immutable values once in the timeline

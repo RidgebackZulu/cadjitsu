@@ -19,6 +19,7 @@ public:
     struct Entry {
         StatePtr state;
         Status status;
+        std::shared_ptr<const Body> tool; // see FeatureResult::tool
     };
 
     explicit ResultCache(size_t capacity = 256) : m_capacity(capacity) {}

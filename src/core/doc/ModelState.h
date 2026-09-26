@@ -6,6 +6,7 @@
 
 #include <gp_Ax3.hxx>
 
+#include <atomic>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -27,10 +28,15 @@ struct Body {
     // Display tessellation, built on first use and shared by every model state
     // that contains this (immutable) body.
     std::shared_ptr<const MeshData> mesh(double deflection = 0.0) const;
+    // The tessellation if it has been built already; never waits.
+    std::shared_ptr<const MeshData> meshIfReady() const {
+        return m_meshed.load(std::memory_order_acquire) ? m_mesh : nullptr;
+    }
 
 private:
     mutable std::once_flag m_meshOnce;
     mutable std::shared_ptr<const MeshData> m_mesh;
+    mutable std::atomic<bool> m_meshed{false};
 };
 
 // A construction plane produced by a ConstructionPlane feature.
@@ -38,6 +44,7 @@ struct PlaneResult {
     FeatureId feature = kNoFeature;
     std::string name;
     gp_Ax3 frame;
+    gp_Pnt center;          // display: middle of the drawn square (in the plane)
     double halfSize = 50.0; // display extent
 };
 

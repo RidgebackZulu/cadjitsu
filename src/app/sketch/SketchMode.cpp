@@ -1,6 +1,7 @@
 #include "sketch/SketchMode.h"
 
 #include "model/ModelView.h"
+#include "model/PlaneDisplay.h"
 #include "sketch/HeadsUpInput.h"
 #include "sketch/SketchPalette.h"
 #include "ui/Icons.h"
@@ -108,13 +109,11 @@ public:
         if(m_hover.kind == Candidate::Kind::Construction) {
             auto it = state->planes.find(m_hover.plane);
             if(it != state->planes.end()) {
-                const gp_Ax3 &f = it->second->frame;
-                const float h = float(it->second->halfSize);
-                const QVector3D o = toQ(f.Location().XYZ()), x = toQ(f.XDirection().XYZ()) * h, y = toQ(f.YDirection().XYZ()) * h;
+                const Quad q = constructionPlaneQuad(*it->second);
                 LineBatch lb;
                 lb.color = kPlaneEdge;
                 lb.width = 2.6f;
-                lb.segments = {o - x - y, o + x - y, o + x - y, o + x + y, o + x + y, o - x + y, o - x + y, o - x - y};
+                lb.segments = {q[0], q[1], q[1], q[2], q[2], q[3], q[3], q[0]};
                 scene.lines.push_back(lb);
             }
         }
@@ -171,13 +170,12 @@ public:
         const cad::StatePtr state = m_mode.modelView()->state();
         if(state) {
             for(const auto &[fid, plane] : state->planes) {
-                float t, u, v;
-                const float h = float(plane->halfSize);
-                if(planeHit(plane->frame, t, u, v) && std::fabs(u) <= h && std::fabs(v) <= h && t < best.t) {
+                const auto t = rayQuad(o, d, constructionPlaneQuad(*plane), cam.orthographic);
+                if(t && *t < best.t) {
                     best = Candidate();
                     best.kind = Candidate::Kind::Construction;
                     best.plane = fid;
-                    best.t = t;
+                    best.t = *t;
                 }
             }
             PickOptions opts;

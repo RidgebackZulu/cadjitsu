@@ -1,0 +1,407 @@
+// Fillet, Chamfer, Hole, Combine and Offset Plane driven through the UI:
+// picking inputs in the canvas (clicks add and remove), live preview, OK,
+// Edit Feature reopening the same values, and failures shown in the dialog.
+#include "TestRegistry.h"
+
+#include "MainWindow.h"
+#include "command/CombineCommand.h"
+#include "command/Command.h"
+#include "command/CommandPanel.h"
+#include "command/EdgeCommands.h"
+#include "command/HoleCommand.h"
+#include "command/PlaneCommand.h"
+#include "model/ModelView.h"
+#include "selftest/TestUtil.h"
+#include "ui/TimelineWidget.h"
+#include "viewport/Viewport.h"
+
+#include "features/ChamferFeature.h"
+#include "features/CombineFeature.h"
+#include "features/ConstructionPlaneFeature.h"
+#include "features/ExtrudeFeature.h"
+#include "features/FilletFeature.h"
+#include "features/HoleFeature.h"
+#include "features/SketchFeature.h"
+#include "geom/OcctUtil.h"
+#include "topo/Resolver.h"
+
+#include <gp_Pln.hxx>
+
+#include <QAction>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QLabel>
+#include <QPushButton>
+#include <QtTest>
+
+#include <cmath>
+
+using namespace cadly;
+
+namespace {
+
+void send(QWidget *w, QEvent::Type type, QPointF pos, Qt::MouseButton button, Qt::MouseButtons buttons) {
+    QMouseEvent ev(type, pos, w->mapToGlobal(pos), button, buttons, Qt::NoModifier);
+    QCoreApplication::sendEvent(w, &ev);
+}
+
+double volume(const cad::StatePtr &s) {
+    double v = 0;
+    for(const auto &kv : s->bodies) v += cad::volumeOf(kv.second->shape.shape());
+    return v;
+}
+
+void doubleClick(QWidget *w, QPoint pos) {
+    QTest::mousePress(w, Qt::LeftButton, Qt::NoModifier, pos);
+    QTest::mouseRelease(w, Qt::LeftButton, Qt::NoModifier, pos);
+    QTest::mouseDClick(w, Qt::LeftButton, Qt::NoModifier, pos);
+    QTest::mouseRelease(w, Qt::LeftButton, Qt::NoModifier, pos);
+}
+
+} // namespace
+
+class FeatureTests : public QObject {
+    Q_OBJECT
+
+    std::unique_ptr<MainWindow> m_window;
+
+    Viewport *vp() { return m_window->viewport(); }
+    cad::Document &doc() { return m_window->document(); }
+    ModelView *view() { return m_window->modelView(); }
+    CommandPanel *panel() { return m_window->commandPanel(); }
+    template <class T> T *command() { return qobject_cast<T *>(m_window->commands()->command()); }
+    template <class T> T *field(const char *name) { return panel()->findChild<T *>(QString::fromLatin1(name)); }
+
+    QPointF at(double x, double y, double z) { return vp()->camera().project(QVector3D(float(x), float(y), float(z))); }
+    void click(QPointF p) {
+        send(vp(), QEvent::MouseMove, p, Qt::NoButton, Qt::NoButton);
+        send(vp(), QEvent::MouseButtonPress, p, Qt::LeftButton, Qt::LeftButton);
+        send(vp(), QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
+    }
+    void settle() {
+        QVERIFY(m_window->waitForModel());
+        QVERIFY(waitForFrames(vp(), 1));
+    }
+    void typeInto(ValueField *f, const QString &text) {
+        f->setFocus();
+        f->selectAll();
+        QTest::keyClicks(f, text);
+    }
+    void trigger(const char *name) {
+        QAction *a = m_window->action(QString::fromLatin1(name));
+        QVERIFY2(a && a->isEnabled(), name);
+        a->trigger();
+    }
+    double shown() { return volume(view()->state()); }
+
+    // A box made of a rectangle sketch and an extrude, straight into the document.
+    cad::FeatureId box(double x0, double y0, double x1, double y1, double height,
+                       cad::BodyOperation op = cad::BodyOperation::NewBody) {
+        auto s = std::make_shared<cad::SketchFeature>();
+        s->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        s->sketch.addRectangle({x0, y0}, {x1, y1});
+        const cad::FeatureId sid = doc().addFeature(s);
+        auto e = std::make_shared<cad::ExtrudeFeature>();
+        for(const auto &p : doc().stateAt(doc().marker())->sketches.at(sid)->profiles) e->profiles.push_back({sid, p.key, p.sample});
+        e->distance = doc().makeSlot(std::to_string(height) + " mm");
+        e->operation = op;
+        return doc().addFeature(e);
+    }
+    void showHome() {
+        m_window->refresh();
+        vp()->setStandardView(StandardView::Home, false);
+        vp()->fitAll(false);
+        QVERIFY(waitForFrames(vp(), 1));
+    }
+
+private slots:
+    void init() {
+        m_window = std::make_unique<MainWindow>();
+        m_window->resize(1300, 850);
+        m_window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(m_window.get()));
+        QVERIFY(waitForFrames(vp(), 2));
+    }
+
+    void cleanup() { m_window.reset(); }
+
+    void filletPicksEdgesAndPreviews() {
+        box(0, 0, 40, 20, 10);
+        showHome();
+        // Select the top front edge first, then F: the command starts with it.
+        click(at(20, 0, 10));
+        QCOMPARE(view()->selection().count(SelectionItem::Kind::Edge), size_t(1));
+        trigger("fillet");
+        auto *fillet = command<FilletCommand>();
+        QVERIFY(fillet);
+        QCOMPARE(fillet->edgeCount(), 1);
+        QCOMPARE(field<SelectionField>("edges")->count(), 1);
+        typeInto(fillet->radiusField(), QStringLiteral("2"));
+        settle();
+        const double one = 8000.0 - (1.0 - M_PI / 4) * 4.0 * 40.0;
+        QVERIFY2(std::fabs(shown() - one) < 1e-3, qPrintable(QString::number(shown())));
+        // Clicking another edge adds it (no modifier needed in a command).
+        click(at(40, 10, 10));
+        settle();
+        QCOMPARE(fillet->edgeCount(), 2);
+        QVERIFY(shown() < one - 1.0);
+        // The first edge is rounded away in the preview, but its mark can still be clicked.
+        click(at(20, 0, 10));
+        settle();
+        QCOMPARE(fillet->edgeCount(), 1);
+        QVERIFY(std::fabs(shown() - (8000.0 - (1.0 - M_PI / 4) * 4.0 * 20.0)) < 1e-3);
+        panel()->okButton()->click();
+        settle();
+        QCOMPARE(int(doc().features().size()), 3);
+        const auto f = std::dynamic_pointer_cast<const cad::FilletFeature>(doc().features().back());
+        QVERIFY(f && f->edges.size() == 1 && f->radius.expr == "2");
+        // Edit Feature: same dialog, same values.
+        TimelineWidget *tl = m_window->timeline();
+        doubleClick(tl, tl->itemRect(2).center());
+        fillet = command<FilletCommand>();
+        QVERIFY(fillet && fillet->isEditing());
+        QCOMPARE(fillet->edgeCount(), 1);
+        QCOMPARE(fillet->radiusField()->expression(), QStringLiteral("2"));
+        panel()->cancelButton()->click();
+    }
+
+    void aFailingFilletIsAnErrorNotACrash() {
+        box(0, 0, 40, 20, 10);
+        showHome();
+        trigger("fillet");
+        click(at(20, 0, 10));
+        typeInto(command<FilletCommand>()->radiusField(), QStringLiteral("30"));
+        settle();
+        QVERIFY(!panel()->message().isEmpty());
+        QVERIFY(!panel()->okButton()->isEnabled());
+        QVERIFY(std::fabs(shown() - 8000.0) < 1e-6); // the model before the fillet
+        // Enter does not commit it either.
+        QTest::keyClick(command<FilletCommand>()->radiusField(), Qt::Key_Return);
+        QVERIFY(m_window->commands()->active());
+        typeInto(command<FilletCommand>()->radiusField(), QStringLiteral("1"));
+        settle();
+        QVERIFY(panel()->okButton()->isEnabled());
+        panel()->okButton()->click();
+        settle();
+        QCOMPARE(doc().statusOf(doc().features().back()->id).severity, cad::Severity::Ok);
+    }
+
+    void chamferAFaceWithEachType() {
+        box(0, 0, 40, 20, 10);
+        showHome();
+        trigger("chamfer");
+        auto *chamfer = command<ChamferCommand>();
+        QVERIFY(chamfer);
+        click(at(20, 10, 10)); // the top face: all four of its edges
+        QCOMPARE(chamfer->edgeCount(), 1);
+        typeInto(chamfer->distanceField(), QStringLiteral("1"));
+        settle();
+        const double equal = shown();
+        QVERIFY2(equal < 8000.0 - 55.0 && equal > 8000.0 - 65.0, qPrintable(QString::number(equal)));
+        QVERIFY(!chamfer->distance2Field()->isVisible() && !chamfer->angleField()->isVisible());
+        chamfer->typeBox()->setCurrentIndex(1); // two distances
+        QVERIFY(chamfer->distance2Field()->isVisible());
+        typeInto(chamfer->distance2Field(), QStringLiteral("2"));
+        settle();
+        QVERIFY(shown() < equal - 10.0);
+        chamfer->typeBox()->setCurrentIndex(2); // distance and angle
+        QVERIFY(chamfer->angleField()->isVisible());
+        settle();
+        QVERIFY(std::fabs(shown() - equal) < 1.0); // 1 mm at 45 degrees is the equal chamfer
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::ChamferFeature>(doc().features().back());
+        QVERIFY(f && f->chamferType == cad::ChamferType::DistanceAngle && f->faces.size() == 1);
+        QCOMPARE(doc().statusOf(f->id).severity, cad::Severity::Ok);
+    }
+
+    void holesAreClickedOntoAFace() {
+        box(0, 0, 40, 20, 10);
+        showHome();
+        trigger("hole");
+        auto *hole = command<HoleCommand>();
+        QVERIFY(hole);
+        typeInto(hole->depthField(), QStringLiteral("5"));
+        click(at(10, 10, 10));
+        settle();
+        QCOMPARE(hole->holeCount(), 1);
+        QVERIFY(std::fabs(hole->points()[0].x - 10.0) < 0.3 && std::fabs(hole->points()[0].y - 10.0) < 0.3);
+        // X / Y place it exactly.
+        typeInto(hole->xField(), QStringLiteral("10"));
+        typeInto(hole->yField(), QStringLiteral("10"));
+        settle();
+        QCOMPARE(hole->points()[0].x, 10.0);
+        const double tip = 2.5 / std::tan(59.0 * M_PI / 180.0);
+        const double one = M_PI * 6.25 * 5.0 + M_PI * 6.25 * tip / 3.0;
+        QVERIFY2(std::fabs(shown() - (8000.0 - one)) < 1e-3, qPrintable(QString::number(8000.0 - shown())));
+        QVERIFY(view()->evaluation()->tool); // the drill is shown translucent
+        // A second click adds a hole; clicking a hole's centre mark removes it.
+        click(at(30, 10, 10));
+        settle();
+        QCOMPARE(hole->holeCount(), 2);
+        click(at(10, 10, 10));
+        settle();
+        QCOMPARE(hole->holeCount(), 1);
+        QVERIFY(std::fabs(hole->points()[0].x - 30.0) < 0.3);
+        // Through all.
+        hole->extentBox()->setCurrentIndex(1);
+        settle();
+        QVERIFY(std::fabs(shown() - (8000.0 - M_PI * 6.25 * 10.0)) < 1e-3);
+        hole->typeBox()->setCurrentIndex(1); // counterbore
+        QVERIFY(field<ValueField>("holeCboreDiameter")->isVisible());
+        settle();
+        QVERIFY(shown() < 8000.0 - M_PI * 6.25 * 10.0 - 1.0);
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::HoleFeature>(doc().features().back());
+        QVERIFY(f && f->points.size() == 1 && f->holeType == cad::HoleType::Counterbore);
+        // Edit Feature reopens it.
+        m_window->editFeature(f->id);
+        hole = command<HoleCommand>();
+        QVERIFY(hole && hole->isEditing());
+        QCOMPARE(hole->holeCount(), 1);
+        QCOMPARE(hole->typeBox()->currentIndex(), 1);
+        QCOMPARE(hole->extentBox()->currentIndex(), 1);
+        panel()->cancelButton()->click();
+    }
+
+    void holesAtSketchPoints() {
+        box(0, 0, 40, 20, 10);
+        // A sketch of two points on the top face.
+        const cad::StatePtr st = doc().stateAt(doc().marker());
+        const cad::Body *b = st->bodies.begin()->second.get();
+        int top = 0;
+        for(int i = 1; i <= b->shape.faceCount(); ++i) {
+            gp_Pln pln;
+            if(cad::planeOfFace(b->shape.face(i), pln) && pln.Axis().Direction().IsEqual(gp_Dir(0, 0, 1), 1e-9)) top = i;
+        }
+        auto s = std::make_shared<cad::SketchFeature>();
+        s->plane = cad::PlaneRef::onFace(cad::makeTopoRef(*b, cad::TopoKind::Face, top));
+        s->sketch.addPoint(10, 10);
+        s->sketch.addPoint(30, 10);
+        const cad::FeatureId sid = doc().addFeature(s);
+        showHome();
+        trigger("hole");
+        auto *hole = command<HoleCommand>();
+        QVERIFY(hole);
+        hole->placementBox()->setCurrentIndex(1);
+        QVERIFY(view()->filter().sketchPoints);
+        click(at(10, 10, 10));
+        click(at(30, 10, 10));
+        QCOMPARE(hole->holeCount(), 2);
+        hole->tipBox()->setCurrentIndex(1); // flat
+        typeInto(hole->depthField(), QStringLiteral("4"));
+        settle();
+        QVERIFY2(std::fabs(shown() - (8000.0 - 2 * M_PI * 6.25 * 4.0)) < 1e-3, qPrintable(QString::number(shown())));
+        // Clicking a picked point again drops it.
+        click(at(30, 10, 10));
+        settle();
+        QCOMPARE(hole->holeCount(), 1);
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::HoleFeature>(doc().features().back());
+        QVERIFY(f && f->sketch == sid && f->sketchPoints.size() == 1 && f->flatTip);
+        QVERIFY(std::fabs(shown() - (8000.0 - M_PI * 6.25 * 4.0)) < 1e-3);
+        // The sketch is used now, so it is hidden.
+        QVERIFY(!view()->sketchShown(sid));
+    }
+
+    void combineWithAndWithoutKeepingTools() {
+        box(0, 0, 40, 20, 10);
+        box(30, 0, 50, 20, 10); // overlaps the first by 10 x 20 x 10; a new body
+        showHome();
+        QVERIFY2(view()->state()->bodies.size() == 2,
+                 qPrintable(QStringLiteral("%1 bodies, %2 mm3, %3").arg(view()->state()->bodies.size()).arg(shown())
+                                .arg(QString::fromStdString(doc().statusOf(doc().features().back()->id).message))));
+        trigger("combine");
+        auto *combine = command<CombineCommand>();
+        QVERIFY(combine);
+        click(at(10, 10, 10)); // the target
+        QVERIFY(combine->hasTarget());
+        click(at(48, 10, 10)); // a tool (the target field hands over to the tools)
+        QCOMPARE(combine->toolCount(), 1);
+        settle();
+        QCOMPARE(int(view()->state()->bodies.size()), 1);
+        QVERIFY(std::fabs(shown() - 10000.0) < 1e-3);
+        combine->operationBox()->setCurrentIndex(1); // cut
+        settle();
+        QCOMPARE(int(view()->state()->bodies.size()), 1);
+        QVERIFY(std::fabs(shown() - 6000.0) < 1e-3);
+        QVERIFY(view()->evaluation()->tool); // the tool that goes away is shown translucent
+        combine->keepToolsBox()->setChecked(true);
+        settle();
+        QCOMPARE(int(view()->state()->bodies.size()), 2);
+        QVERIFY(std::fabs(shown() - 10000.0) < 1e-3);
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::CombineFeature>(doc().features().back());
+        QVERIFY(f && f->operation == cad::BodyOperation::Cut && f->keepTools && f->tools.size() == 1);
+    }
+
+    void offsetPlaneFromAFaceTurnedByAnAngle() {
+        box(0, 0, 40, 20, 10);
+        showHome();
+        trigger("offsetPlane");
+        auto *plane = command<PlaneCommand>();
+        QVERIFY(plane);
+        // The origin planes are shown to pick from.
+        QVERIFY(view()->planeQuads().size() >= 3);
+        click(at(20, 10, 10)); // the top face
+        QVERIFY(plane->hasBase());
+        typeInto(plane->offsetField(), QStringLiteral("15"));
+        settle();
+        QCOMPARE(int(view()->state()->planes.size()), 1);
+        const cad::PlaneResult *p = view()->state()->planes.begin()->second.get();
+        QVERIFY(std::fabs(p->frame.Location().Z() - 25.0) < 1e-9);
+        QVERIFY(p->frame.Direction().IsParallel(gp_Dir(0, 0, 1), 1e-9));
+        QVERIFY(p->center.Distance(gp_Pnt(20, 10, 25)) < 1e-6); // drawn over the face
+        // Turned 30 degrees about its X axis.
+        typeInto(plane->angleField(), QStringLiteral("30"));
+        settle();
+        p = view()->state()->planes.begin()->second.get();
+        QVERIFY(std::fabs(p->frame.Direction().Angle(gp_Dir(0, 0, 1)) - M_PI / 6) < 1e-9);
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::ConstructionPlaneFeature>(doc().features().back());
+        QVERIFY(f && f->base.kind == cad::PlaneRef::Kind::Face && f->offset.expr == "15" && f->angle.expr == "30");
+        // An origin plane works as a base too; Edit Feature reopens with the values.
+        m_window->editFeature(f->id);
+        plane = command<PlaneCommand>();
+        QVERIFY(plane && plane->isEditing() && plane->hasBase());
+        QCOMPARE(plane->offsetField()->expression(), QStringLiteral("15"));
+        QCOMPARE(plane->angleField()->expression(), QStringLiteral("30"));
+        panel()->cancelButton()->click();
+        settle();
+        trigger("offsetPlane");
+        plane = command<PlaneCommand>();
+        vp()->setStandardView(StandardView::Top, false);
+        vp()->fitAll(false);
+        QVERIFY(waitForFrames(vp(), 1));
+        const auto quads = view()->planeQuads();
+        QPointF xyCorner;
+        for(const auto &[item, q] : quads)
+            if(item.key == "XY") xyCorner = vp()->camera().project(q[2] * 0.95f);
+        click(xyCorner); // outside the box, on the XY plane's square
+        QVERIFY(plane->hasBase());
+        settle();
+        QCOMPARE(int(view()->state()->planes.size()), 2);
+    }
+
+    void markingMenuAndShortcutsReachTheNewCommands() {
+        box(0, 0, 40, 20, 10);
+        showHome();
+        QCOMPARE(m_window->action(QStringLiteral("fillet"))->shortcut(), QKeySequence(Qt::Key_F));
+        QCOMPARE(m_window->action(QStringLiteral("hole"))->shortcut(), QKeySequence(Qt::Key_H));
+        for(const char *name : {"fillet", "chamfer", "hole", "combine", "offsetPlane"})
+            QVERIFY2(m_window->action(QString::fromLatin1(name))->isEnabled(), name);
+        trigger("hole");
+        // While a command runs, the others wait.
+        QVERIFY(!m_window->action(QStringLiteral("fillet"))->isEnabled());
+        panel()->cancelButton()->click();
+        QVERIFY(m_window->action(QStringLiteral("fillet"))->isEnabled());
+    }
+};
+
+CADLY_REGISTER_TEST(FeatureTests)
+
+#include "tst_features.moc"

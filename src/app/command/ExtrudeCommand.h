@@ -1,6 +1,7 @@
 #pragma once
 
 #include "command/Command.h"
+#include "command/InputRef.h"
 #include "command/Manipulator.h"
 
 #include "features/ExtrudeFeature.h"
@@ -39,13 +40,15 @@ public:
     IconId iconId() const override;
     void setup() override;
     std::shared_ptr<cad::Feature> build(QString &why) override;
-    void selectionChanged() override;
+    void picked(const std::optional<SelectionItem> &item, const PickHit &hit, Qt::KeyboardModifiers mods) override;
+    void markClicked(int tag) override;
     std::set<cad::FeatureId> sketchesToShow() const override;
     ViewportTool *tool() override { return &m_arrow; }
     void previewed(const cad::StatePtr &state) override;
 
     // Inputs (tests).
-    int profileCount() const { return int(m_profiles.size() + m_faces.size()); }
+    int profileCount() const { return int(m_refs[Profiles].size()); }
+    bool hasObject() const { return !m_refs[Object].empty(); }
     cad::BodyOperation operation() const;
     QComboBox *directionBox() const { return m_direction; }
     QComboBox *extentBox() const { return m_extent; }
@@ -56,10 +59,10 @@ public:
     DistanceManipulator &arrow() { return m_arrow; }
 
 private:
-    enum class Field { Profiles, Object, Object2 };
+    enum Field { Profiles = 0, Object = 1, Object2 = 2 };
 
     void activate(Field f);
-    void showSelection();
+    void updateMarks();
     void updateRows();
     void updateArrow();
     bool chooseOperation(); // true if it changed the operation
@@ -68,19 +71,17 @@ private:
 
     std::shared_ptr<const cad::ExtrudeFeature> m_original;
     std::vector<cad::ProfileRef> m_initial;
-    std::vector<cad::ProfileRef> m_profiles;
-    std::vector<cad::TopoRef> m_faces;
-    cad::TopoRef m_object, m_object2;
-    Field m_active = Field::Profiles;
+    // Profiles and planar faces; the faces to extrude to (one each).
+    std::array<std::vector<InputRef>, 3> m_refs;
+    Field m_active = Profiles;
     cad::ParamSlot m_distance, m_distance2, m_taper, m_taper2;
     bool m_operationChosen = false;
-    bool m_syncing = false;
     cad::ExtentType m_lastExtent = cad::ExtentType::Distance;
     // Inside / outside tests for the automatic operation, per base state.
     cad::StatePtr m_probed;
     std::map<std::array<double, 3>, bool> m_inside;
 
-    SelectionField *m_profilesField = nullptr, *m_objectField = nullptr, *m_object2Field = nullptr;
+    std::array<SelectionField *, 3> m_fields{};
     QComboBox *m_direction = nullptr, *m_extent = nullptr, *m_extent2 = nullptr, *m_operation = nullptr;
     ValueField *m_distanceField = nullptr, *m_distance2Field = nullptr, *m_taperField = nullptr,
                *m_taper2Field = nullptr;

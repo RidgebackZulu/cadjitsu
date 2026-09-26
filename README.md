@@ -79,6 +79,7 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 | Standard views | Click a ViewCube face, edge or corner; Home button |
 | Marking menu | Right-click the canvas: a ring of commands (Repeat, Create Sketch, Extrude, undo / redo...) plus a short list; click one or press Esc |
 | Extrude | E (with a profile or planar face selected, or inside a sketch to finish it and extrude its profile) |
+| Fillet / Hole | F / H |
 | Undo / redo | Cmd+Z / Shift+Cmd+Z (inside a sketch: the sketch's own steps; while a command is open: cancel it) |
 
 ## Sketching
@@ -125,6 +126,29 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - **Operation:** Join, Cut, Intersect or New Body. Until you choose one, it follows what you are doing: out of a body's face joins, into a body cuts, elsewhere makes a new body.
 - Values take expressions and units (`20`, `d1 / 2`, `0.5 in`). The model previews live; **OK** or Enter adds one timeline step, Esc or **Cancel** leaves the design untouched.
 
+**Command inputs**
+- While a command's dialog is open, clicks in the canvas add and remove inputs (no modifier needed); what is picked is highlighted, and the × in an input clears it.
+- Inputs are drawn on the model before the feature, so an edge a previewed fillet has rounded away stays visible where it was and can still be clicked to drop it.
+- Cuts, holes and the tools a Combine cut removes are previewed in translucent red.
+- A feature that fails to build (a fillet radius too large for its edges...) says why in the dialog, and OK stays disabled until it builds.
+
+**Fillet (F) and Chamfer**
+- Select edges, or faces to take all their edges; tangent edges are followed.
+- Fillet takes a radius. Chamfer is Equal Distance, Two Distances, or Distance and Angle, with Flip for which side the first distance is on.
+
+**Hole (H)**
+- **On Face:** click a planar face where a hole goes; each further click on it adds a hole, and clicking a hole's centre removes it. X and Y place the last hole exactly (in the face's own coordinates, which follow the model axes where they can).
+- **At Sketch Points:** pick points of a visible sketch (for example a sketch of dimensioned points on a face).
+- Simple, Counterbore or Countersink holes; to a depth or through All; with a 118° drill point (or any angle) or a flat bottom.
+
+**Combine**
+- Click the target body, then the tool bodies; Join, Cut or Intersect; **Keep Tools** leaves the tools in the model.
+
+**Offset Plane**
+- Pick an origin plane (they are shown while the command runs), a construction plane or a planar face; type the distance or drag the arrow.
+- **Angle** turns the plane by any angle about its own X or Y axis, or about a straight edge.
+- Sketches can be created on construction planes, and planes follow the faces they are built on.
+
 **Timeline** (bottom of the window)
 - One icon per feature, in order, and the history marker after the last active one. Drag the marker to scrub through the history; the model follows immediately. The buttons at the left step to the start, back, forward and to the end.
 - Right-click a feature: **Edit Feature** (or **Edit Sketch**), **Suppress / Unsuppress**, **Roll History Marker Here**, **Rename** and **Delete**. Double-click also edits.
@@ -152,6 +176,7 @@ command layer. It saves screenshots and exits with status 0 on success.
 | `smoke` | The window opens and the canvas renders. |
 | `views` | A demo part in every display style; hover, selection statistics and the ViewCube. |
 | `sketch` | Sketch mode end to end: typed dimensions, a hole, a slot, constraints, statistics. |
+| `features` | Fillet, Chamfer, Hole, Offset Plane and Combine through their dialogs, with a screenshot of each live preview; Edit Feature; the design checked against a from-scratch evaluation. |
 | `plate` | The M4 acceptance run, all through the UI: a 60 x 40 rectangle extruded 20 mm; a circle sketched on its top face and cut through all by dragging the arrow; the volume at every history-marker position; suppress / unsuppress from the cache; Edit Feature reopening both extrudes with their values and previewing live; 16 more holes and a fillet so recomputing takes a while; the first dimension edited to 80 (checked against a from-scratch evaluation); undo back to an empty design. Throughout, the UI thread must never be kept from running for 50 ms while the model recomputes (canvas repaints excluded: they are timed separately). |
 
 ## Roadmap
@@ -180,6 +205,6 @@ command layer. It saves screenshots and exits with status 0 on success.
   - Extrude with its arrow, all extents, tapers and the automatic operation
   - timeline: scrub, suppress, edit feature, rename, delete
   - browser, marking menu, undo / redo, New / Open / Save
-- [ ] **M5** Fillet, chamfer, hole, combine (keep tools), offset and rotated construction planes
+- [x] **M5** Fillet, chamfer, hole (on faces or at sketch points), combine with keep tools, offset and rotated construction planes, all editable from the timeline
 - [ ] **M6** Section analysis
 - [ ] **M7** Export dialogs, rendered view, packaging

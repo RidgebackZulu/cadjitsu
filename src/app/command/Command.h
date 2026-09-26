@@ -2,6 +2,8 @@
 
 #include "command/CommandPanel.h"
 #include "model/RecomputeService.h"
+#include "model/Selection.h"
+#include "viewport/Picker.h"
 
 #include "doc/Document.h"
 
@@ -9,6 +11,7 @@
 #include <QString>
 
 #include <memory>
+#include <optional>
 #include <set>
 
 namespace cadly {
@@ -41,8 +44,10 @@ public:
     virtual void setup() = 0;
     // The feature for the current inputs; nullptr (with `why`) if not ready.
     virtual std::shared_ptr<cad::Feature> build(QString &why) = 0;
-    // The canvas selection changed.
-    virtual void selectionChanged() {}
+    // The user clicked something in the canvas (nothing: empty space), or one
+    // of the marks the command draws for its inputs.
+    virtual void picked(const std::optional<SelectionItem> &, const PickHit &, Qt::KeyboardModifiers) {}
+    virtual void markClicked(int) {}
     // Sketches to keep visible while the command runs (for picking profiles).
     virtual std::set<cad::FeatureId> sketchesToShow() const { return {}; }
     // Canvas manipulators (arrows, handles).

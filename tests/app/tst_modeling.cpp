@@ -257,7 +257,7 @@ private slots:
         QVERIFY2(std::fabs(*d - 30.0) < 0.02, qPrintable(QString::number(*d)));
         settle();
         QVERIFY(std::fabs(volume(view()->state()) - 800.0 * *d) < 1e-3);
-        QVERIFY(view()->selection().count(SelectionItem::Kind::Profile) == 1); // the drag did not deselect
+        QCOMPARE(extrude()->profileCount(), 1); // the drag did not deselect
         panel()->cancelButton()->click();
     }
 

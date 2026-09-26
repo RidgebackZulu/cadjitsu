@@ -9,11 +9,14 @@
 #include "mesh/MeshData.h"
 #include "topo/Resolver.h"
 
+#include <BRepAdaptor_Curve.hxx>
 #include <BRep_Tool.hxx>
+#include <gp_Pln.hxx>
 
 #include <QRectF>
 
 #include <cmath>
+#include <limits>
 
 namespace cadly {
 
@@ -26,17 +29,43 @@ const QColor kSelectEdge(20, 100, 225);
 const QColor kProfileFill(255, 200, 120, 80);
 const QColor kProfileHover(255, 178, 80, 130);
 const QColor kProfileSelected(60, 135, 230, 130);
+const QColor kToolColor(222, 62, 48);
+const QColor kPlaneFill(235, 170, 70, 55);
+const QColor kPlaneEdge(200, 130, 40);
+const QColor kOriginFill(240, 170, 60, 45);
+const QColor kOriginEdge(205, 125, 30);
+const QColor kPlaneHover(90, 160, 240, 95);
+const QColor kPlaneSelected(30, 115, 230, 125);
+const QColor kSketchPoint(40, 90, 200);
+
+constexpr float kPointTolerance = 7.0f; // pixels
 
 QVector3D toQ(const gp_Pnt &p) { return QVector3D(float(p.X()), float(p.Y()), float(p.Z())); }
 QVector3D toQ(const gp_XYZ &p) { return QVector3D(float(p.X()), float(p.Y()), float(p.Z())); }
+
+const std::pair<cad::PlaneRef::Kind, const char *> kOriginPlanes[] = {
+    {cad::PlaneRef::Kind::XY, "XY"}, {cad::PlaneRef::Kind::XZ, "XZ"}, {cad::PlaneRef::Kind::YZ, "YZ"}};
+
+std::optional<cad::PlaneRef::Kind> originKind(const std::string &key) {
+    for(const auto &[k, name] : kOriginPlanes)
+        if(key == name) return k;
+    return std::nullopt;
+}
+
+SelectionItem planeItem(cad::FeatureId construction, const std::string &origin = {}) {
+    SelectionItem it;
+    it.kind = SelectionItem::Kind::Plane;
+    it.feature = construction;
+    it.key = origin;
+    return it;
+}
 
 } // namespace
 
 QColor ModelView::defaultBodyColor() { return QColor(176, 186, 198); }
 
 ModelView::ModelView(cad::Document &doc, Viewport *viewport, QObject *parent)
-    : QObject(parent), m_doc(doc), m_viewport(viewport) {
-    connect(viewport, &Viewport::hoverChanged, this, &ModelView::onHover);
+    : QObject(parent), m_doc(doc), m_viewport(viewport), m_filter(SelectFilter::idle()) {
     connect(viewport, &Viewport::hoverMoved, this, &ModelView::onHoverMoved);
     connect(viewport, &Viewport::clicked, this, &ModelView::onClicked);
     connect(viewport, &Viewport::doubleClicked, this, &ModelView::onDoubleClicked);
@@ -100,6 +129,12 @@ void ModelView::setOriginVisible(bool on) {
     refresh();
 }
 
+void ModelView::setOriginForced(bool on) {
+    if(on == m_originForced) return;
+    m_originForced = on;
+    refresh();
+}
+
 const std::vector<std::vector<QVector3D>> &
 ModelView::profileTriangles(const std::shared_ptr<const cad::SketchResult> &sk) {
     auto it = m_profileCache.find(sk);
@@ -125,12 +160,17 @@ void ModelView::refresh() {
         scene.bodies.push_back(rb);
         targets.push_back({b->id, rb.mesh});
     }
-    auto square = [&](const gp_Ax3 &f, double h, bool centred, const QColor &fill, const QColor &edge) {
-        const QVector3D o = toQ(f.Location());
-        const QVector3D x = toQ(f.XDirection().XYZ()) * float(h), y = toQ(f.YDirection().XYZ()) * float(h);
-        const QVector3D base = centred ? o - x - y : o;
-        const QVector3D X = centred ? x * 2 : x, Y = centred ? y * 2 : y;
-        const QVector3D c[4] = {base, base + X, base + X + Y, base + Y};
+    // A previewed cut or hole shows the material it removes, translucent red
+    // (not pickable).
+    if(m_eval->preview && m_eval->tool) {
+        RenderBody tool;
+        tool.mesh = m_eval->tool->mesh();
+        tool.color = kToolColor;
+        tool.opacity = 0.38f;
+        scene.bodies.push_back(tool);
+    }
+    m_planeQuads.clear();
+    auto square = [&](const Quad &c, const QColor &fill, const QColor &edge) {
         TriangleBatch tb;
         tb.color = fill;
         tb.triangles = {c[0], c[1], c[2], c[0], c[2], c[3]};
@@ -142,13 +182,19 @@ void ModelView::refresh() {
         scene.lines.push_back(lb);
     };
     // Construction planes: translucent squares with an outline.
-    for(const auto &[fid, plane] : m_state->planes)
-        square(plane->frame, plane->halfSize, true, QColor(235, 170, 70, 55), QColor(200, 130, 40));
+    for(const auto &[fid, plane] : m_state->planes) {
+        const Quad q = constructionPlaneQuad(*plane);
+        square(q, kPlaneFill, kPlaneEdge);
+        m_planeQuads.push_back({planeItem(fid), q});
+    }
     // The origin (Browser > Origin): planes, axes and the origin point.
-    if(m_originVisible) {
+    if(originPlanesShown()) {
         const double h = std::max(20.0, m_state->modelSize() * 0.35);
-        for(auto k : {cad::PlaneRef::Kind::XY, cad::PlaneRef::Kind::XZ, cad::PlaneRef::Kind::YZ})
-            square(cad::originPlaneFrame(k), h, false, QColor(240, 170, 60, 45), QColor(205, 125, 30));
+        for(const auto &[k, name] : kOriginPlanes) {
+            const Quad q = originPlaneQuad(k, float(h));
+            square(q, kOriginFill, kOriginEdge);
+            m_planeQuads.push_back({planeItem(cad::kNoFeature, name), q});
+        }
         const std::pair<QVector3D, QColor> axes[] = {{QVector3D(1, 0, 0), QColor(205, 60, 50)},
                                                      {QVector3D(0, 1, 0), QColor(70, 160, 70)},
                                                      {QVector3D(0, 0, 1), QColor(50, 100, 215)}};
@@ -173,6 +219,10 @@ void ModelView::refresh() {
     std::set<const cad::SketchResult *> onScreen;
     TriangleBatch profiles;
     profiles.color = kProfileFill;
+    PointBatch points;
+    points.color = kSketchPoint;
+    points.outline = Qt::white;
+    points.size = 6.0f;
     for(const auto &[fid, sk] : m_state->sketches) {
         if(fid == m_hiddenSketch) continue;
         const auto vis = m_doc.sketchVisibility(fid);
@@ -186,12 +236,14 @@ void ModelView::refresh() {
         solid.width = 1.6f;
         construction.color = QColor(220, 130, 40);
         construction.width = 1.2f;
+        std::set<int> onCurves;
         for(const auto &e : sk->sketch.entities) {
             LineBatch &lb = e.construction ? construction : solid;
             auto P = [&](cad::Vec2 v) { return toQ(sk->toWorld(v)); };
             if(e.type == cad::SkType::Line) {
                 lb.segments.push_back(P(sk->sketch.pointPos(e.a)));
                 lb.segments.push_back(P(sk->sketch.pointPos(e.b)));
+                onCurves.insert({e.a, e.b});
             } else if(e.type == cad::SkType::Circle || e.type == cad::SkType::Arc) {
                 const cad::Vec2 c = sk->sketch.pointPos(e.a);
                 double r = e.r, a0 = 0.0, sweep = 2 * cad::kPi;
@@ -201,7 +253,9 @@ void ModelView::refresh() {
                     a0 = (s - c).angle();
                     sweep = cad::normAngle((t - c).angle() - a0);
                     if(sweep < 1e-9) sweep = 2 * cad::kPi;
+                    onCurves.insert({e.b, e.c});
                 }
+                onCurves.insert(e.a);
                 const int n = std::max(8, int(sweep / (2 * cad::kPi) * 96));
                 for(int i = 0; i < n; ++i) {
                     const double t0 = a0 + sweep * i / n, t1 = a0 + sweep * (i + 1) / n;
@@ -210,10 +264,15 @@ void ModelView::refresh() {
                 }
             }
         }
+        // Sketch points: standalone ones always; all of them while points can be picked.
+        for(const auto &e : sk->sketch.entities)
+            if(e.type == cad::SkType::Point && (m_filter.sketchPoints || !onCurves.count(e.id)))
+                points.points.push_back(toQ(sk->toWorld({e.x, e.y})));
         if(!solid.segments.empty()) scene.lines.push_back(solid);
         if(!construction.segments.empty()) scene.lines.push_back(construction);
     }
     if(!profiles.triangles.empty()) scene.triangles.push_back(profiles);
+    if(!points.points.empty()) scene.points.push_back(points);
     for(auto it = m_profileCache.begin(); it != m_profileCache.end();)
         it = onScreen.count(it->first.get()) ? std::next(it) : m_profileCache.erase(it);
     m_viewport->setContent(scene, targets);
@@ -222,7 +281,73 @@ void ModelView::refresh() {
     updateStats();
 }
 
-// --- profiles --------------------------------------------------------------------
+std::vector<QVector3D> ModelView::profileTrianglesOf(cad::FeatureId sketch, const std::string &key) {
+    std::vector<QVector3D> out;
+    if(!m_state) return out;
+    auto sk = m_state->sketches.find(sketch);
+    if(sk == m_state->sketches.end()) return out;
+    const auto &all = profileTriangles(sk->second);
+    for(size_t i = 0; i < sk->second->profiles.size() && i < all.size(); ++i)
+        if(sk->second->profiles[i].key == key) out.insert(out.end(), all[i].begin(), all[i].end());
+    return out;
+}
+
+// --- command input ------------------------------------------------------------------
+
+void ModelView::setCommandInput(bool on) {
+    m_commandInput = on;
+    m_marks = InputMarks();
+    m_markHover.reset();
+    m_hover.reset();
+    updateHighlights();
+}
+
+void ModelView::setInputMarks(InputMarks marks) {
+    m_marks = std::move(marks);
+    m_markHover.reset();
+    updateHighlights();
+}
+
+std::optional<int> ModelView::markAt(QPointF px) const {
+    if(!m_commandInput) return std::nullopt;
+    Camera cam = m_viewport->camera();
+    cam.viewport = m_viewport->size();
+    std::optional<int> best;
+    double bestDist = kPointTolerance;
+    for(const auto &[tag, p] : m_marks.points) {
+        const QPointF s = cam.project(p);
+        const double d = std::hypot(s.x() - px.x(), s.y() - px.y());
+        if(d <= bestDist) {
+            bestDist = d;
+            best = tag;
+        }
+    }
+    if(best) return best;
+    bestDist = 6.0;
+    for(const auto &[tag, e] : m_marks.edges) {
+        if(!e.mesh || e.edge < 1 || size_t(e.edge) > e.mesh->edgeRanges.size()) continue;
+        const cad::MeshData::Range r = e.mesh->edgeRanges[size_t(e.edge - 1)];
+        auto at = [&](uint32_t i) {
+            const float *v = &e.mesh->edgePoints[size_t(i) * 3];
+            return cam.project(QVector3D(v[0], v[1], v[2]));
+        };
+        for(uint32_t i = r.first; i + 1 < r.first + r.count; ++i) {
+            const QPointF a = at(i), b = at(i + 1);
+            const QPointF ab = b - a;
+            const double len2 = QPointF::dotProduct(ab, ab);
+            const double t = len2 > 0 ? std::clamp(QPointF::dotProduct(px - a, ab) / len2, 0.0, 1.0) : 0.0;
+            const QPointF q = a + ab * t;
+            const double d = std::hypot(q.x() - px.x(), q.y() - px.y());
+            if(d <= bestDist) {
+                bestDist = d;
+                best = tag;
+            }
+        }
+    }
+    return best;
+}
+
+// --- picking -----------------------------------------------------------------------
 
 const cad::Profile *ModelView::profileOf(const SelectionItem &it) const {
     if(it.kind != SelectionItem::Kind::Profile || !m_state) return nullptr;
@@ -231,7 +356,7 @@ const cad::Profile *ModelView::profileOf(const SelectionItem &it) const {
 }
 
 std::optional<ModelView::ProfilePick> ModelView::pickProfile(QPointF px) const {
-    if(!m_state || !m_selectProfiles) return std::nullopt;
+    if(!m_state || !m_filter.profiles) return std::nullopt;
     if(px.x() < 0 || px.y() < 0 || px.x() > m_viewport->width() || px.y() > m_viewport->height()) return std::nullopt;
     Camera cam = m_viewport->camera();
     cam.viewport = m_viewport->size();
@@ -265,23 +390,145 @@ std::optional<ModelView::ProfilePick> ModelView::pickProfile(QPointF px) const {
     return best;
 }
 
+std::optional<std::pair<SelectionItem, float>> ModelView::pickPlane(QPointF px) const {
+    if(!m_filter.planes || m_planeQuads.empty()) return std::nullopt;
+    Camera cam = m_viewport->camera();
+    cam.viewport = m_viewport->size();
+    QVector3D o, d;
+    cam.ray(px, o, d);
+    std::optional<std::pair<SelectionItem, float>> best;
+    for(const auto &[item, quad] : m_planeQuads)
+        if(auto t = rayQuad(o, d, quad, cam.orthographic); t && (!best || *t < best->second)) best = {{item, *t}};
+    return best;
+}
+
+std::optional<SelectionItem> ModelView::pickSketchPoint(QPointF px) const {
+    if(!m_filter.sketchPoints || !m_state) return std::nullopt;
+    Camera cam = m_viewport->camera();
+    cam.viewport = m_viewport->size();
+    std::optional<SelectionItem> best;
+    double bestDist = kPointTolerance;
+    for(cad::FeatureId fid : m_shownSketches) {
+        auto skIt = m_state->sketches.find(fid);
+        if(skIt == m_state->sketches.end()) continue;
+        for(const auto &e : skIt->second->sketch.entities) {
+            if(e.type != cad::SkType::Point) continue;
+            const QPointF s = cam.project(toQ(skIt->second->toWorld({e.x, e.y})));
+            const double dist = std::hypot(s.x() - px.x(), s.y() - px.y());
+            if(dist > bestDist) continue;
+            bestDist = dist;
+            SelectionItem it;
+            it.kind = SelectionItem::Kind::SketchEntity;
+            it.feature = fid;
+            it.entity = e.id;
+            best = it;
+        }
+    }
+    return best;
+}
+
+bool ModelView::accepts(const PickHit &hit) const {
+    const cad::Body *b = bodyById(hit.body);
+    if(!b) return false;
+    switch(hit.kind) {
+    case PickHit::Kind::Face: {
+        if(!m_filter.faces && !m_filter.faceSelectsBody) return false;
+        gp_Pln pln;
+        return !m_filter.planarFacesOnly || m_filter.faceSelectsBody || cad::planeOfFace(b->shape.face(hit.index), pln);
+    }
+    case PickHit::Kind::Edge:
+        if(m_filter.faceSelectsBody) return true;
+        if(!m_filter.edges) return false;
+        return !m_filter.linearEdgesOnly || BRepAdaptor_Curve(b->shape.edge(hit.index)).GetType() == GeomAbs_Line;
+    case PickHit::Kind::Vertex:
+        return m_filter.vertices || m_filter.faceSelectsBody;
+    case PickHit::Kind::None:
+        return false;
+    }
+    return false;
+}
+
+std::optional<SelectionItem> ModelView::itemAt(const PickHit &hit) const {
+    const QPointF px = hit.screen;
+    // Sketch points are small targets: when the cursor is on one, it wins.
+    if(auto p = pickSketchPoint(px)) return p;
+    const bool onBody = hit.valid() && accepts(hit);
+    const float bodyT = onBody ? hit.rayT : std::numeric_limits<float>::infinity();
+    const bool edgeOrVertex = onBody && hit.kind != PickHit::Kind::Face; // these win over regions and planes
+    std::optional<SelectionItem> best;
+    float bestT = bodyT;
+    // A profile wins over the face it is drawn on, as in Fusion 360.
+    if(!edgeOrVertex)
+        if(const auto p = pickProfile(px); p && p->rayT <= bodyT * (1.0f + 1e-4f) + 1e-3f) {
+            SelectionItem it;
+            it.kind = SelectionItem::Kind::Profile;
+            it.feature = p->sketch;
+            it.key = p->key;
+            best = it;
+            bestT = p->rayT;
+        }
+    if(!edgeOrVertex && !best)
+        if(const auto pl = pickPlane(px); pl && pl->second < bestT) {
+            best = pl->first;
+            bestT = pl->second;
+        }
+    if(best) return best;
+    if(!onBody) return std::nullopt;
+    SelectionItem it = SelectionItem::fromPick(hit);
+    if(m_filter.faceSelectsBody) {
+        it = SelectionItem();
+        it.kind = SelectionItem::Kind::Body;
+        it.body = hit.body;
+    }
+    return it;
+}
+
+std::optional<cad::PlaneRef> ModelView::planeRefOf(const SelectionItem &it) const {
+    if(it.kind == SelectionItem::Kind::Plane) {
+        if(it.feature != cad::kNoFeature) return cad::PlaneRef::construction(it.feature);
+        if(auto k = originKind(it.key)) return cad::PlaneRef::origin(*k);
+        return std::nullopt;
+    }
+    if(it.kind == SelectionItem::Kind::Face) {
+        const cad::Body *b = bodyById(it.body);
+        gp_Pln pln;
+        if(!b || it.index < 1 || it.index > b->shape.faceCount() || !cad::planeOfFace(b->shape.face(it.index), pln))
+            return std::nullopt;
+        return cad::PlaneRef::onFace(cad::makeTopoRef(*b, cad::TopoKind::Face, it.index));
+    }
+    return std::nullopt;
+}
+
+std::optional<gp_Pnt> ModelView::sketchPointOf(const SelectionItem &it) const {
+    if(it.kind != SelectionItem::Kind::SketchEntity || !m_state) return std::nullopt;
+    auto sk = m_state->sketches.find(it.feature);
+    if(sk == m_state->sketches.end()) return std::nullopt;
+    const cad::SkEntity *e = sk->second->sketch.find(it.entity);
+    if(!e || e->type != cad::SkType::Point) return std::nullopt;
+    return sk->second->toWorld({e->x, e->y});
+}
+
 // --- selection -------------------------------------------------------------------
 
 void ModelView::pruneSelection() {
-    SelectionSet kept;
-    for(const auto &it : m_selection.items()) {
+    auto valid = [&](const SelectionItem &it) {
         const cad::Body *b = bodyById(it.body);
-        bool ok = false;
         switch(it.kind) {
-        case SelectionItem::Kind::Body: ok = b != nullptr; break;
-        case SelectionItem::Kind::Face: ok = b && it.index <= b->shape.faceCount(); break;
-        case SelectionItem::Kind::Edge: ok = b && it.index <= b->shape.edgeCount(); break;
-        case SelectionItem::Kind::Vertex: ok = b && it.index <= b->shape.vertexCount(); break;
-        case SelectionItem::Kind::Profile: ok = profileOf(it) != nullptr; break;
-        default: ok = true; break;
+        case SelectionItem::Kind::Body: return b != nullptr;
+        case SelectionItem::Kind::Face: return b && it.index <= b->shape.faceCount();
+        case SelectionItem::Kind::Edge: return b && it.index <= b->shape.edgeCount();
+        case SelectionItem::Kind::Vertex: return b && it.index <= b->shape.vertexCount();
+        case SelectionItem::Kind::Profile: return profileOf(it) != nullptr;
+        case SelectionItem::Kind::SketchEntity: return sketchPointOf(it).has_value();
+        case SelectionItem::Kind::Plane:
+            return it.feature != cad::kNoFeature ? m_state->planes.count(it.feature) > 0 : originKind(it.key).has_value();
         }
-        if(ok) kept.add(it);
-    }
+        return true;
+    };
+    if(m_hover && !valid(*m_hover)) m_hover.reset();
+    SelectionSet kept;
+    for(const auto &it : m_selection.items())
+        if(valid(it)) kept.add(it);
     if(!(kept == m_selection)) {
         m_selection = kept;
         emit selectionChanged();
@@ -303,53 +550,47 @@ void ModelView::clearSelection() {
     emit selectionChanged();
 }
 
-void ModelView::setSelectable(bool faces, bool edges, bool vertices, bool bodies, bool profiles) {
+void ModelView::setFilter(const SelectFilter &f) {
+    const bool pointsChanged = f.sketchPoints != m_filter.sketchPoints;
+    m_filter = f;
     PickOptions &o = m_viewport->pickOptions();
-    o.faces = faces;
-    o.edges = edges;
-    o.vertices = vertices;
-    m_selectBodies = bodies;
-    m_selectProfiles = profiles;
-    if(!profiles && m_profileHover) {
-        m_profileHover.reset();
-        updateHighlights();
-    }
+    o.faces = f.faces || f.faceSelectsBody;
+    o.edges = f.edges || f.faceSelectsBody;
+    o.vertices = f.vertices || f.faceSelectsBody;
+    m_hover.reset();
+    if(pointsChanged && m_eval) refresh(); // all sketch points are drawn while they can be picked
+    else updateHighlights();
 }
 
-void ModelView::onHover(const PickHit &hit) {
-    m_hover = hit;
-    updateHighlights();
+void ModelView::setSelectable(bool faces, bool edges, bool vertices, bool bodies, bool profiles) {
+    SelectFilter f = SelectFilter::idle();
+    f.faces = faces;
+    f.edges = edges;
+    f.vertices = vertices;
+    f.bodies = bodies;
+    f.profiles = profiles;
+    setFilter(f);
 }
 
 void ModelView::onHoverMoved(const PickHit &hit) {
-    std::optional<ProfilePick> p = pickProfile(hit.screen);
-    // A face in front of the sketch plane hides the profile.
-    if(p && hit.valid() && hit.kind == PickHit::Kind::Face && hit.rayT < p->rayT * (1.0f - 1e-4f) - 1e-3f) p.reset();
-    if(p && hit.valid() && hit.kind != PickHit::Kind::Face) p.reset(); // edges and vertices win
-    const bool same = (p.has_value() == m_profileHover.has_value()) &&
-                      (!p || (p->sketch == m_profileHover->sketch && p->key == m_profileHover->key));
-    if(same) return;
-    m_profileHover = p;
+    const std::optional<int> mark = markAt(hit.screen);
+    const std::optional<SelectionItem> it = mark ? std::nullopt : itemAt(hit);
+    if(it == m_hover && mark == m_markHover) return;
+    m_hover = it;
+    m_markHover = mark;
     updateHighlights();
 }
 
 void ModelView::onClicked(const PickHit &hit, Qt::KeyboardModifiers mods) {
-    const bool additive = mods & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier);
-    SelectionItem it;
-    bool any = false;
-    // A profile wins over the face it is drawn on, as in Fusion 360.
-    const auto p = pickProfile(hit.screen);
-    const bool edgeOrVertex = hit.kind == PickHit::Kind::Edge || hit.kind == PickHit::Kind::Vertex;
-    if(p && !edgeOrVertex && (!hit.valid() || p->rayT <= hit.rayT * (1.0f + 1e-4f) + 1e-3f)) {
-        it.kind = SelectionItem::Kind::Profile;
-        it.feature = p->sketch;
-        it.key = p->key;
-        any = true;
-    } else if(hit.valid()) {
-        it = SelectionItem::fromPick(hit);
-        any = true;
+    if(m_commandInput) {
+        if(const auto tag = markAt(hit.screen)) emit markClicked(*tag);
+        else emit picked(itemAt(hit), hit, mods);
+        return;
     }
-    if(!any) {
+    const bool additive = m_filter.toggle || (mods & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier));
+    const std::optional<SelectionItem> it = itemAt(hit);
+    if(!it) {
+        // Empty space clears, except inside a command's input.
         if(!additive && !m_selection.empty()) {
             clearSelection();
             emit userSelectionChanged();
@@ -357,10 +598,10 @@ void ModelView::onClicked(const PickHit &hit, Qt::KeyboardModifiers mods) {
         return;
     }
     if(additive) {
-        m_selection.toggle(it);
+        m_selection.toggle(*it);
     } else {
         m_selection.clear();
-        m_selection.add(it);
+        m_selection.add(*it);
     }
     updateHighlights();
     updateStats();
@@ -369,7 +610,7 @@ void ModelView::onClicked(const PickHit &hit, Qt::KeyboardModifiers mods) {
 }
 
 void ModelView::onDoubleClicked(const PickHit &hit) {
-    if(!hit.valid() || !m_selectBodies) return;
+    if(!hit.valid() || !m_filter.bodies || m_commandInput) return;
     SelectionItem it;
     it.kind = SelectionItem::Kind::Body;
     it.body = hit.body;
@@ -382,7 +623,7 @@ void ModelView::onDoubleClicked(const PickHit &hit) {
 }
 
 void ModelView::onBoxSelected(const QRectF &rect, bool crossing, Qt::KeyboardModifiers mods) {
-    if(!m_selectBodies) return;
+    if(!m_filter.bodies || m_commandInput) return;
     const bool additive = mods & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier);
     if(!additive) m_selection.clear();
     Camera cam = m_viewport->camera();
@@ -422,14 +663,36 @@ void ModelView::updateHighlights() {
         }
     };
     auto addItem = [&](const SelectionItem &it, bool hover) {
-        if(it.kind == SelectionItem::Kind::Profile) {
+        const QColor faceColor = hover ? kHoverFace : kSelectFace;
+        const QColor edgeColor = hover ? kHoverEdge : kSelectEdge;
+        switch(it.kind) {
+        case SelectionItem::Kind::Profile:
             addProfile(it.feature, it.key, hover ? kProfileHover : kProfileSelected);
             return;
+        case SelectionItem::Kind::Plane:
+            for(const auto &[item, q] : m_planeQuads)
+                if(item == it) {
+                    TriangleBatch tb;
+                    tb.color = hover ? kPlaneHover : kPlaneSelected;
+                    tb.triangles = {q[0], q[1], q[2], q[0], q[2], q[3]};
+                    tris.push_back(std::move(tb));
+                }
+            return;
+        case SelectionItem::Kind::SketchEntity:
+            if(const auto p = sketchPointOf(it)) {
+                PointBatch pb;
+                pb.color = edgeColor;
+                pb.outline = Qt::white;
+                pb.size = 10.0f;
+                pb.points.push_back(toQ(*p));
+                points.push_back(pb);
+            }
+            return;
+        default:
+            break;
         }
         auto mesh = meshOf(it.body);
         if(!mesh) return;
-        const QColor faceColor = hover ? kHoverFace : kSelectFace;
-        const QColor edgeColor = hover ? kHoverEdge : kSelectEdge;
         switch(it.kind) {
         case SelectionItem::Kind::Face:
             faces.push_back({mesh, it.index, faceColor});
@@ -455,16 +718,29 @@ void ModelView::updateHighlights() {
             break;
         }
     };
-    for(const auto &it : m_selection.items()) addItem(it, false);
-    if(m_profileHover) {
-        SelectionItem h;
-        h.kind = SelectionItem::Kind::Profile;
-        h.feature = m_profileHover->sketch;
-        h.key = m_profileHover->key;
-        if(!m_selection.contains(h)) addItem(h, true);
-    } else if(m_hover.valid()) {
-        const SelectionItem h = SelectionItem::fromPick(m_hover);
-        if(!m_selection.contains(h)) addItem(h, true);
+    if(m_commandInput) {
+        // The command's inputs; the one under the cursor lights up.
+        faces.insert(faces.end(), m_marks.faces.begin(), m_marks.faces.end());
+        tris.insert(tris.end(), m_marks.triangles.begin(), m_marks.triangles.end());
+        for(auto [tag, e] : m_marks.edges) {
+            if(tag == m_markHover) {
+                e.color = kHoverEdge;
+                e.width += 1.5f;
+            }
+            edges.push_back(e);
+        }
+        for(const auto &[tag, p] : m_marks.points) {
+            PointBatch pb;
+            pb.color = tag == m_markHover ? kHoverEdge : kSelectEdge;
+            pb.outline = Qt::white;
+            pb.size = tag == m_markHover ? 12.0f : 10.0f;
+            pb.points.push_back(p);
+            points.push_back(pb);
+        }
+        if(m_hover) addItem(*m_hover, true);
+    } else {
+        for(const auto &it : m_selection.items()) addItem(it, false);
+        if(m_hover && !m_selection.contains(*m_hover)) addItem(*m_hover, true);
     }
     m_viewport->setHighlights(std::move(faces), std::move(edges), std::move(points), std::move(tris));
 }
@@ -477,12 +753,25 @@ void ModelView::updateStats() {
     const size_t nBodies = m_selection.count(SelectionItem::Kind::Body);
     const size_t nVerts = m_selection.count(SelectionItem::Kind::Vertex);
     const size_t nProfiles = m_selection.count(SelectionItem::Kind::Profile);
+    const size_t nPoints = m_selection.count(SelectionItem::Kind::SketchEntity);
     if(nProfiles > 0 && nProfiles == items.size()) {
         double area = 0.0;
         for(const auto &it : items)
             if(const cad::Profile *p = profileOf(it)) area += std::fabs(p->area);
         m.push_back({"", 0, cad::MeasureUnit::Text, nProfiles == 1 ? "Profile" : std::to_string(nProfiles) + " profiles"});
         m.push_back({"Area", area, cad::MeasureUnit::Area, {}});
+    } else if(items.size() == 1 && items.front().kind == SelectionItem::Kind::Plane) {
+        const SelectionItem &it = items.front();
+        std::string name = it.key + " Plane";
+        if(it.feature != cad::kNoFeature && m_state->planes.count(it.feature)) name = m_state->planes.at(it.feature)->name;
+        m.push_back({"", 0, cad::MeasureUnit::Text, name});
+    } else if(items.size() == 1 && items.front().kind == SelectionItem::Kind::SketchEntity) {
+        if(const auto p = sketchPointOf(items.front())) {
+            m.push_back({"", 0, cad::MeasureUnit::Text, "Sketch point"});
+            m.push_back({"X", p->X(), cad::MeasureUnit::Length, {}});
+            m.push_back({"Y", p->Y(), cad::MeasureUnit::Length, {}});
+            m.push_back({"Z", p->Z(), cad::MeasureUnit::Length, {}});
+        }
     } else if(items.size() == 1) {
         const SelectionItem &it = items.front();
         if(const cad::Body *b = bodyById(it.body)) {
@@ -516,6 +805,8 @@ void ModelView::updateStats() {
                 if(const cad::Body *b = bodyById(it.body)) total += cad::volumeOf(b->shape.shape());
             m.push_back({"", 0, cad::MeasureUnit::Text, std::to_string(nBodies) + " bodies"});
             m.push_back({"Total volume", total, cad::MeasureUnit::Volume, {}});
+        } else if(nPoints == items.size()) {
+            m.push_back({"", 0, cad::MeasureUnit::Text, std::to_string(nPoints) + " sketch points"});
         } else if(nVerts == 2 && items.size() == 2) {
             const cad::Body *b1 = bodyById(items[0].body), *b2 = bodyById(items[1].body);
             if(b1 && b2) {

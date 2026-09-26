@@ -18,6 +18,7 @@ class QLabel;
 namespace cadly {
 
 class BrowserTree;
+class Command;
 class CommandController;
 class CommandPanel;
 class MarkingMenu;
@@ -64,6 +65,8 @@ public:
     void undo();
     void redo();
     void startExtrude();
+    // Starts a modelling command (the marking menu's Repeat remembers `name`).
+    void startCommand(const QString &name, std::unique_ptr<Command> cmd);
     void editFeature(cad::FeatureId id);
     void showMarkingMenu(QPoint canvasPos);
 

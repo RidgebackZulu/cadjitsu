@@ -2,7 +2,11 @@
 
 #include "command/Command.h"
 #include "command/CommandPanel.h"
+#include "command/CombineCommand.h"
+#include "command/EdgeCommands.h"
 #include "command/ExtrudeCommand.h"
+#include "command/HoleCommand.h"
+#include "command/PlaneCommand.h"
 #include "model/ModelView.h"
 #include "sketch/SketchEditor.h"
 #include "sketch/SketchMode.h"
@@ -137,6 +141,7 @@ QAction *MainWindow::makeAction(const char *name, const QString &text, IconId ic
 
 void MainWindow::refresh() {
     m_modelView->showDocumentNow();
+    m_recompute->supersedeRequests();
     m_timeline->refresh();
     m_timeline->setEvaluation(m_modelView->evaluation());
     m_browser->rebuild();
@@ -187,7 +192,8 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    action(QStringLiteral("extrude"))->setEnabled(!commanding);
+    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "offsetPlane"})
+        action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
 }
@@ -283,23 +289,28 @@ void MainWindow::startExtrude() {
     m_commands->start(std::move(cmd));
 }
 
+void MainWindow::startCommand(const QString &name, std::unique_ptr<Command> cmd) {
+    if(m_sketch->active()) m_sketch->finish(); // as in Fusion, a model command ends the sketch
+    m_sketch->cancelCreateSketch();
+    m_lastCommand = name;
+    m_commands->start(std::move(cmd));
+}
+
 void MainWindow::editFeature(cad::FeatureId id) {
     const cad::FeaturePtr f = m_document->feature(id);
     if(!f) return;
     finishInteractions();
+    const CommandContext ctx{m_document.get(), m_modelView, m_viewport, m_commandPanel};
     switch(f->type()) {
     case cad::FeatureType::Sketch:
         m_sketch->editSketch(id);
         return;
-    case cad::FeatureType::Extrude:
-        m_commands->start(std::make_unique<ExtrudeCommand>(
-            CommandContext{m_document.get(), m_modelView, m_viewport, m_commandPanel}, id));
-        return;
-    default:
-        statusBar()->showMessage(tr("Editing %1 features arrives in a later milestone.")
-                                     .arg(QString::fromLatin1(cad::displayStem(f->type()))),
-                                 5000);
-        return;
+    case cad::FeatureType::Extrude: m_commands->start(std::make_unique<ExtrudeCommand>(ctx, id)); return;
+    case cad::FeatureType::Fillet: m_commands->start(std::make_unique<FilletCommand>(ctx, id)); return;
+    case cad::FeatureType::Chamfer: m_commands->start(std::make_unique<ChamferCommand>(ctx, id)); return;
+    case cad::FeatureType::Hole: m_commands->start(std::make_unique<HoleCommand>(ctx, id)); return;
+    case cad::FeatureType::Combine: m_commands->start(std::make_unique<CombineCommand>(ctx, id)); return;
+    case cad::FeatureType::ConstructionPlane: m_commands->start(std::make_unique<PlaneCommand>(ctx, id)); return;
     }
 }
 
@@ -361,12 +372,18 @@ void MainWindow::buildActions() {
         m_sketch->startCreateSketch();
     });
     makeAction("extrude", tr("Extrude"), IconId::Extrude, QKeySequence(Qt::Key_E), [this] { startExtrude(); });
+    const CommandContext ctx{m_document.get(), m_modelView, m_viewport, m_commandPanel};
+    makeAction("hole", tr("Hole"), IconId::Hole, QKeySequence(Qt::Key_H),
+               [this, ctx] { startCommand(QStringLiteral("hole"), std::make_unique<HoleCommand>(ctx)); });
+    makeAction("fillet", tr("Fillet"), IconId::Fillet, QKeySequence(Qt::Key_F),
+               [this, ctx] { startCommand(QStringLiteral("fillet"), std::make_unique<FilletCommand>(ctx)); });
+    makeAction("chamfer", tr("Chamfer"), IconId::Chamfer, {},
+               [this, ctx] { startCommand(QStringLiteral("chamfer"), std::make_unique<ChamferCommand>(ctx)); });
+    makeAction("combine", tr("Combine"), IconId::Combine, {},
+               [this, ctx] { startCommand(QStringLiteral("combine"), std::make_unique<CombineCommand>(ctx)); });
+    makeAction("offsetPlane", tr("Offset Plane"), IconId::Plane, {},
+               [this, ctx] { startCommand(QStringLiteral("offsetPlane"), std::make_unique<PlaneCommand>(ctx)); });
     const std::tuple<const char *, QString, IconId> later[] = {
-        {"hole", tr("Hole"), IconId::Hole},
-        {"fillet", tr("Fillet"), IconId::Fillet},
-        {"chamfer", tr("Chamfer"), IconId::Chamfer},
-        {"combine", tr("Combine"), IconId::Combine},
-        {"offsetPlane", tr("Offset Plane"), IconId::Plane},
         {"sectionAnalysis", tr("Section Analysis"), IconId::Section},
     };
     for(const auto &[name, text, id] : later) {

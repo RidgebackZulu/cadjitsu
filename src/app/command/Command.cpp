@@ -5,6 +5,7 @@
 #include "viewport/Viewport.h"
 #include "viewport/ViewportTool.h"
 
+#include <QPushButton>
 #include <QTimer>
 
 namespace cadly {
@@ -29,8 +30,12 @@ CommandController::CommandController(const CommandContext &ctx, RecomputeService
     : QObject(parent), m_ctx(ctx), m_recompute(recompute) {
     connect(ctx.panel, &CommandPanel::accepted, this, [this] { commit(); });
     connect(ctx.panel, &CommandPanel::cancelled, this, &CommandController::cancel);
-    connect(ctx.view, &ModelView::userSelectionChanged, this, [this] {
-        if(m_cmd) m_cmd->selectionChanged();
+    connect(ctx.view, &ModelView::picked, this,
+            [this](const std::optional<SelectionItem> &it, const PickHit &hit, Qt::KeyboardModifiers m) {
+                if(m_cmd) m_cmd->picked(it, hit, m);
+            });
+    connect(ctx.view, &ModelView::markClicked, this, [this](int tag) {
+        if(m_cmd) m_cmd->markClicked(tag);
     });
 }
 
@@ -42,6 +47,7 @@ void CommandController::start(std::unique_ptr<Command> cmd) {
     if(m_cmd) cancel();
     m_cmd = std::move(cmd);
     m_ctx.panel->begin(m_cmd->title(), m_cmd->iconId());
+    m_ctx.view->setCommandInput(true);
     m_cmd->setup();
     connect(m_cmd.get(), &Command::inputsChanged, this, [this] {
         // Coalesce bursts of changes (typing, dragging) into one preview.
@@ -96,14 +102,16 @@ bool CommandController::accepts(const EvaluationPtr &e) const {
 void CommandController::onEvaluation(const EvaluationPtr &e) {
     if(!m_cmd || !e->preview || e->id < m_request) return;
     if(m_candidateIndex >= 0 && m_candidateIndex < int(e->statuses.size())) {
+        // A feature that fails to compute cannot be committed; its message says why.
         const cad::Status &st = e->statuses[size_t(m_candidateIndex)];
         m_ctx.panel->setMessage(QString::fromStdString(st.message), st.severity);
+        m_ctx.panel->setOkEnabled(!st.isError());
     }
     m_cmd->previewed(e->state);
 }
 
 bool CommandController::commit() {
-    if(!m_cmd) return false;
+    if(!m_cmd || !m_ctx.panel->okButton()->isEnabled()) return false; // not ready, or its preview failed
     QString why;
     std::shared_ptr<cad::Feature> f = m_cmd->build(why);
     if(!f) {
@@ -134,7 +142,9 @@ void CommandController::cancel() {
 void CommandController::finish() {
     if(m_cmd && m_ctx.viewport->tool() == m_cmd->tool()) m_ctx.viewport->setTool(nullptr);
     m_ctx.panel->end();
-    m_ctx.view->setSelectable(true, true, true, true, true);
+    m_ctx.view->setCommandInput(false);
+    m_ctx.view->setFilter(SelectFilter::idle());
+    m_ctx.view->setOriginForced(false);
     m_ctx.view->setForcedSketches({});
     m_ctx.view->clearSelection();
     // Delete the command from the event loop (this may run inside its handlers).

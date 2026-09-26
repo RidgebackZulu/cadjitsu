@@ -23,6 +23,8 @@ struct Evaluation {
     cad::StatePtr state;                   // the model after `marker` features
     std::vector<cad::Status> statuses;     // one per applied feature
     bool preview = false;
+    // Previews: what the last applied feature cuts away (drawn translucent).
+    std::shared_ptr<const cad::Body> tool;
 };
 
 using EvaluationPtr = std::shared_ptr<const Evaluation>;
@@ -49,6 +51,9 @@ public:
     size_t computedFeatures() const { return m_computed.load(); }
     // Spins the event loop until the latest request has been delivered.
     bool waitIdle(int timeoutMs = 60000);
+    // The model was just shown some other way (evaluated synchronously): results
+    // of the requests made so far are out of date and are not delivered.
+    void supersedeRequests() { m_superseded = m_requested; }
 
 signals:
     void finished(cadly::EvaluationPtr result);
@@ -77,6 +82,7 @@ private:
     std::atomic<size_t> m_computed{0};
 
     uint64_t m_requested = 0; // UI thread
+    uint64_t m_superseded = 0; // UI thread: requests up to this one are not delivered
     EvaluationPtr m_latest;   // UI thread
     bool m_busy = false;      // UI thread
 };

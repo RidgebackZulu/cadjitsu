@@ -3,6 +3,8 @@
 #include "topo/Resolver.h"
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <TopoDS.hxx>
 #include <gp_Ax1.hxx>
 
@@ -62,10 +64,26 @@ FeatureResult ConstructionPlaneFeature::compute(const StatePtr &input, const Com
         gp_Ax3 frame;
         if(!resolvePlane(*input, base, frame, st)) return {input, st};
 
+        // Drawn around the base: a face's middle, a construction plane's own
+        // centre, or the origin.
+        gp_Pnt centre = frame.Location();
+        if(base.kind == PlaneRef::Kind::Face) {
+            const ResolvedRef r = resolveRef(*input, base.face);
+            if(r.ok) {
+                GProp_GProps g;
+                BRepGProp::SurfaceProperties(r.shape, g);
+                const gp_Vec off(frame.Location(), g.CentreOfMass());
+                centre = g.CentreOfMass().Translated(-gp_Vec(frame.Direction()) * off.Dot(gp_Vec(frame.Direction())));
+            }
+        } else if(base.kind == PlaneRef::Kind::Construction) {
+            if(auto it = input->planes.find(base.plane); it != input->planes.end()) centre = it->second->center;
+        }
+
         double d = 0.0, a = 0.0;
         if(!offset.empty() && !ctx.value(offset, d, st)) return {input, st};
         if(!angle.empty() && !ctx.value(angle, a, st, ValueKind::Angle)) return {input, st};
         frame.Translate(gp_Vec(frame.Direction()) * d);
+        centre.Translate(gp_Vec(frame.Direction()) * d);
 
         if(std::fabs(a) > 1e-12) {
             gp_Ax1 ax;
@@ -83,12 +101,14 @@ FeatureResult ConstructionPlaneFeature::compute(const StatePtr &input, const Com
             }
             }
             frame.Rotate(ax, a);
+            centre.Rotate(ax, a);
         }
 
         auto plane = std::make_shared<PlaneResult>();
         plane->feature = id;
         plane->name = name;
         plane->frame = frame;
+        plane->center = centre;
         plane->halfSize = std::max(20.0, input->modelSize() * 0.6);
         auto out = std::make_shared<ModelState>(*input);
         out->planes[id] = plane;
