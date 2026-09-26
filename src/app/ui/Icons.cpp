@@ -487,6 +487,41 @@ void drawIcon(QPainter &p, IconId id, const QColor &accent) {
         p.drawPolygon(folder);
         break;
     }
+    case IconId::TimelineFirst:
+    case IconId::TimelineBack:
+    case IconId::TimelineForward:
+    case IconId::TimelineLast: {
+        const bool fwd = id == IconId::TimelineForward || id == IconId::TimelineLast;
+        const bool end = id == IconId::TimelineFirst || id == IconId::TimelineLast;
+        p.setPen(Qt::NoPen);
+        p.setBrush(kInk);
+        QPolygonF tri;
+        if(fwd) tri << QPointF(9, 7) << QPointF(23, 16) << QPointF(9, 25);
+        else tri << QPointF(23, 7) << QPointF(9, 16) << QPointF(23, 25);
+        p.drawPolygon(tri);
+        if(end) p.drawRect(fwd ? QRectF(23, 7, 3, 18) : QRectF(6, 7, 3, 18));
+        break;
+    }
+    case IconId::Origin: {
+        p.setPen(QPen(QColor(205, 60, 50), 2.2, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(QPointF(12, 20), QPointF(28, 20));
+        p.setPen(QPen(QColor(70, 160, 70), 2.2, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(QPointF(12, 20), QPointF(4, 28));
+        p.setPen(QPen(QColor(50, 100, 215), 2.2, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(QPointF(12, 20), QPointF(12, 4));
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(250, 200, 60));
+        p.drawEllipse(QPointF(12, 20), 3, 3);
+        break;
+    }
+    case IconId::Flip: {
+        p.setPen(acc);
+        p.drawLine(QPointF(10, 26), QPointF(10, 7));
+        arrowHead(QPointF(10, 5.5), -M_PI / 2);
+        p.drawLine(QPointF(22, 6), QPointF(22, 25));
+        arrowHead(QPointF(22, 26.5), M_PI / 2);
+        break;
+    }
     case IconId::Warning: {
         QPolygonF tri;
         tri << QPointF(16, 4) << QPointF(29, 27) << QPointF(3, 27);

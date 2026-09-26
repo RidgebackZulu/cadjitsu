@@ -7,10 +7,13 @@
 #include "geom/OcctUtil.h"
 #include "measure/Measure.h"
 #include "mesh/MeshData.h"
+#include "topo/Resolver.h"
 
 #include <BRep_Tool.hxx>
 
 #include <QRectF>
+
+#include <cmath>
 
 namespace cadly {
 
@@ -20,8 +23,12 @@ const QColor kHoverFace(90, 160, 240, 105);
 const QColor kSelectFace(30, 115, 230, 140);
 const QColor kHoverEdge(70, 145, 240);
 const QColor kSelectEdge(20, 100, 225);
+const QColor kProfileFill(255, 200, 120, 80);
+const QColor kProfileHover(255, 178, 80, 130);
+const QColor kProfileSelected(60, 135, 230, 130);
 
 QVector3D toQ(const gp_Pnt &p) { return QVector3D(float(p.X()), float(p.Y()), float(p.Z())); }
+QVector3D toQ(const gp_XYZ &p) { return QVector3D(float(p.X()), float(p.Y()), float(p.Z())); }
 
 } // namespace
 
@@ -30,6 +37,7 @@ QColor ModelView::defaultBodyColor() { return QColor(176, 186, 198); }
 ModelView::ModelView(cad::Document &doc, Viewport *viewport, QObject *parent)
     : QObject(parent), m_doc(doc), m_viewport(viewport) {
     connect(viewport, &Viewport::hoverChanged, this, &ModelView::onHover);
+    connect(viewport, &Viewport::hoverMoved, this, &ModelView::onHoverMoved);
     connect(viewport, &Viewport::clicked, this, &ModelView::onClicked);
     connect(viewport, &Viewport::doubleClicked, this, &ModelView::onDoubleClicked);
     connect(viewport, &Viewport::boxSelected, this, &ModelView::onBoxSelected);
@@ -42,8 +50,71 @@ const cad::Body *ModelView::bodyById(const cad::BodyId &id) const {
     return it == m_state->bodies.end() ? nullptr : it->second.get();
 }
 
+void ModelView::setEvaluation(EvaluationPtr e) {
+    if(!e) return;
+    m_eval = std::move(e);
+    refresh();
+    emit displayed();
+}
+
+void ModelView::showDocumentNow() {
+    auto e = std::make_shared<Evaluation>();
+    e->features = m_doc.features();
+    e->marker = m_doc.marker();
+    e->state = m_doc.displayedState();
+    for(int i = 0; i < e->marker; ++i) e->statuses.push_back(m_doc.statusOf(e->features[size_t(i)]->id));
+    m_eval = e;
+    refresh();
+    emit displayed();
+}
+
+std::set<cad::FeatureId> ModelView::consumedSketches() const {
+    std::set<cad::FeatureId> used;
+    if(!m_eval) return used;
+    for(int i = 0; i < m_eval->marker && i < int(m_eval->features.size()); ++i) {
+        const auto &f = m_eval->features[size_t(i)];
+        if(f->suppressed) continue;
+        for(cad::FeatureId dep : f->dependencies()) used.insert(dep);
+    }
+    return used;
+}
+
+void ModelView::setForcedSketches(std::set<cad::FeatureId> ids) {
+    if(ids == m_forcedSketches) return;
+    m_forcedSketches = std::move(ids);
+    refresh();
+}
+
+bool ModelView::sketchShown(cad::FeatureId id) const {
+    if(id == m_hiddenSketch) return false;
+    if(m_forcedSketches.count(id)) return true;
+    if(auto v = m_doc.sketchVisibility(id)) return *v;
+    return !consumedSketches().count(id);
+}
+
+void ModelView::setHiddenSketch(cad::FeatureId id) { m_hiddenSketch = id; }
+
+void ModelView::setOriginVisible(bool on) {
+    if(on == m_originVisible) return;
+    m_originVisible = on;
+    refresh();
+}
+
+const std::vector<std::vector<QVector3D>> &
+ModelView::profileTriangles(const std::shared_ptr<const cad::SketchResult> &sk) {
+    auto it = m_profileCache.find(sk);
+    if(it != m_profileCache.end()) return it->second;
+    std::vector<std::vector<QVector3D>> tris;
+    for(const auto &p : sk->profiles) tris.push_back(triangulateProfile(p, sk->frame));
+    return m_profileCache[sk] = std::move(tris);
+}
+
 void ModelView::refresh() {
-    m_state = m_doc.displayedState();
+    if(!m_eval) {
+        showDocumentNow();
+        return;
+    }
+    m_state = m_eval->state;
     RenderScene scene;
     std::vector<PickTarget> targets;
     for(const cad::Body *b : m_state->orderedBodies()) {
@@ -54,42 +125,62 @@ void ModelView::refresh() {
         scene.bodies.push_back(rb);
         targets.push_back({b->id, rb.mesh});
     }
-    // Construction planes: translucent squares with an outline.
-    for(const auto &[fid, plane] : m_state->planes) {
-        const gp_Ax3 &f = plane->frame;
+    auto square = [&](const gp_Ax3 &f, double h, bool centred, const QColor &fill, const QColor &edge) {
         const QVector3D o = toQ(f.Location());
-        const QVector3D x = toQ(gp_Pnt(f.XDirection().XYZ())) * float(plane->halfSize);
-        const QVector3D y = toQ(gp_Pnt(f.YDirection().XYZ())) * float(plane->halfSize);
-        const QVector3D c[4] = {o - x - y, o + x - y, o + x + y, o - x + y};
+        const QVector3D x = toQ(f.XDirection().XYZ()) * float(h), y = toQ(f.YDirection().XYZ()) * float(h);
+        const QVector3D base = centred ? o - x - y : o;
+        const QVector3D X = centred ? x * 2 : x, Y = centred ? y * 2 : y;
+        const QVector3D c[4] = {base, base + X, base + X + Y, base + Y};
         TriangleBatch tb;
-        tb.color = QColor(235, 170, 70, 55);
+        tb.color = fill;
         tb.triangles = {c[0], c[1], c[2], c[0], c[2], c[3]};
         scene.triangles.push_back(tb);
         LineBatch lb;
-        lb.color = QColor(200, 130, 40);
+        lb.color = edge;
         lb.width = 1.2f;
         lb.segments = {c[0], c[1], c[1], c[2], c[2], c[3], c[3], c[0]};
         scene.lines.push_back(lb);
-    }
-    // Sketches that no later feature consumes stay visible, profiles shaded
-    // (Fusion hides used sketches).
-    std::map<std::shared_ptr<const cad::SketchResult>, std::vector<QVector3D>> profileCache;
-    TriangleBatch profiles;
-    profiles.color = QColor(255, 200, 120, 80);
-    for(const auto &[fid, sk] : m_state->sketches) {
-        if(fid == m_hiddenSketch || !m_doc.dependents(fid).empty()) continue;
-        auto cached = m_profileCache.find(sk);
-        std::vector<QVector3D> tris;
-        if(cached != m_profileCache.end()) {
-            tris = cached->second;
-        } else {
-            for(const auto &p : sk->profiles) {
-                const auto t = triangulateProfile(p, sk->frame);
-                tris.insert(tris.end(), t.begin(), t.end());
-            }
+    };
+    // Construction planes: translucent squares with an outline.
+    for(const auto &[fid, plane] : m_state->planes)
+        square(plane->frame, plane->halfSize, true, QColor(235, 170, 70, 55), QColor(200, 130, 40));
+    // The origin (Browser > Origin): planes, axes and the origin point.
+    if(m_originVisible) {
+        const double h = std::max(20.0, m_state->modelSize() * 0.35);
+        for(auto k : {cad::PlaneRef::Kind::XY, cad::PlaneRef::Kind::XZ, cad::PlaneRef::Kind::YZ})
+            square(cad::originPlaneFrame(k), h, false, QColor(240, 170, 60, 45), QColor(205, 125, 30));
+        const std::pair<QVector3D, QColor> axes[] = {{QVector3D(1, 0, 0), QColor(205, 60, 50)},
+                                                     {QVector3D(0, 1, 0), QColor(70, 160, 70)},
+                                                     {QVector3D(0, 0, 1), QColor(50, 100, 215)}};
+        for(const auto &[dir, color] : axes) {
+            LineBatch lb;
+            lb.color = color;
+            lb.width = 1.8f;
+            lb.segments = {QVector3D(), dir * float(h * 1.4)};
+            scene.lines.push_back(lb);
         }
-        profiles.triangles.insert(profiles.triangles.end(), tris.begin(), tris.end());
-        profileCache[sk] = std::move(tris);
+        PointBatch pb;
+        pb.color = QColor(250, 200, 60);
+        pb.outline = QColor(120, 80, 10);
+        pb.size = 9.0f;
+        pb.points = {QVector3D()};
+        scene.points.push_back(pb);
+    }
+    // Sketches: shown until a displayed feature uses them (unless switched on
+    // or off in the browser), with their profiles shaded.
+    const std::set<cad::FeatureId> used = consumedSketches();
+    m_shownSketches.clear();
+    std::set<const cad::SketchResult *> onScreen;
+    TriangleBatch profiles;
+    profiles.color = kProfileFill;
+    for(const auto &[fid, sk] : m_state->sketches) {
+        if(fid == m_hiddenSketch) continue;
+        const auto vis = m_doc.sketchVisibility(fid);
+        if(!m_forcedSketches.count(fid) && !(vis ? *vis : !used.count(fid))) continue;
+        m_shownSketches.insert(fid);
+        onScreen.insert(sk.get());
+        // Only shown sketches are triangulated (each result once).
+        for(const auto &t : profileTriangles(sk)) profiles.triangles.insert(profiles.triangles.end(), t.begin(), t.end());
         LineBatch solid, construction;
         solid.color = QColor(40, 90, 200);
         solid.width = 1.6f;
@@ -123,12 +214,58 @@ void ModelView::refresh() {
         if(!construction.segments.empty()) scene.lines.push_back(construction);
     }
     if(!profiles.triangles.empty()) scene.triangles.push_back(profiles);
-    m_profileCache = std::move(profileCache);
+    for(auto it = m_profileCache.begin(); it != m_profileCache.end();)
+        it = onScreen.count(it->first.get()) ? std::next(it) : m_profileCache.erase(it);
     m_viewport->setContent(scene, targets);
     pruneSelection();
     updateHighlights();
     updateStats();
 }
+
+// --- profiles --------------------------------------------------------------------
+
+const cad::Profile *ModelView::profileOf(const SelectionItem &it) const {
+    if(it.kind != SelectionItem::Kind::Profile || !m_state) return nullptr;
+    auto sk = m_state->sketches.find(it.feature);
+    return sk == m_state->sketches.end() ? nullptr : sk->second->profileByKey(it.key);
+}
+
+std::optional<ModelView::ProfilePick> ModelView::pickProfile(QPointF px) const {
+    if(!m_state || !m_selectProfiles) return std::nullopt;
+    if(px.x() < 0 || px.y() < 0 || px.x() > m_viewport->width() || px.y() > m_viewport->height()) return std::nullopt;
+    Camera cam = m_viewport->camera();
+    cam.viewport = m_viewport->size();
+    QVector3D o, d;
+    cam.ray(px, o, d);
+    std::optional<ProfilePick> best;
+    double bestArea = 0.0;
+    for(cad::FeatureId fid : m_shownSketches) {
+        auto skIt = m_state->sketches.find(fid);
+        if(skIt == m_state->sketches.end()) continue;
+        const auto &sk = skIt->second;
+        const gp_Ax3 &f = sk->frame;
+        const QVector3D n = toQ(f.Direction().XYZ()), p0 = toQ(f.Location());
+        const float den = QVector3D::dotProduct(d, n);
+        if(std::fabs(den) < 1e-7f) continue;
+        const float t = QVector3D::dotProduct(p0 - o, n) / den;
+        if(t < 0 && !cam.orthographic) continue;
+        const QVector3D hit = o + d * t;
+        const cad::Vec2 q = sk->toSketch(gp_Pnt(hit.x(), hit.y(), hit.z()));
+        for(const auto &p : sk->profiles) {
+            if(!p.contains(q)) continue;
+            const double area = std::fabs(p.area);
+            // Nearest plane first; within one sketch the innermost region.
+            const float tol = 1e-4f * std::fabs(t) + 1e-4f;
+            if(!best || t < best->rayT - tol || (std::fabs(t - best->rayT) <= tol && area < bestArea)) {
+                best = ProfilePick{fid, p.key, p.sample, t};
+                bestArea = area;
+            }
+        }
+    }
+    return best;
+}
+
+// --- selection -------------------------------------------------------------------
 
 void ModelView::pruneSelection() {
     SelectionSet kept;
@@ -140,6 +277,7 @@ void ModelView::pruneSelection() {
         case SelectionItem::Kind::Face: ok = b && it.index <= b->shape.faceCount(); break;
         case SelectionItem::Kind::Edge: ok = b && it.index <= b->shape.edgeCount(); break;
         case SelectionItem::Kind::Vertex: ok = b && it.index <= b->shape.vertexCount(); break;
+        case SelectionItem::Kind::Profile: ok = profileOf(it) != nullptr; break;
         default: ok = true; break;
         }
         if(ok) kept.add(it);
@@ -165,12 +303,17 @@ void ModelView::clearSelection() {
     emit selectionChanged();
 }
 
-void ModelView::setSelectable(bool faces, bool edges, bool vertices, bool bodies) {
+void ModelView::setSelectable(bool faces, bool edges, bool vertices, bool bodies, bool profiles) {
     PickOptions &o = m_viewport->pickOptions();
     o.faces = faces;
     o.edges = edges;
     o.vertices = vertices;
     m_selectBodies = bodies;
+    m_selectProfiles = profiles;
+    if(!profiles && m_profileHover) {
+        m_profileHover.reset();
+        updateHighlights();
+    }
 }
 
 void ModelView::onHover(const PickHit &hit) {
@@ -178,13 +321,41 @@ void ModelView::onHover(const PickHit &hit) {
     updateHighlights();
 }
 
+void ModelView::onHoverMoved(const PickHit &hit) {
+    std::optional<ProfilePick> p = pickProfile(hit.screen);
+    // A face in front of the sketch plane hides the profile.
+    if(p && hit.valid() && hit.kind == PickHit::Kind::Face && hit.rayT < p->rayT * (1.0f - 1e-4f) - 1e-3f) p.reset();
+    if(p && hit.valid() && hit.kind != PickHit::Kind::Face) p.reset(); // edges and vertices win
+    const bool same = (p.has_value() == m_profileHover.has_value()) &&
+                      (!p || (p->sketch == m_profileHover->sketch && p->key == m_profileHover->key));
+    if(same) return;
+    m_profileHover = p;
+    updateHighlights();
+}
+
 void ModelView::onClicked(const PickHit &hit, Qt::KeyboardModifiers mods) {
     const bool additive = mods & (Qt::ShiftModifier | Qt::ControlModifier | Qt::MetaModifier);
-    if(!hit.valid()) {
-        if(!additive) clearSelection();
+    SelectionItem it;
+    bool any = false;
+    // A profile wins over the face it is drawn on, as in Fusion 360.
+    const auto p = pickProfile(hit.screen);
+    const bool edgeOrVertex = hit.kind == PickHit::Kind::Edge || hit.kind == PickHit::Kind::Vertex;
+    if(p && !edgeOrVertex && (!hit.valid() || p->rayT <= hit.rayT * (1.0f + 1e-4f) + 1e-3f)) {
+        it.kind = SelectionItem::Kind::Profile;
+        it.feature = p->sketch;
+        it.key = p->key;
+        any = true;
+    } else if(hit.valid()) {
+        it = SelectionItem::fromPick(hit);
+        any = true;
+    }
+    if(!any) {
+        if(!additive && !m_selection.empty()) {
+            clearSelection();
+            emit userSelectionChanged();
+        }
         return;
     }
-    const SelectionItem it = SelectionItem::fromPick(hit);
     if(additive) {
         m_selection.toggle(it);
     } else {
@@ -194,6 +365,7 @@ void ModelView::onClicked(const PickHit &hit, Qt::KeyboardModifiers mods) {
     updateHighlights();
     updateStats();
     emit selectionChanged();
+    emit userSelectionChanged();
 }
 
 void ModelView::onDoubleClicked(const PickHit &hit) {
@@ -206,6 +378,7 @@ void ModelView::onDoubleClicked(const PickHit &hit) {
     updateHighlights();
     updateStats();
     emit selectionChanged();
+    emit userSelectionChanged();
 }
 
 void ModelView::onBoxSelected(const QRectF &rect, bool crossing, Qt::KeyboardModifiers mods) {
@@ -223,35 +396,54 @@ void ModelView::onBoxSelected(const QRectF &rect, bool crossing, Qt::KeyboardMod
     updateHighlights();
     updateStats();
     emit selectionChanged();
+    emit userSelectionChanged();
 }
 
 void ModelView::updateHighlights() {
     std::vector<FaceHighlight> faces;
     std::vector<EdgeHighlight> edges;
     std::vector<PointBatch> points;
+    std::vector<TriangleBatch> tris;
     auto meshOf = [&](const cad::BodyId &id) -> std::shared_ptr<const cad::MeshData> {
         const cad::Body *b = bodyById(id);
         return b ? b->mesh() : nullptr;
     };
-    auto addItem = [&](SelectionItem::Kind kind, const cad::BodyId &body, int index, bool hover) {
-        auto mesh = meshOf(body);
+    auto addProfile = [&](cad::FeatureId sketch, const std::string &key, const QColor &color) {
+        if(!m_state) return;
+        auto sk = m_state->sketches.find(sketch);
+        if(sk == m_state->sketches.end()) return;
+        const auto &all = profileTriangles(sk->second);
+        for(size_t i = 0; i < sk->second->profiles.size() && i < all.size(); ++i) {
+            if(sk->second->profiles[i].key != key) continue;
+            TriangleBatch tb;
+            tb.color = color;
+            tb.triangles = all[i];
+            tris.push_back(std::move(tb));
+        }
+    };
+    auto addItem = [&](const SelectionItem &it, bool hover) {
+        if(it.kind == SelectionItem::Kind::Profile) {
+            addProfile(it.feature, it.key, hover ? kProfileHover : kProfileSelected);
+            return;
+        }
+        auto mesh = meshOf(it.body);
         if(!mesh) return;
         const QColor faceColor = hover ? kHoverFace : kSelectFace;
         const QColor edgeColor = hover ? kHoverEdge : kSelectEdge;
-        switch(kind) {
+        switch(it.kind) {
         case SelectionItem::Kind::Face:
-            faces.push_back({mesh, index, faceColor});
+            faces.push_back({mesh, it.index, faceColor});
             break;
         case SelectionItem::Kind::Edge:
-            edges.push_back({mesh, index, edgeColor, hover ? 3.0f : 3.5f});
+            edges.push_back({mesh, it.index, edgeColor, hover ? 3.0f : 3.5f});
             break;
         case SelectionItem::Kind::Vertex:
-            if(size_t(index) * 3 <= mesh->vertexPoints.size()) {
+            if(size_t(it.index) * 3 <= mesh->vertexPoints.size()) {
                 PointBatch pb;
                 pb.color = edgeColor;
                 pb.outline = Qt::white;
                 pb.size = 10.0f;
-                const float *v = &mesh->vertexPoints[size_t(index - 1) * 3];
+                const float *v = &mesh->vertexPoints[size_t(it.index - 1) * 3];
                 pb.points.push_back(QVector3D(v[0], v[1], v[2]));
                 points.push_back(pb);
             }
@@ -263,12 +455,18 @@ void ModelView::updateHighlights() {
             break;
         }
     };
-    for(const auto &it : m_selection.items()) addItem(it.kind, it.body, it.index, false);
-    if(m_hover.valid()) {
+    for(const auto &it : m_selection.items()) addItem(it, false);
+    if(m_profileHover) {
+        SelectionItem h;
+        h.kind = SelectionItem::Kind::Profile;
+        h.feature = m_profileHover->sketch;
+        h.key = m_profileHover->key;
+        if(!m_selection.contains(h)) addItem(h, true);
+    } else if(m_hover.valid()) {
         const SelectionItem h = SelectionItem::fromPick(m_hover);
-        if(!m_selection.contains(h)) addItem(h.kind, h.body, h.index, true);
+        if(!m_selection.contains(h)) addItem(h, true);
     }
-    m_viewport->setHighlights(std::move(faces), std::move(edges), std::move(points));
+    m_viewport->setHighlights(std::move(faces), std::move(edges), std::move(points), std::move(tris));
 }
 
 void ModelView::updateStats() {
@@ -278,7 +476,14 @@ void ModelView::updateStats() {
     const size_t nEdges = m_selection.count(SelectionItem::Kind::Edge);
     const size_t nBodies = m_selection.count(SelectionItem::Kind::Body);
     const size_t nVerts = m_selection.count(SelectionItem::Kind::Vertex);
-    if(items.size() == 1) {
+    const size_t nProfiles = m_selection.count(SelectionItem::Kind::Profile);
+    if(nProfiles > 0 && nProfiles == items.size()) {
+        double area = 0.0;
+        for(const auto &it : items)
+            if(const cad::Profile *p = profileOf(it)) area += std::fabs(p->area);
+        m.push_back({"", 0, cad::MeasureUnit::Text, nProfiles == 1 ? "Profile" : std::to_string(nProfiles) + " profiles"});
+        m.push_back({"Area", area, cad::MeasureUnit::Area, {}});
+    } else if(items.size() == 1) {
         const SelectionItem &it = items.front();
         if(const cad::Body *b = bodyById(it.body)) {
             switch(it.kind) {

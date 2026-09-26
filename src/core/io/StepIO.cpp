@@ -1,5 +1,6 @@
 #include "io/StepIO.h"
 
+#include "base/KernelLock.h"
 #include "geom/OcctUtil.h"
 
 #include <IFSelect_ReturnStatus.hxx>
@@ -44,6 +45,7 @@ Handle(TDocStd_Document) newXcafDocument() {
 
 bool writeStepFile(const std::string &path, const std::vector<NamedSolid> &solids, StepSchema schema,
                    std::string &error) {
+    const KernelLock kernel(kernelMutex());
     if(solids.empty()) {
         error = "there are no bodies to export";
         return false;
@@ -79,6 +81,7 @@ bool writeStepFile(const std::string &path, const std::vector<NamedSolid> &solid
 }
 
 bool readStepFile(const std::string &path, std::vector<NamedSolid> &solids, std::string &error) {
+    const KernelLock kernel(kernelMutex());
     solids.clear();
     quietKernelMessages();
     std::lock_guard<std::mutex> lock(stepMutex());

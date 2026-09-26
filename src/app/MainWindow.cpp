@@ -1,14 +1,23 @@
 #include "MainWindow.h"
 
+#include "command/Command.h"
+#include "command/CommandPanel.h"
+#include "command/ExtrudeCommand.h"
 #include "model/ModelView.h"
 #include "sketch/SketchEditor.h"
 #include "sketch/SketchMode.h"
+#include "ui/BrowserTree.h"
 #include "ui/Icons.h"
+#include "ui/MarkingMenu.h"
 #include "ui/Ribbon.h"
+#include "ui/TimelineWidget.h"
 #include "viewport/Viewport.h"
 
 #include <QAction>
 #include <QActionGroup>
+#include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QKeySequence>
@@ -16,6 +25,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QSplitter>
 #include <QStatusBar>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -30,28 +40,60 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     m_ribbon = new Ribbon(central);
-    m_viewport = new Viewport(central);
+    auto *split = new QSplitter(Qt::Horizontal, central);
+    split->setObjectName(QStringLiteral("mainSplit"));
+    split->setChildrenCollapsible(true);
+    m_viewport = new Viewport(split);
+    m_modelView = new ModelView(*m_document, m_viewport, this);
+    m_browser = new BrowserTree(*m_document, m_modelView, split);
+    split->addWidget(m_browser);
+    split->addWidget(m_viewport);
+    split->setStretchFactor(1, 1);
+    split->setSizes({210, 1190});
+    m_timeline = new TimelineWidget(*m_document, central);
     layout->addWidget(m_ribbon);
-    layout->addWidget(m_viewport, 1);
+    layout->addWidget(split, 1);
+    layout->addWidget(m_timeline);
     setCentralWidget(central);
 
-    m_modelView = new ModelView(*m_document, m_viewport, this);
+    m_recompute = new RecomputeService(m_document->sharedCache(), this);
     m_sketch = new SketchMode(*m_document, m_viewport, m_modelView, this);
+    m_commandPanel = new CommandPanel(m_viewport);
+    m_commands = new CommandController({m_document.get(), m_modelView, m_viewport, m_commandPanel}, m_recompute, this);
+    m_marking = new MarkingMenu(m_viewport);
 
-    // Bottom-right selection statistics, as in Fusion 360.
+    // Bottom-right selection statistics, as in Fusion 360; a busy note to their left.
+    m_busy = new QLabel(this);
+    m_busy->setObjectName(QStringLiteral("computing"));
     m_selectionStats = new QLabel(this);
     m_selectionStats->setObjectName(QStringLiteral("selectionStats"));
     m_selectionStats->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    statusBar()->addPermanentWidget(m_busy);
     statusBar()->addPermanentWidget(m_selectionStats);
+
     connect(m_modelView, &ModelView::statsChanged, this, &MainWindow::updateStats);
     connect(m_sketch, &SketchMode::statsChanged, this, &MainWindow::updateStats);
     connect(m_sketch, &SketchMode::message, this, [this](const QString &text) { statusBar()->showMessage(text, 8000); });
     connect(m_sketch, &SketchMode::activeChanged, this, &MainWindow::onSketchActive);
     connect(m_sketch, &SketchMode::toolChanged, this, &MainWindow::onSketchTool);
-    connect(m_sketch, &SketchMode::finished, this, [this] { updateTitle(); });
     connect(m_viewport, &Viewport::contextMenuRequested, this, [this](const QPoint &globalPos, const PickHit &) {
-        if(!m_sketch->active() && !m_sketch->pickingPlane()) showCanvasMenu(globalPos);
+        if(m_sketch->pickingPlane()) return;
+        if(m_sketch->active() && m_sketch->cancelOperation()) return; // right-click ends a line chain first
+        showMarkingMenu(m_viewport->mapFromGlobal(globalPos));
     });
+    connect(m_recompute, &RecomputeService::finished, this, &MainWindow::onEvaluation);
+    connect(m_recompute, &RecomputeService::busyChanged, this,
+            [this](bool busy) { m_busy->setText(busy ? tr("Computing…") : QString()); });
+    connect(m_commands, &CommandController::activeChanged, this, [this](bool on) {
+        if(!on) m_recompute->requestDocument(*m_document);
+        if(on && m_commands->command()) statusBar()->showMessage(m_commands->command()->prompt());
+        else statusBar()->clearMessage();
+        updateActions();
+    });
+    connect(m_commands, &CommandController::editingChanged, m_timeline, &TimelineWidget::setEditing);
+    connect(m_timeline, &TimelineWidget::editRequested, this, &MainWindow::editFeature);
+    connect(m_browser, &BrowserTree::editSketchRequested, this, [this](cad::FeatureId id) { editFeature(id); });
+    m_document->changed = [this] { onDocumentChanged(); };
 
     buildActions();
     buildRibbon();
@@ -62,9 +104,14 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
 }
 
 MainWindow::~MainWindow() {
-    // The sketch workspace uses the viewport; take it down while the viewport exists.
+    m_document->changed = nullptr;
+    // These use the viewport; take them down while it exists.
+    delete m_commands;
+    m_commands = nullptr;
     delete m_sketch;
     m_sketch = nullptr;
+    delete m_recompute;
+    m_recompute = nullptr;
 }
 
 QAction *MainWindow::action(const QString &name) const {
@@ -86,14 +133,49 @@ QAction *MainWindow::makeAction(const char *name, const QString &text, IconId ic
     return a;
 }
 
+// --- model updates ------------------------------------------------------------------
+
 void MainWindow::refresh() {
-    m_modelView->refresh();
+    m_modelView->showDocumentNow();
+    m_timeline->refresh();
+    m_timeline->setEvaluation(m_modelView->evaluation());
+    m_browser->rebuild();
+    updateStats();
+    updateActions();
+}
+
+bool MainWindow::waitForModel(int timeoutMs) {
+    QElapsedTimer t;
+    t.start();
+    // A command may still have its coalesced preview request queued.
+    auto waiting = [this] { return m_commands->previewPending() || m_recompute->busy(); };
+    do {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+    } while(waiting() && t.elapsed() <= timeoutMs);
+    // Let the delivered result reach the canvas.
+    QCoreApplication::processEvents();
+    return !waiting();
+}
+
+void MainWindow::onDocumentChanged() {
+    m_timeline->refresh();
+    if(!m_commands->active()) m_recompute->requestDocument(*m_document);
+    updateActions();
+}
+
+void MainWindow::onEvaluation(const EvaluationPtr &e) {
+    if(!m_commands->accepts(e)) return;
+    m_modelView->setEvaluation(e);
+    m_commands->onEvaluation(e);
+    if(!e->preview) m_timeline->setEvaluation(e);
+    m_browser->rebuild();
     updateStats();
 }
 
 void MainWindow::updateTitle() {
     const QString name = m_path.isEmpty() ? tr("Untitled") : QFileInfo(m_path).completeBaseName();
     setWindowTitle(name + QStringLiteral(" — Cadly"));
+    m_browser->setDocumentName(name);
 }
 
 void MainWindow::updateStats() {
@@ -101,9 +183,27 @@ void MainWindow::updateStats() {
     else m_selectionStats->setText(m_modelView->statsText());
 }
 
-void MainWindow::newDocument() {
+void MainWindow::updateActions() {
+    if(!m_commands || m_actions.empty()) return;
+    const bool sketching = m_sketch->active(), commanding = m_commands->active();
+    action(QStringLiteral("createSketch"))->setEnabled(!sketching);
+    action(QStringLiteral("extrude"))->setEnabled(!commanding);
+    action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
+    action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
+}
+
+// Ends a sketch or command before document-level actions.
+void MainWindow::finishInteractions() {
+    if(m_commands->active()) m_commands->cancel();
     if(m_sketch->active()) m_sketch->finish();
     m_sketch->cancelCreateSketch();
+    if(m_marking->isOpen()) m_marking->close();
+}
+
+// --- files and undo -------------------------------------------------------------------
+
+void MainWindow::newDocument() {
+    finishInteractions();
     m_document->clear();
     m_path.clear();
     updateTitle();
@@ -112,8 +212,7 @@ void MainWindow::newDocument() {
 }
 
 bool MainWindow::openFile(const QString &path) {
-    if(m_sketch->active()) m_sketch->finish();
-    m_sketch->cancelCreateSketch();
+    finishInteractions();
     std::string error;
     auto doc = std::make_unique<cad::Document>();
     if(!doc->load(path.toStdString(), error)) {
@@ -130,6 +229,7 @@ bool MainWindow::openFile(const QString &path) {
 }
 
 bool MainWindow::saveFile(const QString &path) {
+    if(m_commands->active()) m_commands->commit();
     if(m_sketch->active()) m_sketch->finish();
     std::string error;
     if(!m_document->save(path.toStdString(), error)) {
@@ -138,6 +238,7 @@ bool MainWindow::saveFile(const QString &path) {
     }
     m_path = path;
     updateTitle();
+    statusBar()->showMessage(tr("Saved %1").arg(QFileInfo(path).fileName()), 4000);
     return true;
 }
 
@@ -146,11 +247,13 @@ void MainWindow::undo() {
         if(!m_sketch->undo()) statusBar()->showMessage(tr("Nothing to undo in this sketch."), 4000);
         return;
     }
-    m_sketch->cancelCreateSketch();
-    if(m_document->undo()) {
-        statusBar()->showMessage(tr("Undo %1").arg(QString::fromStdString(m_document->redoLabel())), 4000);
-        refresh();
+    if(m_commands->active()) {
+        m_commands->cancel();
+        return;
     }
+    m_sketch->cancelCreateSketch();
+    const std::string label = m_document->undoLabel();
+    if(m_document->undo()) statusBar()->showMessage(tr("Undo %1").arg(QString::fromStdString(label)), 4000);
 }
 
 void MainWindow::redo() {
@@ -158,11 +261,67 @@ void MainWindow::redo() {
         m_sketch->redo();
         return;
     }
-    if(m_document->redo()) {
-        statusBar()->showMessage(tr("Redo %1").arg(QString::fromStdString(m_document->undoLabel())), 4000);
-        refresh();
+    if(m_commands->active()) return;
+    const std::string label = m_document->redoLabel();
+    if(m_document->redo()) statusBar()->showMessage(tr("Redo %1").arg(QString::fromStdString(label)), 4000);
+}
+
+// --- commands -----------------------------------------------------------------------------
+
+void MainWindow::startExtrude() {
+    auto cmd = std::make_unique<ExtrudeCommand>(CommandContext{m_document.get(), m_modelView, m_viewport, m_commandPanel});
+    if(m_sketch->active()) {
+        // Fusion finishes the sketch and extrudes its profile (if it has one).
+        const SketchEditor *ed = m_sketch->editor();
+        if(ed->profiles().size() == 1)
+            cmd->setInitialProfiles({{ed->featureId(), ed->profiles().front().key, ed->profiles().front().sample}});
+        m_sketch->finish();
+        m_modelView->clearSelection();
+    }
+    m_sketch->cancelCreateSketch();
+    m_lastCommand = QStringLiteral("extrude");
+    m_commands->start(std::move(cmd));
+}
+
+void MainWindow::editFeature(cad::FeatureId id) {
+    const cad::FeaturePtr f = m_document->feature(id);
+    if(!f) return;
+    finishInteractions();
+    switch(f->type()) {
+    case cad::FeatureType::Sketch:
+        m_sketch->editSketch(id);
+        return;
+    case cad::FeatureType::Extrude:
+        m_commands->start(std::make_unique<ExtrudeCommand>(
+            CommandContext{m_document.get(), m_modelView, m_viewport, m_commandPanel}, id));
+        return;
+    default:
+        statusBar()->showMessage(tr("Editing %1 features arrives in a later milestone.")
+                                     .arg(QString::fromLatin1(cad::displayStem(f->type()))),
+                                 5000);
+        return;
     }
 }
+
+void MainWindow::showMarkingMenu(QPoint canvasPos) {
+    auto a = [this](const char *name) { return action(QString::fromLatin1(name)); };
+    if(m_sketch->active()) {
+        m_marking->setRing({a("finishSketch"), a("sketchLine"), a("sketchRectangle"), a("sketchCircle"),
+                            a("sketchDelete"), a("redo"), a("undo"), a("sketchDimension")});
+        m_marking->setList({a("sketchLookAt"), a("sketchConstruction"), a("sketchArc"), a("sketchPoint"),
+                            a("sketchCenterRectangle")});
+    } else {
+        QAction *repeat = a("repeatCommand");
+        QAction *last = action(m_lastCommand);
+        repeat->setEnabled(last != nullptr);
+        repeat->setText(last ? tr("Repeat %1").arg(last->text()) : tr("Repeat"));
+        m_marking->setRing({repeat, a("createSketch"), a("extrude"), a("fillet"), nullptr, a("redo"), a("undo"), a("hole")});
+        m_marking->setList({a("fitView"), a("homeView"), a("toggleOrigin")});
+    }
+    m_marking->open(canvasPos);
+}
+
+// --- actions, ribbon, menus -------------------------------------------------------------
 
 void MainWindow::buildActions() {
     makeAction("newDocument", tr("New Design"), IconId::New, QKeySequence::New, [this] { newDocument(); });
@@ -176,26 +335,44 @@ void MainWindow::buildActions() {
             p = QFileDialog::getSaveFileName(this, tr("Save"), QStringLiteral("design.cadly"), tr("Cadly designs (*.cadly)"));
         if(!p.isEmpty()) saveFile(p);
     });
+    makeAction("saveAs", tr("Save As..."), IconId::Save, QKeySequence::SaveAs, [this] {
+        const QString p =
+            QFileDialog::getSaveFileName(this, tr("Save As"), m_path.isEmpty() ? QStringLiteral("design.cadly") : m_path,
+                                         tr("Cadly designs (*.cadly)"));
+        if(!p.isEmpty()) saveFile(p);
+    });
     makeAction("undo", tr("Undo"), IconId::Undo, QKeySequence::Undo, [this] { undo(); });
     QAction *redo = makeAction("redo", tr("Redo"), IconId::Redo, QKeySequence::Redo, [this] { this->redo(); });
     redo->setShortcuts({QKeySequence::Redo, QKeySequence(Qt::CTRL | Qt::Key_Y)});
+    makeAction("fitView", tr("Fit"), IconId::Fit, {}, [this] { m_viewport->fitAll(); });
+    makeAction("homeView", tr("Home"), IconId::Home, {}, [this] { m_viewport->setStandardView(StandardView::Home); });
+    makeAction("toggleOrigin", tr("Show / Hide Origin"), IconId::Origin, {}, [this] {
+        m_modelView->setOriginVisible(!m_modelView->originVisible());
+        m_browser->rebuild();
+    });
+    makeAction("repeatCommand", tr("Repeat"), IconId::Redo, {}, [this] {
+        if(QAction *last = action(m_lastCommand)) last->trigger();
+    });
 
     // SOLID workspace.
-    makeAction("createSketch", tr("Create Sketch"), IconId::Sketch, {}, [this] { m_sketch->startCreateSketch(); });
-    const std::tuple<const char *, QString, IconId, QString> later[] = {
-        {"extrude", tr("Extrude"), IconId::Extrude, QStringLiteral("E")},
-        {"hole", tr("Hole"), IconId::Hole, QStringLiteral("H")},
-        {"fillet", tr("Fillet"), IconId::Fillet, QStringLiteral("F")},
-        {"chamfer", tr("Chamfer"), IconId::Chamfer, {}},
-        {"combine", tr("Combine"), IconId::Combine, {}},
-        {"offsetPlane", tr("Offset Plane"), IconId::Plane, {}},
-        {"sectionAnalysis", tr("Section Analysis"), IconId::Section, {}},
+    makeAction("createSketch", tr("Create Sketch"), IconId::Sketch, {}, [this] {
+        if(m_commands->active()) m_commands->cancel();
+        m_lastCommand = QStringLiteral("createSketch");
+        m_sketch->startCreateSketch();
+    });
+    makeAction("extrude", tr("Extrude"), IconId::Extrude, QKeySequence(Qt::Key_E), [this] { startExtrude(); });
+    const std::tuple<const char *, QString, IconId> later[] = {
+        {"hole", tr("Hole"), IconId::Hole},
+        {"fillet", tr("Fillet"), IconId::Fillet},
+        {"chamfer", tr("Chamfer"), IconId::Chamfer},
+        {"combine", tr("Combine"), IconId::Combine},
+        {"offsetPlane", tr("Offset Plane"), IconId::Plane},
+        {"sectionAnalysis", tr("Section Analysis"), IconId::Section},
     };
-    for(const auto &[name, text, id, key] : later) {
+    for(const auto &[name, text, id] : later) {
         QAction *a = makeAction(name, text, id, {}, {});
         a->setEnabled(false);
         a->setToolTip(tr("%1 (coming in a later milestone)").arg(text));
-        Q_UNUSED(key);
     }
 
     // SKETCH workspace.
@@ -233,7 +410,6 @@ void MainWindow::buildActions() {
     QAction *del = makeAction("sketchDelete", tr("Delete"), IconId::Error, QKeySequence::Delete,
                               [this] { m_sketch->deleteSelection(); });
     del->setShortcuts({QKeySequence(Qt::Key_Delete), QKeySequence(Qt::Key_Backspace)});
-    del->setIcon(QIcon());
     m_sketchOnly.push_back(del);
     m_sketchOnly.push_back(makeAction("sketchLookAt", tr("Look At"), IconId::LookAt, {}, [this] { m_sketch->lookAt(); }));
     m_sketchOnly.push_back(
@@ -250,9 +426,7 @@ void MainWindow::buildRibbon() {
     fileButton->setAutoRaise(true);
     fileButton->setFocusPolicy(Qt::NoFocus);
     auto *fileMenu = new QMenu(fileButton);
-    fileMenu->addAction(action(QStringLiteral("newDocument")));
-    fileMenu->addAction(action(QStringLiteral("open")));
-    fileMenu->addAction(action(QStringLiteral("save")));
+    for(const char *name : {"newDocument", "open", "save", "saveAs"}) fileMenu->addAction(action(QString::fromLatin1(name)));
     fileButton->setMenu(fileMenu);
     m_ribbon->addLeadingWidget(fileButton);
     for(const char *name : {"save", "undo", "redo"}) {
@@ -299,9 +473,7 @@ void MainWindow::buildRibbon() {
 
 void MainWindow::buildMenus() {
     QMenu *file = menuBar()->addMenu(tr("&File"));
-    file->addAction(action(QStringLiteral("newDocument")));
-    file->addAction(action(QStringLiteral("open")));
-    file->addAction(action(QStringLiteral("save")));
+    for(const char *name : {"newDocument", "open", "save", "saveAs"}) file->addAction(action(QString::fromLatin1(name)));
 
     QMenu *edit = menuBar()->addMenu(tr("&Edit"));
     edit->addAction(action(QStringLiteral("undo")));
@@ -331,34 +503,20 @@ void MainWindow::buildMenus() {
         a->setChecked(ds == DisplayStyle::ShadedWithEdges);
         styles->addAction(a);
     }
-}
-
-// Right-click on the canvas outside sketch mode.
-void MainWindow::showCanvasMenu(const QPoint &globalPos) {
-    QMenu menu(this);
-    menu.addAction(action(QStringLiteral("createSketch")));
-    QMenu *edit = menu.addMenu(icon(IconId::SketchNode), tr("Edit Sketch"));
-    for(const auto &f : m_document->features()) {
-        if(f->type() != cad::FeatureType::Sketch) continue;
-        const cad::FeatureId id = f->id;
-        edit->addAction(QString::fromStdString(f->name), this, [this, id] { m_sketch->editSketch(id); });
-    }
-    edit->setEnabled(!edit->isEmpty());
-    menu.addSeparator();
-    menu.addAction(action(QStringLiteral("undo")));
-    menu.addAction(action(QStringLiteral("redo")));
-    menu.addSeparator();
-    menu.addAction(icon(IconId::Fit), tr("Fit"), this, [this] { m_viewport->fitAll(); });
-    menu.exec(globalPos);
+    view->addSeparator();
+    view->addAction(action(QStringLiteral("toggleOrigin")));
 }
 
 void MainWindow::onSketchActive(bool active) {
     for(QAction *a : m_sketchOnly) a->setEnabled(active);
-    action(QStringLiteral("createSketch"))->setEnabled(!active);
     m_ribbon->setTabVisible(m_sketchTab, active);
     m_ribbon->setCurrentTab(active ? m_sketchTab : m_solidTab);
-    if(!active) onSketchTool(SketchToolKind::Select);
+    if(!active) {
+        onSketchTool(SketchToolKind::Select);
+        statusBar()->clearMessage(); // the last tool's prompt
+    }
     updateStats();
+    updateActions();
 }
 
 void MainWindow::onSketchTool(SketchToolKind kind) {

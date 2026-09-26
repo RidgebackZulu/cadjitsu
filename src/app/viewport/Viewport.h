@@ -44,7 +44,7 @@ public:
     const RenderScene &content() const { return m_content; }
     const std::vector<PickTarget> &pickTargets() const { return m_targets; }
     void setHighlights(std::vector<FaceHighlight> faces, std::vector<EdgeHighlight> edges,
-                       std::vector<PointBatch> points = {});
+                       std::vector<PointBatch> points = {}, std::vector<TriangleBatch> triangles = {});
 
     DisplayStyle displayStyle() const { return m_style; }
     void setDisplayStyle(DisplayStyle s);
@@ -83,6 +83,9 @@ public:
 
 signals:
     void hoverChanged(const cadly::PickHit &hit);
+    // Every cursor move over the canvas (hit.screen is the position), for
+    // hover effects that are not bodies (sketch profiles).
+    void hoverMoved(const cadly::PickHit &hit);
     void clicked(const cadly::PickHit &hit, Qt::KeyboardModifiers modifiers);
     void doubleClicked(const cadly::PickHit &hit);
     void boxSelected(const QRectF &rect, bool crossing, Qt::KeyboardModifiers modifiers);
@@ -121,6 +124,7 @@ private:
     std::vector<FaceHighlight> m_faceHi;
     std::vector<EdgeHighlight> m_edgeHi;
     std::vector<PointBatch> m_pointHi;
+    std::vector<TriangleBatch> m_triHi;
     DisplayStyle m_style = DisplayStyle::ShadedWithEdges;
     bool m_grid = true;
     std::optional<QVector4D> m_clip;

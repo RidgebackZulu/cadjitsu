@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <vector>
@@ -46,6 +47,11 @@ public:
     // Features that use `id` (directly), e.g. extrudes of a sketch.
     std::vector<FeatureId> dependents(FeatureId id) const;
 
+    // The id and default name the next added feature will get (previews use
+    // them so that committing is a cache hit).
+    FeatureId nextFeatureId() const { return m_nextId; }
+    std::string defaultName(FeatureType type) const;
+
     // --- Edits (each is one undo step) ----------------------------------------
     // Inserts at the marker (assigning id and default name) and advances the marker.
     FeatureId addFeature(std::shared_ptr<Feature> f, const std::string &undoLabel = {});
@@ -62,6 +68,10 @@ public:
     std::string bodyName(const Body &body) const;
     void setBodyVisible(const BodyId &id, bool visible);
     bool bodyVisible(const BodyId &id) const;
+    // Sketches are shown until a feature uses them (like Fusion) unless the
+    // user switched them on or off explicitly.
+    void setSketchVisible(FeatureId id, bool visible);
+    std::optional<bool> sketchVisibility(FeatureId id) const;
 
     // --- Parameters -------------------------------------------------------------
     std::string allocateParamName();
@@ -71,6 +81,9 @@ public:
 
     // --- Evaluation -------------------------------------------------------------
     StatePtr stateAt(int index); // after the first `index` features (0 = empty model)
+    // The same state if it is already known (computed here, or by a background
+    // evaluation sharing the cache); never computes. Null otherwise.
+    StatePtr knownStateAt(int index);
     StatePtr displayedState() { return stateAt(m_marker); }
     Status statusOf(FeatureId id);
     uint64_t keyAt(int index); // cache key of the state after `index` features
@@ -87,6 +100,11 @@ public:
     bool redo();
     // Records an undo step for an edit made outside the methods above.
     void pushUndo(const std::string &label);
+    // For edits spread over time (dragging the history marker): take a
+    // snapshot first, make the changes without undo, then record the
+    // snapshot as one step.
+    json undoSnapshot() const { return snapshot(); }
+    void pushUndoSnapshot(const std::string &label, json snap);
 
     // --- Files --------------------------------------------------------------------
     json toJson() const;
@@ -108,7 +126,6 @@ private:
     json snapshot() const;
     void restore(const json &snap);
     void touch(bool structural);
-    std::string defaultName(FeatureType type) const;
     void ensureParams();
     void ensureKeys();
 
@@ -118,6 +135,7 @@ private:
     int m_nextParam = 1;
     std::map<BodyId, std::string> m_bodyNames;
     std::set<BodyId> m_hiddenBodies;
+    std::map<FeatureId, bool> m_sketchVisibility;
 
     std::vector<UndoEntry> m_undo, m_redo;
     uint64_t m_revision = 0;

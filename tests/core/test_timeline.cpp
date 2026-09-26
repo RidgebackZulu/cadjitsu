@@ -199,3 +199,62 @@ TEST_CASE("new parameter names are never reused") {
             CHECK(p.name != n2);
         }
 }
+
+TEST_CASE("sketch visibility overrides are saved and undone") {
+    Document doc;
+    const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {0, 0}, {10, 10}));
+    CHECK_FALSE(doc.sketchVisibility(s).has_value());
+    doc.pushUndo("Hide Sketch");
+    doc.setSketchVisible(s, false);
+    REQUIRE(doc.sketchVisibility(s).has_value());
+    CHECK_FALSE(*doc.sketchVisibility(s));
+    Document copy;
+    std::string err;
+    REQUIRE(copy.fromJson(doc.toJson(), err));
+    REQUIRE(copy.sketchVisibility(s).has_value());
+    CHECK_FALSE(*copy.sketchVisibility(s));
+    doc.undo();
+    CHECK_FALSE(doc.sketchVisibility(s).has_value());
+}
+
+TEST_CASE("a marker drag is one undo step") {
+    Document doc;
+    const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {0, 0}, {10, 10}));
+    doc.addFeature(extrudeAll(doc, s, "5"));
+    const size_t steps = 2;
+    const json before = doc.undoSnapshot();
+    for(int m : {1, 0, 1}) doc.setMarker(m, false);
+    doc.pushUndoSnapshot("Move History Marker", before);
+    CHECK(doc.marker() == 1);
+    CHECK(doc.undoLabel() == "Move History Marker");
+    REQUIRE(doc.undo());
+    CHECK(doc.marker() == 2);
+    CHECK(doc.features().size() == steps);
+}
+
+TEST_CASE("known states come from the shared cache and never compute") {
+    Document doc;
+    const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {0, 0}, {10, 10}));
+    doc.addFeature(extrudeAll(doc, s, "5"));
+    CHECK(doc.knownStateAt(0) != nullptr); // the empty model
+    // A second document sharing nothing: nothing is known until it is computed.
+    Document other;
+    std::string err;
+    REQUIRE(other.fromJson(doc.toJson(), err));
+    const size_t before = other.computeCount();
+    CHECK(other.knownStateAt(2) == nullptr);
+    CHECK(other.computeCount() == before);
+    // A background evaluation sharing the cache makes it known.
+    TimelineEvaluation eval;
+    const auto params = buildParamTable(other.features());
+    evaluateTimeline(other.features(), *params, 2, eval, *other.sharedCache());
+    const StatePtr known = other.knownStateAt(2);
+    REQUIRE(known != nullptr);
+    CHECK(other.computeCount() == before);
+    CHECK(known == eval.states[1]);
+    CHECK(std::fabs(totalVolume(known) - 500.0) < 1e-6);
+    // Suppressed features pass the state through without a cache entry.
+    other.setSuppressed(other.features()[1]->id, true);
+    REQUIRE(other.knownStateAt(2) != nullptr);
+    CHECK(other.knownStateAt(2)->bodies.empty());
+}

@@ -1,6 +1,7 @@
 #include "doc/Document.h"
 
 #include "base/Hash.h"
+#include "base/KernelLock.h"
 #include "base/Version.h"
 
 #include <algorithm>
@@ -75,7 +76,11 @@ int evaluateTimeline(const std::vector<FeaturePtr> &features, const ParamTable &
         ComputeContext ctx;
         ctx.params = &params;
         ctx.cancel = cancel;
-        FeatureResult r = f.compute(prev, ctx);
+        FeatureResult r;
+        {
+            const KernelLock lock(kernelMutex());
+            r = f.compute(prev, ctx);
+        }
         if(cancel && cancel->load()) break; // a cancelled result may be incomplete
         if(!r.state) r.state = prev;
         cache.insert(eval.keys[i], {r.state, r.status});
@@ -204,6 +209,19 @@ void Document::setBodyVisible(const BodyId &id, bool visible) {
 
 bool Document::bodyVisible(const BodyId &id) const { return !m_hiddenBodies.count(id); }
 
+void Document::setSketchVisible(FeatureId id, bool visible) {
+    auto it = m_sketchVisibility.find(id);
+    if(it != m_sketchVisibility.end() && it->second == visible) return;
+    m_sketchVisibility[id] = visible;
+    touch(false);
+}
+
+std::optional<bool> Document::sketchVisibility(FeatureId id) const {
+    auto it = m_sketchVisibility.find(id);
+    if(it == m_sketchVisibility.end()) return std::nullopt;
+    return it->second;
+}
+
 std::string Document::allocateParamName() {
     std::set<std::string> used;
     for(const auto &f : m_features)
@@ -246,6 +264,26 @@ StatePtr Document::stateAt(int index) {
     return m_eval.states[size_t(index) - 1];
 }
 
+StatePtr Document::knownStateAt(int index) {
+    ensureKeys();
+    index = std::clamp(index, 0, int(m_features.size()));
+    if(index == 0) return emptyState();
+    StatePtr prev = m_eval.states.empty() ? emptyState() : m_eval.states.back();
+    for(size_t i = m_eval.states.size(); i < size_t(index); ++i) {
+        if(m_features[i]->suppressed) {
+            m_eval.states.push_back(prev);
+            m_eval.statuses.push_back(Status::ok());
+            continue;
+        }
+        const auto hit = m_cache->find(m_eval.keys[i]);
+        if(!hit) return nullptr;
+        m_eval.states.push_back(hit->state);
+        m_eval.statuses.push_back(hit->status);
+        prev = hit->state;
+    }
+    return m_eval.states[size_t(index) - 1];
+}
+
 uint64_t Document::keyAt(int index) {
     ensureKeys();
     if(index <= 0 || index > int(m_eval.keys.size())) return 0;
@@ -276,12 +314,15 @@ json Document::snapshot() const {
     for(const auto &f : m_features) features.push_back(f->toJson());
     json names = json::object();
     for(const auto &[id, n] : m_bodyNames) names[id] = n;
+    json sketches = json::object();
+    for(const auto &[id, visible] : m_sketchVisibility) sketches[std::to_string(id)] = visible;
     return json{{"features", features},
                 {"marker", m_marker},
                 {"nextId", m_nextId},
                 {"nextParam", m_nextParam},
                 {"bodyNames", names},
-                {"hiddenBodies", std::vector<std::string>(m_hiddenBodies.begin(), m_hiddenBodies.end())}};
+                {"hiddenBodies", std::vector<std::string>(m_hiddenBodies.begin(), m_hiddenBodies.end())},
+                {"sketchVisibility", sketches}};
 }
 
 void Document::restore(const json &snap) {
@@ -300,11 +341,17 @@ void Document::restore(const json &snap) {
         if(it.value().is_string()) m_bodyNames[it.key()] = it.value().get<std::string>();
     const auto hidden = jget<std::vector<std::string>>(snap, "hiddenBodies", {});
     m_hiddenBodies = std::set<BodyId>(hidden.begin(), hidden.end());
+    m_sketchVisibility.clear();
+    const json sketches = snap.value("sketchVisibility", json::object());
+    for(auto it = sketches.begin(); it != sketches.end(); ++it)
+        if(it.value().is_boolean()) m_sketchVisibility[std::atoi(it.key().c_str())] = it.value().get<bool>();
     touch(true);
 }
 
-void Document::pushUndo(const std::string &label) {
-    m_undo.push_back({label, snapshot()});
+void Document::pushUndo(const std::string &label) { pushUndoSnapshot(label, snapshot()); }
+
+void Document::pushUndoSnapshot(const std::string &label, json snap) {
+    m_undo.push_back({label, std::move(snap)});
     if(m_undo.size() > kMaxUndo) m_undo.erase(m_undo.begin());
     m_redo.clear();
 }
@@ -391,6 +438,7 @@ void Document::clear() {
     m_nextParam = 1;
     m_bodyNames.clear();
     m_hiddenBodies.clear();
+    m_sketchVisibility.clear();
     m_undo.clear();
     m_redo.clear();
     touch(true);

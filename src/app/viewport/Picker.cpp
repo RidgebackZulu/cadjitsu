@@ -145,6 +145,7 @@ PickHit pick(const Camera &cam, QPointF px, const std::vector<PickTarget> &targe
 
     const Projector proj(cam);
     PickHit best;
+    best.screen = px;
     if(opt.vertices) {
         for(const auto &t : targets) {
             if(!t.mesh) continue;

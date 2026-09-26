@@ -89,6 +89,7 @@ void Viewport::render(QRhiCommandBuffer *cb) {
     scene.faceHighlights.insert(scene.faceHighlights.end(), m_faceHi.begin(), m_faceHi.end());
     scene.edgeHighlights.insert(scene.edgeHighlights.end(), m_edgeHi.begin(), m_edgeHi.end());
     scene.points.insert(scene.points.end(), m_pointHi.begin(), m_pointHi.end());
+    scene.triangles.insert(scene.triangles.end(), m_triHi.begin(), m_triHi.end());
     if(m_tool) m_tool->contribute(scene);
 
     // Near / far planes around everything drawn, including tool geometry and
@@ -138,10 +139,11 @@ void Viewport::setContent(const RenderScene &scene, std::vector<PickTarget> targ
 }
 
 void Viewport::setHighlights(std::vector<FaceHighlight> faces, std::vector<EdgeHighlight> edges,
-                             std::vector<PointBatch> points) {
+                             std::vector<PointBatch> points, std::vector<TriangleBatch> triangles) {
     m_faceHi = std::move(faces);
     m_edgeHi = std::move(edges);
     m_pointHi = std::move(points);
+    m_triHi = std::move(triangles);
     update();
 }
 
@@ -283,6 +285,7 @@ void Viewport::updateHover(QPointF pos) {
         update();
     }
     PickHit hit;
+    hit.screen = pos;
     if(!cube && !ViewCube::rect(size()).contains(pos.toPoint())) hit = pickAt(pos);
     if(!hit.sameEntity(m_hover)) {
         m_hover = hit;
@@ -290,7 +293,9 @@ void Viewport::updateHover(QPointF pos) {
         update();
     } else {
         m_hover.point = hit.point;
+        m_hover.screen = hit.screen;
     }
+    emit hoverMoved(hit);
 }
 
 bool Viewport::event(QEvent *e) {
@@ -505,6 +510,9 @@ void Viewport::leaveEvent(QEvent *e) {
         emit hoverChanged(m_hover);
         update();
     }
+    PickHit gone;
+    gone.screen = QPointF(-1e6, -1e6);
+    emit hoverMoved(gone);
     QRhiWidget::leaveEvent(e);
 }
 

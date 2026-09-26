@@ -1,5 +1,6 @@
 #include "doc/ModelState.h"
 
+#include "base/KernelLock.h"
 #include "geom/OcctUtil.h"
 #include "mesh/MeshData.h"
 
@@ -9,6 +10,7 @@ namespace cad {
 
 std::shared_ptr<const MeshData> Body::mesh(double deflection) const {
     std::call_once(m_meshOnce, [&] {
+        const KernelLock lock(kernelMutex());
         const double d = deflection > 0 ? deflection : defaultDeflection(bboxDiagonal(shape.shape()));
         m_mesh = tessellateForDisplay(shape, d);
     });

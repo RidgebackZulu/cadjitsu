@@ -62,6 +62,9 @@ public:
     void deleteSelection();
     void toggleConstruction();
     void showStatus(const QString &text);
+    // Ends what the current tool is doing (a line chain, a rectangle in
+    // progress); false if it was idle. Right-click does this first.
+    bool cancelOperation();
 
 signals:
     void activeChanged(bool active);
@@ -74,7 +77,6 @@ signals:
 private:
     bool enter(cad::FeatureId id, bool isNew, bool animate);
     void leave();
-    void onContextMenu(const QPoint &globalPos);
     void closeDimensionEditor();
     // Tools and the plane picker are deleted from the event loop, never while
     // one of their own handlers is running.
@@ -94,7 +96,6 @@ private:
     std::vector<std::unique_ptr<SketchTool>> m_retiredTools;
     std::vector<std::unique_ptr<PlanePickTool>> m_retiredPicks;
     bool m_isNew = false;
-    QMetaObject::Connection m_contextConnection;
 };
 
 } // namespace cadly

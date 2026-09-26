@@ -77,8 +77,9 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 | Select | Click a face, edge or vertex; Shift / Cmd-click adds |
 | Select bodies | Drag left-to-right (window) or right-to-left (crossing); double-click a face |
 | Standard views | Click a ViewCube face, edge or corner; Home button |
-| Canvas menu | Right-click (Create Sketch, Edit Sketch, undo / redo, fit) |
-| Undo / redo | Cmd+Z / Shift+Cmd+Z (inside a sketch: the sketch's own steps) |
+| Marking menu | Right-click the canvas: a ring of commands (Repeat, Create Sketch, Extrude, undo / redo...) plus a short list; click one or press Esc |
+| Extrude | E (with a profile or planar face selected, or inside a sketch to finish it and extrude its profile) |
+| Undo / redo | Cmd+Z / Shift+Cmd+Z (inside a sketch: the sketch's own steps; while a command is open: cancel it) |
 
 ## Sketching
 
@@ -113,11 +114,45 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - Closed regions (profiles) are shaded.
 - Selecting anything shows its length, radius, diameter, area and other stats at the bottom right.
 
+## Modeling
+
+**Extrude (E)**
+- Select one or more profiles (shaded sketch regions) or planar faces, then press **E**. Inside a sketch, **E** finishes the sketch and extrudes its profile.
+- The dialog opens at the right of the canvas with the distance box ready for typing. An arrow on the canvas can be dragged instead.
+- **Direction:** One Side, Two Sides (a distance and taper for each) or Symmetric.
+- **Extent:** Distance, To Object (click the face to stop at; faces at an angle work too), or All (through everything; Flip picks the side).
+- **Taper Angle:** positive angles flare the sides outwards, negative angles draw them in.
+- **Operation:** Join, Cut, Intersect or New Body. Until you choose one, it follows what you are doing: out of a body's face joins, into a body cuts, elsewhere makes a new body.
+- Values take expressions and units (`20`, `d1 / 2`, `0.5 in`). The model previews live; **OK** or Enter adds one timeline step, Esc or **Cancel** leaves the design untouched.
+
+**Timeline** (bottom of the window)
+- One icon per feature, in order, and the history marker after the last active one. Drag the marker to scrub through the history; the model follows immediately. The buttons at the left step to the start, back, forward and to the end.
+- Right-click a feature: **Edit Feature** (or **Edit Sketch**), **Suppress / Unsuppress**, **Roll History Marker Here**, **Rename** and **Delete**. Double-click also edits.
+- **Edit Feature** reopens the dialog the feature was made with, filled in with its values. The model is shown rolled back to that feature while you edit, and changes preview live. Everything after it recomputes when you click OK.
+- Suppressed features are drawn struck through and skipped; failing features are drawn red, and features with warnings yellow.
+
+**Browser** (left)
+- Origin, Bodies and Sketches folders. The eye next to each item shows or hides it; a sketch hides itself once a feature uses it, and its eye brings it back.
+- Double-click a body's name (or press F2) to rename it; double-click a sketch to edit it.
+
+**Recomputing**
+- The model is recomputed on a background thread, so the window never waits for it: a *Computing…* note appears at the bottom right while it works.
+- Every step's result is cached, so scrubbing, suppressing and unsuppressing, undo and Cancel are usually instant.
+
+**Files:** New, Open, Save and Save As (`.cadly`, a JSON document with the whole history).
+
 ## Self tests
 
 `Cadly --selftest=<name> --out <dir>` runs a scripted scenario through the real UI and
 command layer. It saves screenshots and exits with status 0 on success.
 `Cadly --list-selftests` lists the scenarios.
+
+| Scenario | What it does |
+|---|---|
+| `smoke` | The window opens and the canvas renders. |
+| `views` | A demo part in every display style; hover, selection statistics and the ViewCube. |
+| `sketch` | Sketch mode end to end: typed dimensions, a hole, a slot, constraints, statistics. |
+| `plate` | The M4 acceptance run, all through the UI: a 60 x 40 rectangle extruded 20 mm; a circle sketched on its top face and cut through all by dragging the arrow; the volume at every history-marker position; suppress / unsuppress from the cache; Edit Feature reopening both extrudes with their values and previewing live; 16 more holes and a fillet so recomputing takes a while; the first dimension edited to 80 (checked against a from-scratch evaluation); undo back to an empty design. Throughout, the UI thread must never be kept from running for 50 ms while the model recomputes (canvas repaints excluded: they are timed separately). |
 
 ## Roadmap
 
@@ -140,7 +175,11 @@ command layer. It saves screenshots and exits with status 0 on success.
   - line, rectangle, circle, arc and point tools with snapping and heads-up input
   - constraints and direct dimension editing
   - profiles, selection stats, drag, local undo
-- [ ] **M4** Extrude command, timeline (scrub, suppress, edit feature), browser, undo, files
+- [x] **M4** Modeling slice:
+  - command dialogs with live, background-computed previews
+  - Extrude with its arrow, all extents, tapers and the automatic operation
+  - timeline: scrub, suppress, edit feature, rename, delete
+  - browser, marking menu, undo / redo, New / Open / Save
 - [ ] **M5** Fillet, chamfer, hole, combine (keep tools), offset and rotated construction planes
 - [ ] **M6** Section analysis
 - [ ] **M7** Export dialogs, rendered view, packaging

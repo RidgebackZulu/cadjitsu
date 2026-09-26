@@ -6,8 +6,12 @@
 #include "topo/Resolver.h"
 
 #include <BRepBuilderAPI_Copy.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
+#include <BRepOffsetAPI_DraftAngle.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepTools_History.hxx>
+#include <gp_Pln.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_DataMapOfShapeInteger.hxx>
@@ -273,76 +277,192 @@ FeatureResult ExtrudeFeature::compute(const StatePtr &input, const ComputeContex
         if(st.isError()) return {input, st};
         if(inputs.empty()) return {input, Status::error("nothing to extrude: select a profile or a planar face")};
 
-        // 2. Extent along the normal: [start, end].
+        // 2. Extent along the normal: [start, end]. A To Object side either
+        // becomes an exact distance (target plane parallel to the profile) or a
+        // long sweep trimmed by the target plane afterwards.
         Bnd_Box box;
         for(const auto &kv : input->bodies) box.Add(boundingBox(kv.second->shape.shape()));
         for(const auto &in : inputs) box.Add(boundingBox(in.face));
         const double big = 2.0 * std::sqrt(box.IsVoid() ? 1.0 : box.SquareExtent()) + 10.0;
 
-        auto sideLength = [&](ExtentType e, const ParamSlot &slot, double &v) {
+        gp_Pln profilePlane;
+        planeOfFace(inputs.front().face, profilePlane);
+        const gp_Dir n0 = flip ? inputs.front().normal.Reversed() : inputs.front().normal;
+        const gp_Pnt centre = [&] {
+            const Bnd_Box b = boundingBox(inputs.front().face);
+            if(b.IsVoid()) return profilePlane.Location();
+            double x0, y0, z0, x1, y1, z1;
+            b.Get(x0, y0, z0, x1, y1, z1);
+            return gp_Pnt((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+        }();
+
+        struct Trim {
+            gp_Pln plane;
+            const char *tag; // name of the cap it produces ("end" / "start")
+        };
+        std::vector<Trim> trims;
+        // `sign` is +1 for side 1 (along n) and -1 for side 2.
+        auto sideLength = [&](ExtentType e, const ParamSlot &slot, const TopoRef &target, int sign, double &v) {
             if(e == ExtentType::ThroughAll) {
                 v = big;
                 return true;
             }
             if(e == ExtentType::ToObject) {
-                st.merge(Status::error("the To Object extent is not available yet"));
-                return false;
+                if(target.empty()) {
+                    st.merge(Status::error("select the face to extrude to"));
+                    return false;
+                }
+                ResolvedRef r = resolveRef(*input, target);
+                st.merge(r.status);
+                if(!r.ok) return false;
+                gp_Pln tp;
+                if(!planeOfFace(TopoDS::Face(r.shape), tp)) {
+                    st.merge(Status::error("extruding to a curved face is not supported; pick a planar face"));
+                    return false;
+                }
+                const gp_Dir tn = tp.Axis().Direction();
+                const double along = gp_Vec(profilePlane.Location(), tp.Location()).Dot(gp_Vec(tn));
+                const double cosang = gp_Vec(n0).Dot(gp_Vec(tn));
+                if(std::fabs(cosang) > 1.0 - 1e-9) {
+                    // Parallel: the distance along n to the target plane.
+                    v = sign * along / cosang;
+                    return true;
+                }
+                // Inclined: sweep towards the plane, then trim by it.
+                const double t = gp_Vec(centre, tp.Location()).Dot(gp_Vec(tn)) / cosang; // along n0
+                v = (t * sign >= 0 ? 1.0 : -1.0) * big * 2.0;
+                trims.push_back({tp, sign > 0 ? "end" : "start"});
+                return true;
             }
             return ctx.value(slot, v, st);
         };
         double start = 0.0, end = 0.0, a = 0.0, b = 0.0;
         switch(direction) {
         case ExtrudeDirection::OneSide:
-            if(!sideLength(extent, distance, a)) return {input, st};
+            if(!sideLength(extent, distance, toObject, 1, a)) return {input, st};
             end = a;
             break;
         case ExtrudeDirection::Symmetric:
-            if(!sideLength(extent, distance, a)) return {input, st};
+            if(!sideLength(extent, distance, toObject, 1, a)) return {input, st};
             start = -std::fabs(a);
             end = std::fabs(a);
             break;
         case ExtrudeDirection::TwoSides:
-            if(!sideLength(extent, distance, a) || !sideLength(extent2, distance2, b)) return {input, st};
+            if(!sideLength(extent, distance, toObject, 1, a) || !sideLength(extent2, distance2, toObject2, -1, b))
+                return {input, st};
             start = -b;
             end = a;
             break;
         }
         if(std::fabs(end - start) < 1e-7) return {input, Status::error("the extrude distance is zero")};
-        if(!taper.empty()) {
-            double t = 0.0;
-            if(!ctx.value(taper, t, st, ValueKind::Angle)) return {input, st};
-            if(std::fabs(t) > 1e-9) st.merge(Status::warning("taper angles are not supported yet; ignored"));
-        }
+
+        // Taper angles: positive flares the sides outwards, negative draws them in.
+        double t1 = 0.0, t2 = 0.0;
+        if(!taper.empty() && !ctx.value(taper, t1, st, ValueKind::Angle)) return {input, st};
+        if(direction == ExtrudeDirection::TwoSides && !taper2.empty() && !ctx.value(taper2, t2, st, ValueKind::Angle))
+            return {input, st};
+        if(direction == ExtrudeDirection::Symmetric) t2 = t1;
+        if(std::fabs(t1) >= kPi / 2 - 1e-6 || std::fabs(t2) >= kPi / 2 - 1e-6)
+            return {input, Status::error("the taper angle must be between -90 and 90 degrees")};
+        const bool tapered = std::fabs(t1) > 1e-12 || std::fabs(t2) > 1e-12;
 
         // 3. Sweep each face and name the result.
-        std::vector<NamedShape> prisms;
-        for(const auto &in0 : inputs) {
-            const gp_Dir n = flip ? in0.normal.Reversed() : in0.normal;
-            const PrismInput in = std::fabs(start) > 0 ? translated(in0, gp_Vec(n) * start) : in0;
-            BRepPrimAPI_MakePrism mk(in.face, gp_Vec(n) * (end - start));
+        // A prism of `length` along n (negative = backwards) from the profile
+        // plane, with its sides drafted about that plane.
+        auto sweep = [&](const PrismInput &in, const gp_Dir &n, double from, double length, double angle,
+                         const char *nearTag, const char *farTag, const char *sideTag, NamedShape &out) -> bool {
+            const PrismInput moved = std::fabs(from) > 0 ? translated(in, gp_Vec(n) * from) : in;
+            BRepPrimAPI_MakePrism mk(moved.face, gp_Vec(n) * length);
             mk.Build();
-            if(!mk.IsDone()) return {input, Status::error("could not sweep the profile")};
+            if(!mk.IsDone()) {
+                st.merge(Status::error("could not sweep the profile"));
+                return false;
+            }
             const TopoDS_Shape solid = mk.Shape();
             TopTools_IndexedMapOfShape fmap;
             TopExp::MapShapes(solid, TopAbs_FACE, fmap);
             std::vector<FaceLabel> labels(size_t(fmap.Extent()));
-            for(const auto &[e, nm] : in.edgeNames) {
+            std::vector<bool> isSide(size_t(fmap.Extent()), false);
+            for(const auto &[e, nm] : moved.edgeNames) {
                 for(TopTools_ListOfShape::Iterator it(mk.Generated(e)); it.More(); it.Next()) {
                     const int j = fmap.FindIndex(it.Value());
-                    if(j > 0) labels[j - 1].name = prefix + "/side/" + nm;
+                    if(j > 0) {
+                        labels[j - 1].name = prefix + "/" + sideTag + "/" + nm;
+                        isSide[size_t(j - 1)] = true;
+                    }
                 }
             }
-            auto setCap = [&](const TopoDS_Shape &s, const char *tag) {
-                for(TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+            auto setCap = [&](const TopoDS_Shape &cap, const char *tag) {
+                for(TopExp_Explorer ex(cap, TopAbs_FACE); ex.More(); ex.Next()) {
                     const int j = fmap.FindIndex(ex.Current());
                     if(j > 0) labels[j - 1].name = prefix + "/" + tag + "/" + in.capKey;
                 }
             };
-            setCap(mk.FirstShape(), "start");
-            setCap(mk.LastShape(), "end");
-            for(auto &l : labels)
-                if(l.name.empty()) l.name = prefix + "/side/other";
-            prisms.emplace_back(solid, std::move(labels));
+            setCap(mk.FirstShape(), length > 0 ? nearTag : farTag);
+            setCap(mk.LastShape(), length > 0 ? farTag : nearTag);
+            for(size_t j = 0; j < labels.size(); ++j)
+                if(labels[j].name.empty()) {
+                    labels[j].name = prefix + "/" + sideTag + "/other";
+                    isSide[j] = true;
+                }
+            NamedShape prism(solid, std::move(labels));
+            if(std::fabs(angle) < 1e-12) {
+                out = std::move(prism);
+                return true;
+            }
+            const gp_Dir pull = length > 0 ? n : n.Reversed();
+            gp_Pln own;
+            if(!planeOfFace(moved.face, own)) own = profilePlane;
+            const gp_Pln neutral(own.Location(), pull); // the profile's own plane
+            BRepOffsetAPI_DraftAngle draft(solid);
+            for(int j = 1; j <= fmap.Extent(); ++j) {
+                if(!isSide[size_t(j - 1)]) continue;
+                draft.Add(TopoDS::Face(fmap(j)), pull, -angle, neutral);
+                if(!draft.AddDone()) {
+                    st.merge(Status::error("this taper angle cannot be applied to the profile"));
+                    return false;
+                }
+            }
+            draft.Build();
+            if(!draft.IsDone()) {
+                st.merge(Status::error("this taper angle cannot be applied to the profile"));
+                return false;
+            }
+            TopTools_ListOfShape args;
+            args.Append(solid);
+            Handle(BRepTools_History) h = new BRepTools_History(args, draft);
+            out = propagateNames(draft.Shape(), {&prism}, h, prefix);
+            return true;
+        };
+
+        std::vector<NamedShape> prisms;
+        for(const auto &in : inputs) {
+            const gp_Dir n = flip ? in.normal.Reversed() : in.normal;
+            if(!tapered) {
+                NamedShape p;
+                if(!sweep(in, n, start, end - start, 0.0, "start", "end", "side", p)) return {input, st};
+                prisms.push_back(std::move(p));
+                continue;
+            }
+            // Tapered: one drafted prism per side of the profile plane.
+            std::vector<NamedShape> sides;
+            if(std::fabs(end) > 1e-9) {
+                NamedShape p;
+                if(!sweep(in, n, 0.0, end, t1, start < 0 ? "mid" : "start", "end", "side", p)) return {input, st};
+                sides.push_back(std::move(p));
+            }
+            if(start < -1e-9) {
+                NamedShape p;
+                if(!sweep(in, n, 0.0, start, t2, "mid", "start", "side2", p)) return {input, st};
+                sides.push_back(std::move(p));
+            }
+            if(sides.size() == 1) {
+                prisms.push_back(std::move(sides[0]));
+            } else {
+                BooleanResult br = runBoolean(BoolOp::Fuse, {&sides[0]}, {&sides[1]}, prefix);
+                if(!br.ok) return {input, Status::error(br.error)};
+                prisms.push_back(br.shape);
+            }
         }
         NamedShape tool;
         if(prisms.size() == 1) {
@@ -352,6 +472,32 @@ FeatureResult ExtrudeFeature::compute(const StatePtr &input, const ComputeContex
             for(size_t k = 1; k < prisms.size(); ++k) tools.push_back(&prisms[k]);
             BooleanResult br = runBoolean(BoolOp::Fuse, args, tools, prefix);
             if(!br.ok) return {input, Status::error(br.error)};
+            tool = br.shape;
+        }
+        // Trim To Object sides that end on an inclined plane: keep the part of
+        // the sweep on the profile's side of the plane (a large box whose one
+        // face lies in the plane).
+        for(const Trim &trim : trims) {
+            gp_Dir tn = trim.plane.Axis().Direction();
+            if(gp_Vec(trim.plane.Location(), centre).Dot(gp_Vec(tn)) < 0) tn.Reverse(); // towards the profile
+            const gp_Pnt o = centre.Translated(gp_Vec(tn) * -gp_Vec(trim.plane.Location(), centre).Dot(gp_Vec(tn)));
+            gp_Ax3 ax(o, tn);
+            const double h = big * 4.0;
+            BRepBuilderAPI_MakeFace mf(gp_Pln(ax), -h, h, -h, h);
+            BRepPrimAPI_MakePrism slab(mf.Face(), gp_Vec(tn) * h);
+            TopTools_IndexedMapOfShape smap;
+            TopExp::MapShapes(slab.Shape(), TopAbs_FACE, smap);
+            std::vector<FaceLabel> slabLabels(size_t(smap.Extent()));
+            for(int j = 1; j <= smap.Extent(); ++j) slabLabels[size_t(j - 1)].name = prefix + "/trim/other";
+            for(TopExp_Explorer ex(slab.FirstShape(), TopAbs_FACE); ex.More(); ex.Next()) {
+                const int j = smap.FindIndex(ex.Current());
+                if(j > 0) slabLabels[size_t(j - 1)].name = prefix + "/" + trim.tag + "/" + inputs.front().capKey;
+            }
+            const NamedShape slabNamed(slab.Shape(), std::move(slabLabels));
+            BooleanResult br = runBoolean(BoolOp::Common, {&tool}, {&slabNamed}, prefix);
+            if(!br.ok) return {input, Status::error(br.error)};
+            if(solidsOf(br.shape.shape()).empty())
+                return {input, Status::error("the face to extrude to does not cross the extrusion")};
             tool = br.shape;
         }
 

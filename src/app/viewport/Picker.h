@@ -29,6 +29,7 @@ struct PickHit {
     cad::BodyId body;
     int index = 0;                 // 1-based face / edge / vertex index
     QVector3D point;               // world position of the hit
+    QPointF screen;                // cursor position of the pick (logical pixels)
     float rayT = std::numeric_limits<float>::infinity();
     float screenDistance = 0.0f;   // pixels from the cursor (edges / vertices)
 

@@ -15,6 +15,7 @@ enum class IconId {
     Extrude, Fillet, Chamfer, Hole, Combine, Plane, Section, Measure,
     Undo, Redo, Save, Open, New, ExportStl, ExportStep,
     Eye, EyeOff, Body, SketchNode, PlaneNode, Folder, Warning, Error,
+    TimelineFirst, TimelineBack, TimelineForward, TimelineLast, Origin, Flip,
 };
 
 QIcon icon(IconId id, const QColor &accent = QColor(38, 110, 196));

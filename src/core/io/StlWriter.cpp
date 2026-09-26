@@ -1,5 +1,6 @@
 #include "io/StlWriter.h"
 
+#include "base/KernelLock.h"
 #include "geom/OcctUtil.h"
 
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -39,6 +40,7 @@ void stlTolerances(const StlOptions &o, double &deflection, double &angleDegrees
 
 bool buildStlMesh(const std::vector<TopoDS_Shape> &solids, const StlOptions &options, StlExport &out,
                   std::string &error) {
+    const KernelLock kernel(kernelMutex());
     out = StlExport();
     if(solids.empty()) {
         error = "there are no bodies to export";

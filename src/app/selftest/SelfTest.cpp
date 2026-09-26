@@ -1,26 +1,43 @@
 #include "selftest/SelfTest.h"
 
 #include "MainWindow.h"
+#include "command/Command.h"
+#include "command/CommandPanel.h"
+#include "command/ExtrudeCommand.h"
 #include "model/ModelView.h"
 #include "selftest/DemoModels.h"
 #include "selftest/TestUtil.h"
 #include "sketch/HeadsUpInput.h"
 #include "sketch/SketchEditor.h"
 #include "sketch/SketchMode.h"
+#include "ui/MarkingMenu.h"
+#include "ui/TimelineWidget.h"
 #include "viewport/ViewCube.h"
 #include "viewport/Viewport.h"
 
 #include "base/Version.h"
+#include "features/ExtrudeFeature.h"
+#include "features/FilletFeature.h"
 #include "features/SketchFeature.h"
+#include "geom/OcctUtil.h"
+#include "topo/Resolver.h"
 
 #include <QAction>
+#include <QCheckBox>
+#include <QComboBox>
 #include <QCoreApplication>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QImage>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPushButton>
 #include <QTextStream>
+#include <QTimer>
+#include <QToolButton>
+
+#include <gp_Pln.hxx>
 
 #include <functional>
 #include <map>
@@ -301,11 +318,400 @@ bool sketchScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
+// How long the event loop goes without running: the longest gap between the
+// ticks of a fast timer.
+class StallMeter {
+public:
+    StallMeter() {
+        m_timer.setTimerType(Qt::PreciseTimer);
+        m_timer.setInterval(2);
+        QObject::connect(&m_timer, &QTimer::timeout, [this] { tick(); });
+    }
+    void start() {
+        m_longest = 0;
+        m_clock.start();
+        m_last = 0;
+        m_timer.start();
+    }
+    double stop() {
+        tick();
+        m_timer.stop();
+        return m_longest;
+    }
+
+private:
+    void tick() {
+        const qint64 now = m_clock.nsecsElapsed();
+        m_longest = std::max(m_longest, double(now - m_last) / 1e6);
+        m_last = now;
+    }
+
+    QTimer m_timer;
+    QElapsedTimer m_clock;
+    qint64 m_last = 0;
+    double m_longest = 0;
+};
+
+double modelVolume(const cad::StatePtr &s) {
+    double v = 0;
+    if(s)
+        for(const auto &kv : s->bodies) v += cad::volumeOf(kv.second->shape.shape());
+    return v;
+}
+
+void doubleClickAt(QWidget *w, QPointF p) {
+    sendMouse(w, QEvent::MouseMove, p, Qt::NoButton, Qt::NoButton);
+    sendMouse(w, QEvent::MouseButtonPress, p, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(w, QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
+    sendMouse(w, QEvent::MouseButtonDblClick, p, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(w, QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
+}
+
+void dragAt(QWidget *w, QPointF from, QPointF to) {
+    sendMouse(w, QEvent::MouseMove, from, Qt::NoButton, Qt::NoButton);
+    sendMouse(w, QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+    for(int i = 1; i <= 12; ++i)
+        sendMouse(w, QEvent::MouseMove, from + (to - from) * (i / 12.0), Qt::NoButton, Qt::LeftButton);
+    sendMouse(w, QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+}
+
+// The M4 acceptance scenario, all through the UI: sketch a rectangle, extrude
+// it 20 mm, sketch a circle on its top face and cut it through all, then edit
+// the first dimension. Checks the volume at every history marker position,
+// suppress / unsuppress, that Edit Feature reopens the same dialog with the
+// same values and previews live, that undo returns to an empty design, and
+// that the UI never stalls for more than 50 ms while the model recomputes.
+bool plateScenario(MainWindow &w, const QDir &out, QTextStream &log) {
+    Viewport *vp = w.viewport();
+    SketchMode *mode = w.sketchMode();
+    cad::Document &doc = w.document();
+    TimelineWidget *tl = w.timeline();
+    vp->setStandardView(StandardView::Home, false);
+    if(!waitForFrames(vp, 2)) return false;
+    bool ok = true;
+    auto check = [&](bool cond, const QString &what) {
+        log << (cond ? "  ok   " : "  FAIL ") << what << "\n";
+        log.flush();
+        ok &= cond;
+    };
+    auto shot = [&](const char *name) {
+        waitForFrames(vp, 2);
+        processEventsFor(30);
+        w.grab().save(out.filePath(QString::fromLatin1(name)));
+    };
+    auto shown = [&] { return modelVolume(w.modelView()->state()); };
+    auto near = [](double a, double b) { return std::fabs(a - b) <= 1e-6 * std::max(1.0, std::fabs(b)); };
+    auto vol = [](double v) { return QString::number(v, 'f', 2); };
+
+    // Every wait for the model measures how long the UI thread was kept from
+    // running meanwhile. Canvas repaints wait until the model is there: they
+    // are not part of recomputing (under software OpenGL one frame of the
+    // drilled plate takes ~35 ms by itself), and are timed separately.
+    StallMeter meter;
+    double worstStall = 0, slowestModel = 0, slowestFrame = 0;
+    auto settle = [&](const QString &what) {
+        QElapsedTimer t;
+        t.start();
+        vp->setUpdatesEnabled(false);
+        meter.start();
+        const bool done = w.waitForModel(60000);
+        const double stall = meter.stop();
+        const double ms = double(t.nsecsElapsed()) / 1e6;
+        vp->setUpdatesEnabled(true);
+        t.restart();
+        waitForFrames(vp, 1);
+        const double frame = double(t.nsecsElapsed()) / 1e6;
+        worstStall = std::max(worstStall, stall);
+        slowestModel = std::max(slowestModel, ms);
+        slowestFrame = std::max(slowestFrame, frame);
+        log << QStringLiteral("         %1: model after %2 ms, longest UI stall %3 ms; frame %4 ms\n")
+                   .arg(what)
+                   .arg(ms, 0, 'f', 1)
+                   .arg(stall, 0, 'f', 1)
+                   .arg(frame, 0, 'f', 1);
+        if(!done) check(false, what + QStringLiteral(": the model never arrived"));
+    };
+    auto extrudeCommand = [&] { return qobject_cast<ExtrudeCommand *>(w.commands()->command()); };
+    const double plate = 60.0 * 40.0 * 20.0, hole = cad::kPi * 25.0;
+
+    // 1. Sketch a 60 x 40 rectangle on the XY plane.
+    w.action(QStringLiteral("createSketch"))->trigger();
+    const float s = vp->camera().viewHeightAtTarget() * 0.2f;
+    clickAt(vp, vp->camera().project(QVector3D(s * 0.85f, s * 0.85f, 0)));
+    check(mode->active(), QStringLiteral("Create Sketch on the XY plane"));
+    if(!mode->active()) return false;
+    processEventsFor(450);
+    SketchEditor *ed = mode->editor();
+    w.action(QStringLiteral("sketchRectangle"))->trigger();
+    clickAt(vp, ed->toScreen({0, 0}));
+    sendMouse(vp, QEvent::MouseMove, ed->toScreen({45, 28}), Qt::NoButton, Qt::NoButton);
+    typeText(w, QStringLiteral("60"));
+    sendKey(w, Qt::Key_Tab);
+    typeText(w, QStringLiteral("40"));
+    sendKey(w, Qt::Key_Return);
+    check(ed->profiles().size() == 1 && std::fabs(std::fabs(ed->profiles().front().area) - 2400.0) < 1e-6,
+          QStringLiteral("a 60 x 40 rectangle with typed dimensions"));
+    shot("plate_1_sketch.png");
+
+    // 2. E finishes the sketch and extrudes its profile; type 20 and press Enter.
+    w.action(QStringLiteral("extrude"))->trigger();
+    ExtrudeCommand *ex = extrudeCommand();
+    check(!mode->active() && ex && ex->profileCount() == 1,
+          QStringLiteral("E finishes the sketch and extrudes its profile"));
+    if(!ex) return false;
+    settle(QStringLiteral("default preview"));
+    check(w.focusWidget() == ex->distanceField(), QStringLiteral("the distance box has the keyboard"));
+    typeText(w, QStringLiteral("20"));
+    settle(QStringLiteral("20 mm preview"));
+    check(w.modelView()->evaluation()->preview && near(shown(), plate) && doc.features().size() == 1,
+          QStringLiteral("the preview shows the 20 mm plate (%1) before it is committed").arg(vol(shown())));
+    shot("plate_2_extrude_preview.png");
+    sendKey(w, Qt::Key_Return);
+    settle(QStringLiteral("commit Extrude1"));
+    check(!w.commands()->active() && doc.features().size() == 2 && near(shown(), plate),
+          QStringLiteral("Enter commits Extrude1: %1 mm3").arg(vol(shown())));
+    check(QString::fromStdString(doc.undoLabel()) == QStringLiteral("Create Extrude1"),
+          QStringLiteral("as one undo step"));
+
+    // 3. A 10 mm circle on the top face.
+    vp->setStandardView(StandardView::Home, false);
+    vp->fitAll(false);
+    waitForFrames(vp, 1);
+    w.action(QStringLiteral("createSketch"))->trigger();
+    clickAt(vp, vp->camera().project(QVector3D(30, 20, 20)));
+    check(mode->active(), QStringLiteral("Create Sketch on the plate's top face"));
+    if(!mode->active()) return false;
+    processEventsFor(450);
+    ed = mode->editor();
+    const std::optional<cad::Vec2> centre = ed->toSketch(vp->camera().project(QVector3D(30, 20, 20)));
+    check(centre.has_value() && std::fabs(ed->toWorld(*centre).z() - 20.0f) < 1e-3f,
+          QStringLiteral("the sketch lies on the top face"));
+    if(!centre) return false;
+    w.action(QStringLiteral("sketchCircle"))->trigger();
+    clickAt(vp, ed->toScreen(*centre));
+    sendMouse(vp, QEvent::MouseMove, ed->toScreen({centre->x + 4, centre->y}), Qt::NoButton, Qt::NoButton);
+    typeText(w, QStringLiteral("10"));
+    sendKey(w, Qt::Key_Return);
+    check(ed->profiles().size() == 1, QStringLiteral("a 10 mm circle"));
+
+    // 4. Extrude it: out of the face it joins; dragged into the plate it cuts;
+    // All carries on through the plate.
+    w.action(QStringLiteral("extrude"))->trigger();
+    ex = extrudeCommand();
+    if(!ex) return false;
+    settle(QStringLiteral("hole preview"));
+    check(ex->operation() == cad::BodyOperation::Join, QStringLiteral("extruding out of the face joins"));
+    // From the sketch's view the arrow points at the eye: look from the side first.
+    vp->setStandardView(StandardView::Home, false);
+    waitForFrames(vp, 1);
+    const QPointF head = ex->arrow().headOnScreen();
+    const QVector3D down = ex->arrow().origin() - ex->arrow().direction() * 8.0f;
+    dragAt(vp, head, vp->camera().project(down));
+    settle(QStringLiteral("arrow dragged into the plate"));
+    check(ex->operation() == cad::BodyOperation::Cut && ex->distanceField()->value().value_or(0) < -7.9,
+          QStringLiteral("dragging the arrow into the plate cuts (%1)").arg(ex->distanceField()->expression()));
+    ex->extentBox()->setCurrentIndex(2); // All
+    check(ex->flipBox()->isChecked(), QStringLiteral("All keeps going into the plate"));
+    settle(QStringLiteral("cut through all preview"));
+    check(near(shown(), plate - hole * 20.0), QStringLiteral("cut through all: %1 mm3").arg(vol(shown())));
+    shot("plate_3_cut_preview.png");
+    w.commandPanel()->okButton()->click();
+    settle(QStringLiteral("commit Extrude2"));
+    check(doc.features().size() == 4 && near(shown(), plate - hole * 20.0),
+          QStringLiteral("OK commits the cut: %1 mm3").arg(vol(shown())));
+    if(doc.features().size() != 4) return false;
+
+    // 5. Scrub the history marker from the start to the end.
+    const double atMarker[] = {0.0, 0.0, plate, plate, plate - hole * 20.0};
+    tl->findChild<QToolButton *>(QStringLiteral("timelineFirst"))->click();
+    for(int m = 0; m <= 4; ++m) {
+        if(m > 0) tl->findChild<QToolButton *>(QStringLiteral("timelineForward"))->click();
+        settle(QStringLiteral("marker at %1").arg(m));
+        check(doc.marker() == m && near(shown(), atMarker[m]),
+              QStringLiteral("history marker at %1: %2 mm3").arg(m).arg(vol(shown())));
+        if(m == 3) shot("plate_4_scrubbed.png");
+    }
+
+    // 6. Suppress the cut and unsuppress it again (from the cache).
+    const cad::FeatureId cut = doc.features()[3]->id;
+    const size_t computed = w.recompute()->computedFeatures();
+    doc.setSuppressed(cut, true);
+    settle(QStringLiteral("suppressed"));
+    check(near(shown(), plate), QStringLiteral("suppressing the cut removes the hole: %1 mm3").arg(vol(shown())));
+    shot("plate_5_suppressed.png");
+    doc.setSuppressed(cut, false);
+    settle(QStringLiteral("unsuppressed"));
+    check(near(shown(), plate - hole * 20.0), QStringLiteral("unsuppressing restores it: %1 mm3").arg(vol(shown())));
+    check(w.recompute()->computedFeatures() == computed, QStringLiteral("without recomputing anything"));
+
+    // 7. Edit Feature (double-click in the timeline) reopens the same dialog
+    // with the feature's values, rolled back to it. Extrude2 is looked at and
+    // cancelled; Extrude1 stays open.
+    for(int i : {3, 1}) {
+        const auto f = std::dynamic_pointer_cast<const cad::ExtrudeFeature>(doc.features()[size_t(i)]);
+        doubleClickAt(tl, tl->itemRect(i).center());
+        ex = extrudeCommand();
+        check(ex && ex->isEditing() && ex->editing() == f->id,
+              QStringLiteral("double-clicking %1 opens Edit Feature").arg(QString::fromStdString(f->name)));
+        if(!ex) return false;
+        settle(QStringLiteral("edit %1").arg(QString::fromStdString(f->name)));
+        const bool same = ex->profileCount() == int(f->profiles.size()) &&
+                          ex->distanceField()->expression() == QString::fromStdString(f->distance.expr) &&
+                          ex->taperField()->expression() == QString::fromStdString(f->taper.expr) &&
+                          ex->extentBox()->currentIndex() == (f->extent == cad::ExtentType::ThroughAll ? 2 : 0) &&
+                          ex->directionBox()->currentIndex() == 0 && ex->flipBox()->isChecked() == f->flip &&
+                          ex->operation() == f->operation;
+        check(same, QStringLiteral("  with the same values (%1, %2)")
+                        .arg(ex->distanceField()->expression(), ex->extentBox()->currentText()));
+        check(tl->markerX() == tl->itemRect(i).right() + 4, QStringLiteral("  and the timeline rolled back to it"));
+        if(i == 3) w.commandPanel()->cancelButton()->click();
+    }
+    // Make Extrude1 30 mm: the preview updates before OK.
+    ex = extrudeCommand();
+    if(!ex) return false;
+    ex->distanceField()->setFocus();
+    ex->distanceField()->selectAll();
+    typeText(w, QStringLiteral("30"));
+    settle(QStringLiteral("edit preview"));
+    check(w.modelView()->evaluation()->preview && near(shown(), 60.0 * 40.0 * 30.0),
+          QStringLiteral("the edit previews live: %1 mm3").arg(vol(shown())));
+    shot("plate_6_edit_feature.png");
+    w.commandPanel()->okButton()->click();
+    settle(QStringLiteral("commit the edit"));
+    check(near(shown(), 60.0 * 40.0 * 30.0 - hole * 30.0),
+          QStringLiteral("after OK the hole still goes through: %1 mm3").arg(vol(shown())));
+    check(QString::fromStdString(doc.undoLabel()) == QStringLiteral("Edit Extrude1"), QStringLiteral("as one undo step"));
+
+    // 8. Make the model take a while to recompute (their dialogs come in
+    // later milestones, so these features are added directly): a grid of 16
+    // holes cut through the plate, and every edge of the top and bottom faces
+    // rounded. Then edit the first dimension: 60 -> 80 in Sketch1.
+    {
+        const cad::StatePtr st = w.modelView()->state();
+        const cad::Body *body = st->orderedBodies().front();
+        cad::TopoRef top;
+        for(int i = 1; i <= body->shape.faceCount(); ++i) {
+            gp_Pln pln;
+            if(cad::planeOfFace(body->shape.face(i), pln) && pln.Axis().Direction().IsEqual(gp_Dir(0, 0, 1), 1e-9) &&
+               pln.Location().Z() > 29.0)
+                top = cad::makeTopoRef(*body, cad::TopoKind::Face, i);
+        }
+        auto grid = std::make_shared<cad::SketchFeature>();
+        grid->plane = cad::PlaneRef::onFace(top);
+        gp_Ax3 frame;
+        cad::Status status;
+        check(!top.empty() && cad::resolvePlane(*st, grid->plane, frame, status), QStringLiteral("the top face again"));
+        auto local = [&](double x, double y) {
+            const gp_Vec v(frame.Location(), gp_Pnt(x, y, 30.0));
+            return cad::Vec2{v.Dot(gp_Vec(frame.XDirection())), v.Dot(gp_Vec(frame.YDirection()))};
+        };
+        for(double x : {6.0, 14.0, 22.0, 38.0, 46.0, 54.0})
+            for(double y : {8.0, 20.0, 32.0})
+                if(std::hypot(x - 30.0, y - 20.0) > 12.0) grid->sketch.addCircle(local(x, y), 2.0);
+        const cad::FeatureId gridId = doc.addFeature(grid);
+        auto holes = std::make_shared<cad::ExtrudeFeature>();
+        for(const auto &p : doc.stateAt(doc.marker())->sketches.at(gridId)->profiles)
+            holes->profiles.push_back({gridId, p.key, p.sample});
+        holes->extent = cad::ExtentType::ThroughAll;
+        holes->flip = true;
+        holes->operation = cad::BodyOperation::Cut;
+        holes->distance = doc.makeSlot("10 mm");
+        holes->taper = doc.makeSlot("0 deg");
+        doc.addFeature(holes);
+        settle(QStringLiteral("16 holes"));
+        check(near(shown(), 60.0 * 40.0 * 30.0 - hole * 30.0 - 16 * cad::kPi * 4.0 * 30.0),
+              QStringLiteral("%1 holes through the plate: %2 mm3").arg(holes->profiles.size()).arg(vol(shown())));
+
+        const cad::Body *drilled = w.modelView()->state()->orderedBodies().front();
+        auto fillet = std::make_shared<cad::FilletFeature>();
+        for(int i = 1; i <= drilled->shape.faceCount(); ++i) {
+            gp_Pln pln;
+            if(cad::planeOfFace(drilled->shape.face(i), pln) && pln.Axis().Direction().IsParallel(gp_Dir(0, 0, 1), 1e-9))
+                fillet->faces.push_back(cad::makeTopoRef(*drilled, cad::TopoKind::Face, i));
+        }
+        fillet->radius = doc.makeSlot("1 mm");
+        doc.addFeature(fillet);
+        settle(QStringLiteral("fillet"));
+        const cad::Status fs = doc.statusOf(fillet->id);
+        check(doc.features().size() == 7 && fs.severity == cad::Severity::Ok,
+              QStringLiteral("a fillet on the edges of %1 faces: %2 mm3 %3")
+                  .arg(fillet->faces.size())
+                  .arg(vol(shown()), QString::fromStdString(fs.message)));
+    }
+    doubleClickAt(tl, tl->itemRect(0).center());
+    check(mode->active(), QStringLiteral("double-clicking Sketch1 edits it"));
+    if(!mode->active()) return false;
+    processEventsFor(450);
+    ed = mode->editor();
+    const cad::SkConstraint *width = nullptr;
+    for(const auto &c : ed->sketch().constraints)
+        if(cad::isDimension(c.type) && std::fabs(ed->dimensionValue(c) - 60.0) < 1e-9) width = &c;
+    check(width != nullptr, QStringLiteral("the 60 mm dimension is there"));
+    if(!width) return false;
+    const int widthId = width->id;
+    waitForFrames(vp, 1);
+    const std::optional<QRectF> label = ed->dimensionRect(widthId);
+    if(label) doubleClickAt(vp, label->center());
+    check(mode->dimensionEditor() != nullptr, QStringLiteral("double-clicking it opens its value box"));
+    if(auto *box = mode->dimensionEditor()) {
+        box->selectAll();
+        typeText(w, QStringLiteral("80"));
+        sendKey(w, Qt::Key_Return);
+    }
+    processEventsFor(30);
+    check(std::fabs(std::fabs(ed->profiles().front().area) - 3200.0) < 1e-6, QStringLiteral("the rectangle is 80 wide"));
+    const size_t before = w.recompute()->computedFeatures();
+    w.action(QStringLiteral("finishSketch"))->trigger();
+    settle(QStringLiteral("recompute after the dimension edit"));
+    check(w.recompute()->computedFeatures() - before == 7, QStringLiteral("all seven features were recomputed"));
+    // The same design evaluated from scratch, synchronously.
+    cad::Document fresh;
+    std::string error;
+    fresh.fromJson(doc.toJson(), error);
+    const double expected = modelVolume(fresh.displayedState());
+    const double sharp = 80.0 * 40.0 * 30.0 - hole * 30.0 - 16 * cad::kPi * 4.0 * 30.0;
+    check(near(shown(), expected) && expected < sharp && expected > sharp - 600.0,
+          QStringLiteral("the whole model follows: %1 mm3 (from scratch %2)").arg(vol(shown()), vol(expected)));
+    bool allOk = true;
+    for(const auto &f : fresh.features()) allOk &= fresh.statusOf(f->id).severity == cad::Severity::Ok;
+    check(allOk, QStringLiteral("every feature survives the edit"));
+    vp->setStandardView(StandardView::Home, false);
+    vp->fitAll(false);
+    shot("plate_7_final.png");
+
+    // The marking menu on the canvas.
+    const QPointF middle(vp->width() * 0.5, vp->height() * 0.5);
+    sendMouse(vp, QEvent::MouseButtonPress, middle, Qt::RightButton, Qt::RightButton);
+    sendMouse(vp, QEvent::MouseButtonRelease, middle, Qt::RightButton, Qt::NoButton);
+    check(w.markingMenu()->isOpen(), QStringLiteral("right-click opens the marking menu"));
+    shot("plate_8_marking_menu.png");
+    w.markingMenu()->close();
+
+    // 9. Undo everything.
+    int steps = 0;
+    while(doc.canUndo() && steps < 100) {
+        w.action(QStringLiteral("undo"))->trigger();
+        ++steps;
+    }
+    settle(QStringLiteral("undo all"));
+    check(doc.features().empty() && shown() == 0.0 && w.modelView()->state()->bodies.empty(),
+          QStringLiteral("%1 undo steps return to an empty design").arg(steps));
+    shot("plate_9_undone.png");
+
+    log << QStringLiteral("  slowest model %1 ms, slowest frame %2 ms\n")
+               .arg(slowestModel, 0, 'f', 1)
+               .arg(slowestFrame, 0, 'f', 1);
+    check(worstStall < 50.0,
+          QStringLiteral("the UI never stalled for 50 ms while the model recomputed (longest %1 ms)").arg(worstStall, 0, 'f', 1));
+    return ok;
+}
+
 const std::map<QString, Scenario> &scenarios() {
     static const std::map<QString, Scenario> s = {
         {QStringLiteral("smoke"), smokeScenario},
         {QStringLiteral("views"), viewsScenario},
         {QStringLiteral("sketch"), sketchScenario},
+        {QStringLiteral("plate"), plateScenario},
     };
     return s;
 }

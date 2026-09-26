@@ -13,7 +13,6 @@
 #include "topo/Resolver.h"
 
 #include <QKeyEvent>
-#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QTimer>
@@ -349,8 +348,6 @@ bool SketchMode::enter(cad::FeatureId id, bool isNew, bool animate) {
     m_modelView->refresh();
     m_palette->reposition();
     m_palette->show();
-    m_contextConnection = connect(m_viewport, &Viewport::contextMenuRequested, this,
-                                  [this](const QPoint &globalPos, const PickHit &) { onContextMenu(globalPos); });
     emit activeChanged(true);
     setTool(SketchToolKind::Select);
     lookAt(animate);
@@ -379,7 +376,6 @@ void SketchMode::leave() {
     m_hud->hide();
     m_hud->unlockAll();
     m_palette->hide();
-    disconnect(m_contextConnection);
     m_modelView->setHiddenSketch(cad::kNoFeature);
     m_modelView->setSelectable(true, true, true, true);
     m_editor.reset();
@@ -478,28 +474,9 @@ void SketchMode::lookAt(bool animate) {
     }
 }
 
-void SketchMode::onContextMenu(const QPoint &globalPos) {
-    if(!m_editor) return;
-    if(m_tool && m_tool->cancel()) return; // right-click ends what the tool was doing
-    QMenu menu;
-    menu.addAction(icon(IconId::FinishSketch), tr("Finish Sketch"), this, &SketchMode::finish);
-    menu.addSeparator();
-    const std::pair<SketchToolKind, IconId> tools[] = {{SketchToolKind::Line, IconId::Line},
-                                                       {SketchToolKind::Rectangle, IconId::Rectangle},
-                                                       {SketchToolKind::Circle, IconId::Circle},
-                                                       {SketchToolKind::Dimension, IconId::Dimension}};
-    for(const auto &[kind, id] : tools) {
-        const SketchToolKind k = kind;
-        menu.addAction(icon(id), sketchToolName(k), this, [this, k] { setTool(k); });
-    }
-    if(!m_editor->selectedEntities.empty() || !m_editor->selectedConstraints.empty()) {
-        menu.addSeparator();
-        menu.addAction(tr("Delete"), this, &SketchMode::deleteSelection);
-        menu.addAction(icon(IconId::Construction), tr("Normal / Construction"), this, &SketchMode::toggleConstruction);
-    }
-    menu.addSeparator();
-    menu.addAction(icon(IconId::LookAt), tr("Look At"), this, [this] { lookAt(); });
-    menu.exec(globalPos);
+bool SketchMode::cancelOperation() {
+    closeDimensionEditor();
+    return m_tool && m_tool->cancel();
 }
 
 } // namespace cadly
