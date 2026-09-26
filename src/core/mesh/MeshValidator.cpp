@@ -74,9 +74,16 @@ MeshReport validateMesh(const TriMesh &mesh, double expectedVolume, double volum
             else ++use.bwd;
         }
     }
+    std::string openAt; // where the open edges are, to find them in the model
     for(const auto &kv : edgesUse) {
         const uint32_t total = kv.second.fwd + kv.second.bwd;
-        if(total == 1) ++r.boundaryEdges;
+        if(total == 1 && ++r.boundaryEdges <= 3) {
+            const V3 &a = mesh.vertices[uint32_t(kv.first >> 32)], &b = mesh.vertices[uint32_t(kv.first & 0xffffffffu)];
+            char buf[160];
+            std::snprintf(buf, sizeof buf, "%s(%.4f, %.4f, %.4f)-(%.4f, %.4f, %.4f)", openAt.empty() ? "" : ", ", a[0],
+                          a[1], a[2], b[0], b[1], b[2]);
+            openAt += buf;
+        }
         else if(total > 2) ++r.nonManifoldEdges;
         else if(kv.second.fwd != 1) ++r.flippedEdges;
     }
@@ -100,7 +107,9 @@ MeshReport validateMesh(const TriMesh &mesh, double expectedVolume, double volum
     r.shells = roots.size();
 
     r.watertight = r.boundaryEdges == 0 && r.nonManifoldEdges == 0 && r.flippedEdges == 0;
-    if(r.boundaryEdges) r.problems.push_back(std::to_string(r.boundaryEdges) + " open edge(s): the mesh has holes");
+    if(r.boundaryEdges)
+        r.problems.push_back(std::to_string(r.boundaryEdges) + " open edge(s): the mesh has holes, at " + openAt +
+                             (r.boundaryEdges > 3 ? "..." : ""));
     if(r.nonManifoldEdges)
         r.problems.push_back(std::to_string(r.nonManifoldEdges) + " non-manifold edge(s) shared by 3+ triangles");
     if(r.flippedEdges)
