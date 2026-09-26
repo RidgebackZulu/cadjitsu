@@ -7,7 +7,9 @@
 #include "command/EdgeCommands.h"
 #include "command/ExtrudeCommand.h"
 #include "command/HoleCommand.h"
+#include "command/Manipulator.h"
 #include "command/PlaneCommand.h"
+#include "command/SectionCommand.h"
 #include "model/ModelView.h"
 #include "selftest/DemoModels.h"
 #include "selftest/TestUtil.h"
@@ -20,6 +22,7 @@
 #include "viewport/Viewport.h"
 
 #include "base/Version.h"
+#include "doc/Section.h"
 #include "features/ExtrudeFeature.h"
 #include "features/FilletFeature.h"
 #include "features/SketchFeature.h"
@@ -869,6 +872,121 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
+// M6 acceptance: Section Analysis through its dialog on the demo bracket (a
+// hatched cut through both holes), the depth arrow dragged afterwards, a
+// fillet on an edge picked in the section view, the browser eye turning it
+// off and on, and an upstream edit moving the cut with the model.
+bool sectionScenario(MainWindow &w, const QDir &out, QTextStream &log) {
+    Viewport *vp = w.viewport();
+    cad::Document &doc = w.document();
+    bool ok = true;
+    auto check = [&](bool cond, const QString &what) {
+        log << (cond ? "  ok   " : "  FAIL ") << what << "\n";
+        log.flush();
+        ok &= cond;
+    };
+    auto shot = [&](const char *name) {
+        waitForFrames(vp, 2);
+        processEventsFor(30);
+        w.grab().save(out.filePath(QString::fromLatin1(name)));
+    };
+    auto settle = [&] {
+        w.waitForModel(60000);
+        waitForFrames(vp, 1);
+    };
+    auto at = [&](double x, double y, double z) { return vp->camera().project(QVector3D(float(x), float(y), float(z))); };
+    auto type = [&](ValueField *f, const QString &text) {
+        f->setFocus();
+        f->selectAll();
+        typeText(w, text);
+    };
+    // Is a point cut away by the section in use?
+    auto cut = [&](double x, double y, double z) {
+        const auto c = w.modelView()->clipPlane();
+        return c && QVector3D::dotProduct(c->toVector3D(), QVector3D(float(x), float(y), float(z))) + c->w() > 0;
+    };
+    // Hatching: light cap and dark lines next to each other around a point.
+    auto hatched = [&](QPointF p) {
+        waitForFrames(vp, 2);
+        const QImage img = vp->grabFramebuffer();
+        const QPoint c(int(p.x() * img.width() / vp->width()), int(p.y() * img.height() / vp->height()));
+        int lo = 255, hi = 0;
+        for(int dx = -8; dx <= 8; ++dx) {
+            const int v = qGray(img.pixel(std::clamp(c.x() + dx, 0, img.width() - 1), c.y()));
+            lo = std::min(lo, v);
+            hi = std::max(hi, v);
+        }
+        return hi - lo > 40;
+    };
+
+    buildDemoBracket(doc);
+    w.refresh();
+    vp->setStandardView(StandardView::Home, false);
+    vp->fitAll(false);
+    waitForFrames(vp, 2);
+
+    // 1. Inspect > Section Analysis on the XZ plane, 20 mm in: through both holes.
+    w.action(QStringLiteral("sectionAnalysis"))->trigger();
+    auto *cmd = qobject_cast<SectionCommand *>(w.commands()->command());
+    if(!cmd) return false;
+    QPointF xz;
+    for(const auto &[item, q] : w.modelView()->planeQuads())
+        if(item.key == "XZ") xz = vp->camera().project(q[0] + (q[1] - q[0]) * 0.92f + (q[3] - q[0]) * 0.92f);
+    clickAt(vp, xz);
+    check(cmd->hasPlane(), QStringLiteral("the XZ origin plane is picked"));
+    type(cmd->distanceField(), QStringLiteral("-20"));
+    settle();
+    check(cut(30, 10, 6) && !cut(30, 30, 6) && doc.sections().empty(),
+          QStringLiteral("the cut is previewed (front half away) before OK"));
+    shot("section_1_command.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(doc.activeSection() && doc.sections().size() == 1, QStringLiteral("OK keeps Section1 (Analysis folder)"));
+    check(hatched(at(30, 20, 6)), QStringLiteral("the cut face is hatched"));
+    shot("section_2_hatched.png");
+
+    // 2. The depth arrow stays on the canvas: drag it 8 mm back (to y = 12).
+    DistanceManipulator *arrow = w.sectionArrow();
+    check(arrow->visible(), QStringLiteral("the depth arrow is on the canvas"));
+    const QVector3D target = arrow->origin() + arrow->direction() * float(arrow->distance() + 8.0);
+    dragAt(vp, arrow->headOnScreen(), at(target.x(), target.y(), target.z()));
+    settle();
+    check(doc.activeSection() && std::fabs(doc.activeSection()->offset + 12.0) < 0.05 && cut(30, 10, 6) && !cut(30, 14, 6),
+          QStringLiteral("dragging the arrow moves the cut (depth %1)").arg(doc.activeSection()->offset));
+    shot("section_3_dragged.png");
+
+    // 3. Modelling goes on: fillet the back top edge, picked in the section view.
+    w.action(QStringLiteral("fillet"))->trigger();
+    auto *fillet = qobject_cast<FilletCommand *>(w.commands()->command());
+    if(!fillet) return false;
+    clickAt(vp, at(30, 0, 12)); // the front top edge is cut away: nothing there
+    clickAt(vp, at(30, 40, 12));
+    type(fillet->radiusField(), QStringLiteral("3"));
+    settle();
+    check(fillet->edgeCount() == 1, QStringLiteral("only the edge that is still there is picked"));
+    shot("section_4_fillet.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(doc.statusOf(doc.features().back()->id).isOk() && w.modelView()->clipPlane().has_value(),
+          QStringLiteral("the fillet is made while the section stays on"));
+
+    // 4. The eye in the browser: back to the normal view, and on again.
+    doc.setSectionVisible(doc.sections().front().id, false);
+    settle();
+    check(!w.modelView()->clipPlane() && !arrow->visible(), QStringLiteral("hidden: the normal view is back"));
+    shot("section_5_off.png");
+    doc.setSectionVisible(doc.sections().front().id, true);
+    settle();
+    check(w.modelView()->clipPlane().has_value(), QStringLiteral("shown again"));
+
+    // 5. Looking straight at the cut.
+    vp->setStandardView(StandardView::Front, false);
+    vp->fitAll(false);
+    check(hatched(at(30, 12, 6)), QStringLiteral("the cap seen head-on is hatched"));
+    shot("section_6_front.png");
+    return ok;
+}
+
 const std::map<QString, Scenario> &scenarios() {
     static const std::map<QString, Scenario> s = {
         {QStringLiteral("smoke"), smokeScenario},
@@ -876,6 +994,7 @@ const std::map<QString, Scenario> &scenarios() {
         {QStringLiteral("sketch"), sketchScenario},
         {QStringLiteral("plate"), plateScenario},
         {QStringLiteral("features"), featuresScenario},
+        {QStringLiteral("section"), sectionScenario},
     };
     return s;
 }

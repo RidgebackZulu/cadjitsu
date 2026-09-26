@@ -55,6 +55,16 @@ public:
     // The preview's model, once computed.
     virtual void previewed(const cad::StatePtr &) {}
 
+    // Commands that add no timeline feature (Section Analysis) show and apply
+    // their result themselves: ready() says whether OK can be pressed (else
+    // why not), showPreview() is called when inputs change, apply() on OK.
+    virtual bool makesFeature() const { return true; }
+    virtual bool ready(QString &) { return true; }
+    virtual void showPreview() {}
+    virtual void apply() {}
+    // The command closes (OK or Cancel): take back what it showed.
+    virtual void end() {}
+
     cad::FeatureId editing() const { return m_editing; }
     bool isEditing() const { return m_editing != cad::kNoFeature; }
     const CommandContext &context() const { return m_ctx; }

@@ -58,6 +58,7 @@ FaceHit nearestFace(const Camera &cam, QPointF px, const std::vector<PickTarget>
     QVector3D o, d;
     cam.ray(px, o, d);
     FaceHit best;
+    bool bestFromInside = false;
     for(const auto &t : targets) {
         if(!t.mesh) continue;
         const cad::MeshData &m = *t.mesh;
@@ -77,8 +78,16 @@ FaceHit nearestFace(const Camera &cam, QPointF px, const std::vector<PickTarget>
             best.t = tt;
             best.target = &t;
             best.face = i < m.triangleFace.size() ? int(m.triangleFace[i]) : 0;
+            if(clip) {
+                const QVector3D n = vtx(m.normals, m.indices[3 * i]) + vtx(m.normals, m.indices[3 * i + 1]) +
+                                    vtx(m.normals, m.indices[3 * i + 2]);
+                bestFromInside = QVector3D::dotProduct(n, d) > 0.0f;
+            }
         }
     }
+    // Seen from inside a cut body: the ray goes through the section cap, which
+    // hides what is behind it.
+    if(bestFromInside) return FaceHit();
     return best;
 }
 

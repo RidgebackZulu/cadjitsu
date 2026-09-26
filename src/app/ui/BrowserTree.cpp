@@ -3,7 +3,9 @@
 #include "model/ModelView.h"
 #include "ui/Icons.h"
 
+#include <QContextMenuEvent>
 #include <QHeaderView>
+#include <QMenu>
 
 #include <set>
 
@@ -72,6 +74,14 @@ void BrowserTree::rebuild() {
     QTreeWidgetItem *origin = makeFolder(tr("Origin"), OriginFolder);
     origin->setIcon(0, icon(IconId::Origin));
     setEye(origin, m_view->originVisible());
+    QTreeWidgetItem *analysis = makeFolder(tr("Analysis"), AnalysisFolder);
+    for(const auto &s : m_doc.sections()) {
+        auto *it = new QTreeWidgetItem(analysis, {QString::fromStdString(s.name)});
+        it->setData(0, KindRole, SectionItem);
+        it->setData(0, IdRole, s.id);
+        it->setIcon(0, icon(IconId::Section));
+        setEye(it, s.visible);
+    }
 
     const cad::StatePtr st = m_view->state();
     QTreeWidgetItem *bodies = makeFolder(tr("Bodies"), BodiesFolder);
@@ -105,7 +115,7 @@ void BrowserTree::rebuild() {
         }
     }
     root->setExpanded(true);
-    for(QTreeWidgetItem *f : {origin, bodies, sketches, construction}) {
+    for(QTreeWidgetItem *f : {origin, analysis, bodies, sketches, construction}) {
         const Kind k = Kind(f->data(0, KindRole).toInt());
         f->setExpanded(firstBuild ? k != OriginFolder && k != ConstructionFolder : !collapsed.count(k));
         f->setHidden(f->childCount() == 0 && k != OriginFolder && k != BodiesFolder);
@@ -130,6 +140,12 @@ void BrowserTree::onClicked(QTreeWidgetItem *item, int column) {
             m_doc.setSketchVisible(id, !m_view->sketchShown(id));
             break;
         }
+        case SectionItem: {
+            // Off and back to the normal view, or on (instead of any other section).
+            const int id = item->data(0, IdRole).toInt();
+            if(const cad::SectionAnalysis *s = m_doc.section(id)) m_doc.setSectionVisible(id, !s->visible);
+            break;
+        }
         default:
             return;
         }
@@ -151,7 +167,23 @@ void BrowserTree::onDoubleClicked(QTreeWidgetItem *item, int column) {
     if(column != 0) return;
     const Kind kind = Kind(item->data(0, KindRole).toInt());
     if(kind == SketchItem) emit editSketchRequested(item->data(0, IdRole).toInt());
+    else if(kind == SectionItem) emit editSectionRequested(item->data(0, IdRole).toInt());
     else if(kind == BodyItem) editItem(item, 0); // rename, as in Fusion
+}
+
+void BrowserTree::contextMenuEvent(QContextMenuEvent *e) {
+    QTreeWidgetItem *item = itemAt(e->pos());
+    if(!item || Kind(item->data(0, KindRole).toInt()) != SectionItem) return;
+    const int id = item->data(0, IdRole).toInt();
+    const cad::SectionAnalysis *s = m_doc.section(id);
+    if(!s) return;
+    QMenu menu(this);
+    menu.addAction(tr("Edit Section Analysis"), this, [this, id] { emit editSectionRequested(id); });
+    menu.addAction(s->visible ? tr("Hide") : tr("Show"), this, [this, id, on = !s->visible] {
+        m_doc.setSectionVisible(id, on);
+    });
+    menu.addAction(tr("Delete"), this, [this, id] { m_doc.deleteSection(id); });
+    menu.exec(e->globalPos());
 }
 
 void BrowserTree::onChanged(QTreeWidgetItem *item, int column) {

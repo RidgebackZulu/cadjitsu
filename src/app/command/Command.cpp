@@ -66,6 +66,14 @@ void CommandController::start(std::unique_ptr<Command> cmd) {
 
 void CommandController::preview() {
     if(!m_cmd) return;
+    if(!m_cmd->makesFeature()) {
+        QString why;
+        const bool ok = m_cmd->ready(why);
+        m_ctx.panel->setOkEnabled(ok);
+        m_ctx.panel->setMessage(why, why.isEmpty() ? cad::Severity::Ok : cad::Severity::Warning);
+        m_cmd->showPreview();
+        return;
+    }
     QString why;
     std::shared_ptr<cad::Feature> f = m_cmd->build(why);
     cad::Document &doc = *m_ctx.doc;
@@ -112,6 +120,14 @@ void CommandController::onEvaluation(const EvaluationPtr &e) {
 
 bool CommandController::commit() {
     if(!m_cmd || !m_ctx.panel->okButton()->isEnabled()) return false; // not ready, or its preview failed
+    if(!m_cmd->makesFeature()) {
+        QString why;
+        if(!m_cmd->ready(why)) return false;
+        m_cmd->apply();
+        finish();
+        emit committed(cad::kNoFeature);
+        return true;
+    }
     QString why;
     std::shared_ptr<cad::Feature> f = m_cmd->build(why);
     if(!f) {
@@ -140,6 +156,7 @@ void CommandController::cancel() {
 }
 
 void CommandController::finish() {
+    if(m_cmd) m_cmd->end();
     if(m_cmd && m_ctx.viewport->tool() == m_cmd->tool()) m_ctx.viewport->setTool(nullptr);
     m_ctx.panel->end();
     m_ctx.view->setCommandInput(false);

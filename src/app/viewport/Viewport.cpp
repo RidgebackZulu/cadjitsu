@@ -90,7 +90,7 @@ void Viewport::render(QRhiCommandBuffer *cb) {
     scene.edgeHighlights.insert(scene.edgeHighlights.end(), m_edgeHi.begin(), m_edgeHi.end());
     scene.points.insert(scene.points.end(), m_pointHi.begin(), m_pointHi.end());
     scene.triangles.insert(scene.triangles.end(), m_triHi.begin(), m_triHi.end());
-    if(m_tool) m_tool->contribute(scene);
+    if(ViewportTool *t = activeTool()) t->contribute(scene);
 
     // Near / far planes around everything drawn, including tool geometry and
     // the grid wherever it is placed (the sketch plane while sketching).
@@ -178,7 +178,7 @@ void Viewport::setTool(ViewportTool *tool) {
 
 void Viewport::setNavMode(NavMode m) {
     m_navMode = m;
-    setCursor(m == NavMode::Select ? (m_tool ? m_tool->cursor() : Qt::ArrowCursor) : Qt::OpenHandCursor);
+    setCursor(m == NavMode::Select ? (activeTool() ? activeTool()->cursor() : Qt::ArrowCursor) : Qt::OpenHandCursor);
     m_navBar->syncFromViewport();
 }
 
@@ -357,7 +357,7 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
         case NavMode::Select:
             break;
         }
-        if(m_tool && m_tool->mousePress(e)) {
+        if(activeTool() && activeTool()->mousePress(e)) {
             m_drag = Drag::None;
             m_overlay->update();
             update();
@@ -402,7 +402,7 @@ void Viewport::mouseMoveEvent(QMouseEvent *e) {
     case Drag::None:
         break;
     }
-    if(m_tool && m_tool->mouseMove(e)) {
+    if(activeTool() && activeTool()->mouseMove(e)) {
         m_overlay->update();
         update();
     }
@@ -413,7 +413,7 @@ void Viewport::mouseReleaseEvent(QMouseEvent *e) {
     const QPointF pos = e->position();
     const Drag drag = m_drag;
     m_drag = Drag::None;
-    setCursor(m_navMode != NavMode::Select ? Qt::OpenHandCursor : (m_tool ? m_tool->cursor() : Qt::ArrowCursor));
+    setCursor(m_navMode != NavMode::Select ? Qt::OpenHandCursor : (activeTool() ? activeTool()->cursor() : Qt::ArrowCursor));
 
     if(e->button() == Qt::RightButton && !m_dragMoved) {
         emit contextMenuRequested(e->globalPosition().toPoint(), pickAt(pos));
@@ -442,7 +442,7 @@ void Viewport::mouseReleaseEvent(QMouseEvent *e) {
         }
         return;
     }
-    if(drag == Drag::None && m_tool && m_tool->mouseRelease(e)) {
+    if(drag == Drag::None && activeTool() && activeTool()->mouseRelease(e)) {
         m_overlay->update();
         update();
     }
@@ -454,7 +454,7 @@ void Viewport::mouseDoubleClickEvent(QMouseEvent *e) {
         return;
     }
     if(e->button() == Qt::LeftButton) {
-        if(m_tool && m_tool->mouseDoubleClick(e)) {
+        if(activeTool() && activeTool()->mouseDoubleClick(e)) {
             update();
             m_overlay->update();
             return;
@@ -485,7 +485,7 @@ void Viewport::wheelEvent(QWheelEvent *e) {
 }
 
 void Viewport::keyPressEvent(QKeyEvent *e) {
-    if(m_tool && m_tool->keyPress(e)) {
+    if(activeTool() && activeTool()->keyPress(e)) {
         update();
         m_overlay->update();
         return;
@@ -534,7 +534,7 @@ void Viewport::paintOverlay(QPainter &p) {
         p.setBrush(crossing ? QColor(60, 180, 90, 35) : QColor(60, 130, 220, 35));
         p.drawRect(m_box);
     }
-    if(m_tool) m_tool->paintOverlay(p);
+    if(ViewportTool *t = activeTool()) t->paintOverlay(p);
 }
 
 } // namespace cadly

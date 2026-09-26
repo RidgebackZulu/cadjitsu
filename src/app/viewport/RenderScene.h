@@ -78,6 +78,9 @@ struct RenderScene {
     std::vector<TriangleBatch> triangles;
 
     std::optional<QVector4D> clipPlane; // section analysis: dot(n, p) + d > 0 is removed
+    // Section analysis: a square on the clip plane (4 corners) that closes the
+    // cut of every opaque body, hatched in the body's colour. Empty: no caps.
+    std::vector<QVector3D> capQuad;
 
     bool viewCube = true;
     std::optional<QVector3D> viewCubeHover;

@@ -4,6 +4,7 @@
 #include "viewport/Camera.h"
 #include "viewport/Viewport.h"
 
+#include "doc/Section.h"
 #include "geom/OcctUtil.h"
 #include "measure/Measure.h"
 #include "mesh/MeshData.h"
@@ -127,6 +128,17 @@ void ModelView::setOriginVisible(bool on) {
     if(on == m_originVisible) return;
     m_originVisible = on;
     refresh();
+}
+
+void ModelView::setSectionOverride(std::optional<std::optional<cad::SectionAnalysis>> s) {
+    m_sectionOverride = std::move(s);
+    if(m_eval) refresh();
+}
+
+std::optional<cad::SectionAnalysis> ModelView::shownSection() const {
+    if(m_sectionOverride) return *m_sectionOverride;
+    if(const cad::SectionAnalysis *s = m_doc.activeSection()) return *s;
+    return std::nullopt;
 }
 
 void ModelView::setOriginForced(bool on) {
@@ -275,6 +287,38 @@ void ModelView::refresh() {
     if(!points.points.empty()) scene.points.push_back(points);
     for(auto it = m_profileCache.begin(); it != m_profileCache.end();)
         it = onScreen.count(it->first.get()) ? std::next(it) : m_profileCache.erase(it);
+
+    // Section analysis: cut the model by the plane (it follows the model) and
+    // close the cut bodies with caps.
+    m_clip.reset();
+    if(const auto section = shownSection()) {
+        gp_Pln pln;
+        cad::Status st;
+        if(cad::resolveSection(*m_state, *section, pln, st)) {
+            const gp_Dir n = pln.Axis().Direction();
+            const gp_Pnt p = pln.Location();
+            m_clip = QVector4D(float(n.X()), float(n.Y()), float(n.Z()),
+                               float(-(n.X() * p.X() + n.Y() * p.Y() + n.Z() * p.Z())));
+            // A square on the plane covering the model.
+            QVector3D lo(1e30f, 1e30f, 1e30f), hi(-1e30f, -1e30f, -1e30f);
+            for(const auto &b : scene.bodies)
+                if(b.mesh) {
+                    lo = QVector3D(std::min(lo.x(), b.mesh->bboxMin[0]), std::min(lo.y(), b.mesh->bboxMin[1]),
+                                   std::min(lo.z(), b.mesh->bboxMin[2]));
+                    hi = QVector3D(std::max(hi.x(), b.mesh->bboxMax[0]), std::max(hi.y(), b.mesh->bboxMax[1]),
+                                   std::max(hi.z(), b.mesh->bboxMax[2]));
+                }
+            if(lo.x() <= hi.x()) {
+                const QVector3D mid = (lo + hi) * 0.5f;
+                const float h = (hi - lo).length() * 0.75f + 1.0f;
+                const QVector3D nn(float(n.X()), float(n.Y()), float(n.Z()));
+                const QVector3D c = mid - nn * (QVector3D::dotProduct(nn, mid) + m_clip->w());
+                const QVector3D u = toQ(pln.XAxis().Direction().XYZ()) * h, v = toQ(pln.YAxis().Direction().XYZ()) * h;
+                scene.capQuad = {c - u - v, c + u - v, c + u + v, c - u + v};
+            }
+        }
+    }
+    m_viewport->setClipPlane(m_clip);
     m_viewport->setContent(scene, targets);
     pruneSelection();
     updateHighlights();

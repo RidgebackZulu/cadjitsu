@@ -258,3 +258,55 @@ TEST_CASE("known states come from the shared cache and never compute") {
     REQUIRE(other.knownStateAt(2) != nullptr);
     CHECK(other.knownStateAt(2)->bodies.empty());
 }
+
+TEST_CASE("section analyses: one shown at a time, saved, undone") {
+    Document doc;
+    const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {0, 0}, {10, 10}));
+    doc.addFeature(extrudeAll(doc, s, "5"));
+    SectionAnalysis a;
+    a.plane = PlaneRef::origin(PlaneRef::Kind::XZ);
+    a.offset = 3;
+    const int ia = doc.addSection(a);
+    REQUIRE(doc.section(ia));
+    CHECK(doc.section(ia)->name == "Section1");
+    CHECK(doc.activeSection()->id == ia);
+    CHECK(doc.undoLabel() == "Create Section Analysis");
+    SectionAnalysis b;
+    b.plane = PlaneRef::origin(PlaneRef::Kind::YZ);
+    const int ib = doc.addSection(b);
+    CHECK(doc.activeSection()->id == ib); // the new one shows, the other hides
+    CHECK_FALSE(doc.section(ia)->visible);
+    doc.setSectionVisible(ia, true);
+    CHECK(doc.activeSection()->id == ia);
+    doc.setSectionVisible(ia, false);
+    CHECK(doc.activeSection() == nullptr);
+    // The plane: its normal points into the side that is cut away.
+    gp_Pln pln;
+    Status st;
+    REQUIRE(resolveSection(*doc.displayedState(), *doc.section(ia), pln, st));
+    CHECK(pln.Distance(gp_Pnt(0, -3, 0)) < 1e-9);
+    CHECK(pln.Axis().Direction().IsParallel(gp_Dir(0, 1, 0), 1e-9));
+    SectionAnalysis flipped = *doc.section(ia);
+    flipped.flip = true;
+    REQUIRE(doc.updateSection(flipped));
+    gp_Pln pln2;
+    REQUIRE(resolveSection(*doc.displayedState(), *doc.section(ia), pln2, st));
+    CHECK(pln2.Axis().Direction().Dot(pln.Axis().Direction()) == doctest::Approx(-1.0));
+    // Saved and loaded.
+    Document copy;
+    std::string err;
+    REQUIRE(copy.fromJson(doc.toJson(), err));
+    REQUIRE(copy.sections().size() == 2);
+    CHECK(copy.section(ia)->flip);
+    CHECK(copy.section(ia)->offset == doctest::Approx(3));
+    CHECK(copy.addSection(SectionAnalysis{}) == 3); // ids are not reused
+    // Undo steps back through edit, create, create.
+    REQUIRE(doc.undo());
+    CHECK_FALSE(doc.section(ia)->flip);
+    REQUIRE(doc.undo());
+    CHECK(doc.sections().size() == 1);
+    REQUIRE(doc.deleteSection(ia));
+    CHECK(doc.sections().empty());
+    REQUIRE(doc.undo());
+    CHECK(doc.sections().size() == 1);
+}

@@ -2,6 +2,7 @@
 
 #include "doc/Feature.h"
 #include "doc/ResultCache.h"
+#include "doc/Section.h"
 #include "expr/ParamTable.h"
 
 #include <functional>
@@ -74,6 +75,15 @@ public:
     void setSketchVisible(FeatureId id, bool visible);
     std::optional<bool> sketchVisibility(FeatureId id) const;
 
+    // --- Section analyses (one is shown at a time) --------------------------------
+    const std::vector<SectionAnalysis> &sections() const { return m_sections; }
+    const SectionAnalysis *section(int id) const;
+    const SectionAnalysis *activeSection() const; // the one shown, if any
+    int addSection(SectionAnalysis s);            // named and shown; one undo step
+    bool updateSection(const SectionAnalysis &s, bool recordUndo = true);
+    bool deleteSection(int id);
+    void setSectionVisible(int id, bool visible); // showing one hides the others
+
     // --- Parameters -------------------------------------------------------------
     std::string allocateParamName();
     ParamSlot makeSlot(const std::string &expr) { return {allocateParamName(), expr}; }
@@ -137,6 +147,8 @@ private:
     std::map<BodyId, std::string> m_bodyNames;
     std::set<BodyId> m_hiddenBodies;
     std::map<FeatureId, bool> m_sketchVisibility;
+    std::vector<SectionAnalysis> m_sections;
+    int m_nextSection = 1;
 
     std::vector<UndoEntry> m_undo, m_redo;
     uint64_t m_revision = 0;

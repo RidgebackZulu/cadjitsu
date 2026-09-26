@@ -91,11 +91,11 @@ struct Renderer::Pipelines {
     quint32 cubeIndexCount = 0;
     std::unique_ptr<QRhiTexture> cubeTex;
     std::unique_ptr<QRhiSampler> cubeSampler;
-    std::unique_ptr<QRhiBuffer> dynLines, dynPoints, dynTris;
+    std::unique_ptr<QRhiBuffer> dynLines, dynPoints, dynTris, capQuad;
     QRhiResourceUpdateBatch *pending = nullptr;
 
     std::unique_ptr<QRhiGraphicsPipeline> bg, mesh, meshOverlay, meshOverlayNoDepth, line, lineNoDepth, point,
-        pointNoDepth, grid, cube;
+        pointNoDepth, grid, cube, stencilParity, cap;
 };
 
 Renderer::Renderer() = default;
@@ -250,6 +250,44 @@ void Renderer::createPipelines() {
     p.point = make("point.vert", "point.frag", pointLayout, true, false, AlphaBlend, p.srb.get());
     p.pointNoDepth = make("point.vert", "point.frag", pointLayout, false, false, AlphaBlend, p.srb.get());
     p.grid = make("grid.vert", "grid.frag", gridLayout, true, false, Premultiplied, p.srb.get());
+
+    // Section caps. The parity pass flips the stencil for every (unclipped)
+    // surface of a body along each view ray, without drawing: it ends up set
+    // where the ray passes through the cut. The cap then fills those pixels on
+    // the clip plane and clears the stencil for the next body.
+    auto stencilPipeline = [&](const char *vs, const char *fs, bool colour, QRhiGraphicsPipeline::StencilOpState op) {
+        std::unique_ptr<QRhiGraphicsPipeline> pl(rhi->newGraphicsPipeline());
+        pl->setShaderStages({{QRhiShaderStage::Vertex, loadShader(QString::fromLatin1(vs))},
+                             {QRhiShaderStage::Fragment, loadShader(QString::fromLatin1(fs))}});
+        pl->setVertexInputLayout(meshLayout);
+        pl->setDepthTest(colour);
+        pl->setDepthWrite(colour);
+        pl->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+        if(!colour) {
+            QRhiGraphicsPipeline::TargetBlend none;
+            none.colorWrite = {};
+            pl->setTargetBlends({none});
+        }
+        pl->setStencilTest(true);
+        pl->setStencilFront(op);
+        pl->setStencilBack(op);
+        pl->setStencilReadMask(0xFF);
+        pl->setStencilWriteMask(0xFF);
+        pl->setSampleCount(m_sampleCount);
+        pl->setShaderResourceBindings(p.srb.get());
+        pl->setRenderPassDescriptor(m_rp);
+        pl->create();
+        return pl;
+    };
+    QRhiGraphicsPipeline::StencilOpState flip;
+    flip.compareOp = QRhiGraphicsPipeline::Always;
+    flip.passOp = QRhiGraphicsPipeline::Invert;
+    p.stencilParity = stencilPipeline("mesh.vert", "mesh.frag", false, flip);
+    QRhiGraphicsPipeline::StencilOpState fill;
+    fill.compareOp = QRhiGraphicsPipeline::NotEqual; // against reference 0
+    fill.passOp = QRhiGraphicsPipeline::StencilZero;
+    fill.depthFailOp = QRhiGraphicsPipeline::StencilZero;
+    p.cap = stencilPipeline("cap.vert", "cap.frag", true, fill);
     p.cube = make("cube.vert", "cube.frag", cubeLayout, true, true, NoBlend, p.cubeSrb.get());
 }
 
@@ -373,6 +411,33 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
         d.ib = gpu[i]->ibuf.get();
         d.count = gpu[i]->indexCount;
         draws.push_back(d);
+    }
+
+    // Section caps, per opaque body.
+    if(faces && scene.clipPlane && scene.capQuad.size() == 4) {
+        const QVector3D *q = scene.capQuad.data();
+        const QVector3D n = QVector3D::crossProduct(q[1] - q[0], q[3] - q[0]).normalized();
+        std::vector<float> quad;
+        for(int k : {0, 1, 2, 0, 2, 3}) quad.insert(quad.end(), {q[k].x(), q[k].y(), q[k].z(), n.x(), n.y(), n.z()});
+        ensureDynamicBuffer(p.capQuad, quint32(quad.size() * 4), QRhiBuffer::VertexBuffer);
+        u->updateDynamicBuffer(p.capQuad.get(), 0, quint32(quad.size() * 4), quad.data());
+        for(size_t i = 0; i < scene.bodies.size(); ++i) {
+            const RenderBody &b = scene.bodies[i];
+            if(!gpu[i] || !gpu[i]->ibuf || b.opacity < 0.999f) continue;
+            DrawCall parity;
+            parity.pipeline = p.stencilParity.get();
+            parity.uniform = uniform(b.color, b.color, 0, 0, 0, 0);
+            parity.vb0 = gpu[i]->vbuf.get();
+            parity.ib = gpu[i]->ibuf.get();
+            parity.count = gpu[i]->indexCount;
+            draws.push_back(parity);
+            DrawCall cap;
+            cap.pipeline = p.cap.get();
+            cap.uniform = uniform(b.color.darker(112), b.color.darker(190), 7.0f * dpr, std::max(1.0f, 1.2f * dpr), 0, 0);
+            cap.vb0 = p.capQuad.get();
+            cap.count = 6;
+            draws.push_back(cap);
+        }
     }
 
     // Grid on the XY plane.
@@ -567,6 +632,7 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
     for(const DrawCall &d : draws) {
         if(!d.vb0 || d.count == 0) continue;
         cb->setGraphicsPipeline(d.pipeline);
+        if(d.pipeline == p.stencilParity.get() || d.pipeline == p.cap.get()) cb->setStencilRef(0);
         cb->setViewport(full);
         const QRhiCommandBuffer::DynamicOffset off(1, d.uniform * p.drawStride);
         cb->setShaderResources(p.srb.get(), 1, &off);

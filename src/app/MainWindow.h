@@ -20,6 +20,7 @@ namespace cadly {
 class BrowserTree;
 class Command;
 class CommandController;
+class DistanceManipulator;
 class CommandPanel;
 class MarkingMenu;
 class ModelView;
@@ -68,6 +69,9 @@ public:
     // Starts a modelling command (the marking menu's Repeat remembers `name`).
     void startCommand(const QString &name, std::unique_ptr<Command> cmd);
     void editFeature(cad::FeatureId id);
+    void editSection(int id);
+    // The shown section's depth arrow on the canvas (always there to drag).
+    DistanceManipulator *sectionArrow() const { return m_sectionArrow.get(); }
     void showMarkingMenu(QPoint canvasPos);
 
 private:
@@ -84,6 +88,7 @@ private:
     void onDocumentChanged();
     void onEvaluation(const EvaluationPtr &e);
     void finishInteractions();
+    void updateSectionArrow();
 
     std::unique_ptr<cad::Document> m_document;
     Viewport *m_viewport = nullptr;
@@ -100,6 +105,7 @@ private:
     RibbonTab *m_sketchTab = nullptr;
     QLabel *m_selectionStats = nullptr;
     QLabel *m_busy = nullptr;
+    std::unique_ptr<DistanceManipulator> m_sectionArrow;
     QString m_path;
     QString m_lastCommand;
     std::map<QString, QAction *> m_actions;

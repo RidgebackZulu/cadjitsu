@@ -149,6 +149,12 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - **Angle** turns the plane by any angle about its own X or Y axis, or about a straight edge.
 - Sketches can be created on construction planes, and planes follow the faces they are built on.
 
+**Section Analysis** (Inspect)
+- Pick an origin plane, a construction plane or a planar face, then type the depth or drag the arrow; **Flip** keeps the other side. Cut faces are closed with hatched caps, as in Fusion.
+- The section is kept in the browser's **Analysis** folder, not the timeline. Its eye turns it off (back to the normal view) and on again; double-click it (or right-click > Edit Section Analysis) to change it; right-click > Delete removes it. One section shows at a time.
+- While a section is shown its depth arrow stays on the canvas: drag it at any time, even in the middle of another command. Each drag is one undo step.
+- Modelling carries on while sectioned. What is cut away cannot be picked (the caps block picks too), and a section built on a face follows that face when the model changes.
+
 **Timeline** (bottom of the window)
 - One icon per feature, in order, and the history marker after the last active one. Drag the marker to scrub through the history; the model follows immediately. The buttons at the left step to the start, back, forward and to the end.
 - Right-click a feature: **Edit Feature** (or **Edit Sketch**), **Suppress / Unsuppress**, **Roll History Marker Here**, **Rename** and **Delete**. Double-click also edits.
@@ -156,7 +162,7 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - Suppressed features are drawn struck through and skipped; failing features are drawn red, and features with warnings yellow.
 
 **Browser** (left)
-- Origin, Bodies and Sketches folders. The eye next to each item shows or hides it; a sketch hides itself once a feature uses it, and its eye brings it back.
+- Origin, Analysis, Bodies, Sketches and Construction folders. The eye next to each item shows or hides it; a sketch hides itself once a feature uses it, and its eye brings it back.
 - Double-click a body's name (or press F2) to rename it; double-click a sketch to edit it.
 
 **Recomputing**
@@ -177,6 +183,7 @@ command layer. It saves screenshots and exits with status 0 on success.
 | `views` | A demo part in every display style; hover, selection statistics and the ViewCube. |
 | `sketch` | Sketch mode end to end: typed dimensions, a hole, a slot, constraints, statistics. |
 | `features` | Fillet, Chamfer, Hole, Offset Plane and Combine through their dialogs, with a screenshot of each live preview; Edit Feature; the design checked against a from-scratch evaluation. |
+| `section` | The M6 acceptance run: a section through both holes of the demo bracket from the dialog, hatched caps, the depth arrow dragged afterwards, a fillet on an edge picked in the section view (the cut-away edge cannot be picked), the browser eye off and on, the cap seen head-on. |
 | `plate` | The M4 acceptance run, all through the UI: a 60 x 40 rectangle extruded 20 mm; a circle sketched on its top face and cut through all by dragging the arrow; the volume at every history-marker position; suppress / unsuppress from the cache; Edit Feature reopening both extrudes with their values and previewing live; 16 more holes and a fillet so recomputing takes a while; the first dimension edited to 80 (checked against a from-scratch evaluation); undo back to an empty design. Throughout, the UI thread must never be kept from running for 50 ms while the model recomputes (canvas repaints excluded: they are timed separately). |
 
 ## Roadmap
@@ -206,5 +213,5 @@ command layer. It saves screenshots and exits with status 0 on success.
   - timeline: scrub, suppress, edit feature, rename, delete
   - browser, marking menu, undo / redo, New / Open / Save
 - [x] **M5** Fillet, chamfer, hole (on faces or at sketch points), combine with keep tools, offset and rotated construction planes, all editable from the timeline
-- [ ] **M6** Section analysis
+- [x] **M6** Section analysis on any plane or face: hatched caps, a depth arrow to drag at any time, browser eye, modelling while sectioned
 - [ ] **M7** Export dialogs, rendered view, packaging

@@ -225,6 +225,63 @@ std::optional<bool> Document::sketchVisibility(FeatureId id) const {
     return it->second;
 }
 
+const SectionAnalysis *Document::section(int id) const {
+    for(const auto &s : m_sections)
+        if(s.id == id) return &s;
+    return nullptr;
+}
+
+const SectionAnalysis *Document::activeSection() const {
+    for(const auto &s : m_sections)
+        if(s.visible) return &s;
+    return nullptr;
+}
+
+int Document::addSection(SectionAnalysis s) {
+    pushUndo("Create Section Analysis");
+    s.id = m_nextSection++;
+    if(s.name.empty()) s.name = "Section" + std::to_string(s.id);
+    if(s.visible)
+        for(auto &o : m_sections) o.visible = false;
+    m_sections.push_back(s);
+    touch(false);
+    return s.id;
+}
+
+bool Document::updateSection(const SectionAnalysis &s, bool recordUndo) {
+    for(auto &o : m_sections)
+        if(o.id == s.id) {
+            if(recordUndo) pushUndo("Edit " + o.name);
+            o = s;
+            if(s.visible)
+                for(auto &other : m_sections) other.visible = other.id == s.id;
+            touch(false);
+            return true;
+        }
+    return false;
+}
+
+bool Document::deleteSection(int id) {
+    for(auto it = m_sections.begin(); it != m_sections.end(); ++it)
+        if(it->id == id) {
+            pushUndo("Delete " + it->name);
+            m_sections.erase(it);
+            touch(false);
+            return true;
+        }
+    return false;
+}
+
+void Document::setSectionVisible(int id, bool visible) {
+    bool changedAny = false;
+    for(auto &s : m_sections) {
+        const bool v = s.id == id ? visible : (visible ? false : s.visible);
+        changedAny |= v != s.visible;
+        s.visible = v;
+    }
+    if(changedAny) touch(false);
+}
+
 std::string Document::allocateParamName() {
     std::set<std::string> used;
     for(const auto &f : m_features)
@@ -321,13 +378,17 @@ json Document::snapshot() const {
     for(const auto &[id, n] : m_bodyNames) names[id] = n;
     json sketches = json::object();
     for(const auto &[id, visible] : m_sketchVisibility) sketches[std::to_string(id)] = visible;
+    json sections = json::array();
+    for(const auto &s : m_sections) sections.push_back(s.toJson());
     return json{{"features", features},
                 {"marker", m_marker},
                 {"nextId", m_nextId},
                 {"nextParam", m_nextParam},
                 {"bodyNames", names},
                 {"hiddenBodies", std::vector<std::string>(m_hiddenBodies.begin(), m_hiddenBodies.end())},
-                {"sketchVisibility", sketches}};
+                {"sketchVisibility", sketches},
+                {"sections", sections},
+                {"nextSection", m_nextSection}};
 }
 
 void Document::restore(const json &snap) {
@@ -350,6 +411,10 @@ void Document::restore(const json &snap) {
     const json sketches = snap.value("sketchVisibility", json::object());
     for(auto it = sketches.begin(); it != sketches.end(); ++it)
         if(it.value().is_boolean()) m_sketchVisibility[std::atoi(it.key().c_str())] = it.value().get<bool>();
+    m_sections.clear();
+    for(const auto &js : snap.value("sections", json::array())) m_sections.push_back(SectionAnalysis::fromJson(js));
+    m_nextSection = jget<int>(snap, "nextSection", 1);
+    for(const auto &s : m_sections) m_nextSection = std::max(m_nextSection, s.id + 1);
     touch(true);
 }
 
@@ -444,6 +509,8 @@ void Document::clear() {
     m_bodyNames.clear();
     m_hiddenBodies.clear();
     m_sketchVisibility.clear();
+    m_sections.clear();
+    m_nextSection = 1;
     m_undo.clear();
     m_redo.clear();
     touch(true);

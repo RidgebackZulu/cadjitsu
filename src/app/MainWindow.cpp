@@ -7,6 +7,7 @@
 #include "command/ExtrudeCommand.h"
 #include "command/HoleCommand.h"
 #include "command/PlaneCommand.h"
+#include "command/SectionCommand.h"
 #include "model/ModelView.h"
 #include "sketch/SketchEditor.h"
 #include "sketch/SketchMode.h"
@@ -65,6 +66,26 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
     m_commandPanel = new CommandPanel(m_viewport);
     m_commands = new CommandController({m_document.get(), m_modelView, m_viewport, m_commandPanel}, m_recompute, this);
     m_marking = new MarkingMenu(m_viewport);
+    // The shown section's depth can be dragged at any time (Fusion's section
+    // arrow, kept on the canvas): live while dragging, one undo step on release.
+    m_sectionArrow = std::make_unique<DistanceManipulator>(m_viewport);
+    m_sectionArrow->onDrag = [this](double d) {
+        if(const cad::SectionAnalysis *s = m_document->activeSection()) {
+            cad::SectionAnalysis moved = *s;
+            moved.offset = d;
+            m_modelView->setSectionOverride(std::optional<cad::SectionAnalysis>(moved));
+            m_sectionArrow->label = QString::fromStdString(SketchEditor::formatExpression(d, cad::ValueKind::Length));
+        }
+    };
+    m_sectionArrow->onRelease = [this] {
+        m_modelView->setSectionOverride(std::nullopt);
+        if(const cad::SectionAnalysis *s = m_document->activeSection()) {
+            cad::SectionAnalysis moved = *s;
+            moved.offset = m_sectionArrow->distance();
+            if(moved.offset != s->offset) m_document->updateSection(moved);
+        }
+    };
+    m_viewport->setIdleTool(m_sectionArrow.get());
 
     // Bottom-right selection statistics, as in Fusion 360; a busy note to their left.
     m_busy = new QLabel(this);
@@ -97,6 +118,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
     connect(m_commands, &CommandController::editingChanged, m_timeline, &TimelineWidget::setEditing);
     connect(m_timeline, &TimelineWidget::editRequested, this, &MainWindow::editFeature);
     connect(m_browser, &BrowserTree::editSketchRequested, this, [this](cad::FeatureId id) { editFeature(id); });
+    connect(m_browser, &BrowserTree::editSectionRequested, this, &MainWindow::editSection);
     m_document->changed = [this] { onDocumentChanged(); };
 
     buildActions();
@@ -109,6 +131,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
 
 MainWindow::~MainWindow() {
     m_document->changed = nullptr;
+    m_viewport->setIdleTool(nullptr);
     // These use the viewport; take them down while it exists.
     delete m_commands;
     m_commands = nullptr;
@@ -165,7 +188,28 @@ bool MainWindow::waitForModel(int timeoutMs) {
 void MainWindow::onDocumentChanged() {
     m_timeline->refresh();
     if(!m_commands->active()) m_recompute->requestDocument(*m_document);
+    // View changes (sections, visibility) show at once, even while a command is
+    // open. (The browser may be inside a click on an item it would replace.)
+    m_modelView->refresh();
+    QMetaObject::invokeMethod(m_browser, &BrowserTree::rebuild, Qt::QueuedConnection);
+    updateSectionArrow();
     updateActions();
+}
+
+void MainWindow::updateSectionArrow() {
+    const cad::SectionAnalysis *s = m_document->activeSection();
+    const cad::StatePtr st = m_modelView->state();
+    QVector3D o, d;
+    const bool show = s && st && SectionCommand::arrowAxis(*st, s->plane, o, d);
+    m_sectionArrow->setVisible(show);
+    if(show) {
+        m_sectionArrow->setAxis(o, d);
+        if(!m_sectionArrow->dragging()) {
+            m_sectionArrow->setDistance(s->offset);
+            m_sectionArrow->label = QString::fromStdString(SketchEditor::formatExpression(s->offset, cad::ValueKind::Length));
+        }
+    }
+    m_viewport->refreshOverlay();
 }
 
 void MainWindow::onEvaluation(const EvaluationPtr &e) {
@@ -174,6 +218,7 @@ void MainWindow::onEvaluation(const EvaluationPtr &e) {
     m_commands->onEvaluation(e);
     if(!e->preview) m_timeline->setEvaluation(e);
     m_browser->rebuild();
+    updateSectionArrow();
     updateStats();
 }
 
@@ -192,7 +237,7 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "offsetPlane"})
+    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "offsetPlane", "sectionAnalysis"})
         action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
@@ -296,6 +341,13 @@ void MainWindow::startCommand(const QString &name, std::unique_ptr<Command> cmd)
     m_commands->start(std::move(cmd));
 }
 
+void MainWindow::editSection(int id) {
+    if(!m_document->section(id)) return;
+    finishInteractions();
+    m_commands->start(
+        std::make_unique<SectionCommand>(CommandContext{m_document.get(), m_modelView, m_viewport, m_commandPanel}, id));
+}
+
 void MainWindow::editFeature(cad::FeatureId id) {
     const cad::FeaturePtr f = m_document->feature(id);
     if(!f) return;
@@ -383,14 +435,9 @@ void MainWindow::buildActions() {
                [this, ctx] { startCommand(QStringLiteral("combine"), std::make_unique<CombineCommand>(ctx)); });
     makeAction("offsetPlane", tr("Offset Plane"), IconId::Plane, {},
                [this, ctx] { startCommand(QStringLiteral("offsetPlane"), std::make_unique<PlaneCommand>(ctx)); });
-    const std::tuple<const char *, QString, IconId> later[] = {
-        {"sectionAnalysis", tr("Section Analysis"), IconId::Section},
-    };
-    for(const auto &[name, text, id] : later) {
-        QAction *a = makeAction(name, text, id, {}, {});
-        a->setEnabled(false);
-        a->setToolTip(tr("%1 (coming in a later milestone)").arg(text));
-    }
+    makeAction("sectionAnalysis", tr("Section Analysis"), IconId::Section, {}, [this, ctx] {
+        startCommand(QStringLiteral("sectionAnalysis"), std::make_unique<SectionCommand>(ctx));
+    });
 
     // SKETCH workspace.
     m_toolGroup = new QActionGroup(this);

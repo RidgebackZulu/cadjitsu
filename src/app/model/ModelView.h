@@ -109,6 +109,13 @@ public:
     void setOriginForced(bool on);
     // Sketches kept visible by a running command (its profiles' sketches).
     void setForcedSketches(std::set<cad::FeatureId> ids);
+    // Section analysis: the document's shown section cuts the model, unless a
+    // command shows another one (or none) while it is open.
+    void setSectionOverride(std::optional<std::optional<cad::SectionAnalysis>> s);
+    // The cutting plane in use, if any: dot(n, p) + d > 0 is cut away.
+    std::optional<QVector4D> clipPlane() const { return m_clip; }
+    // Where the shown section's plane is (before its offset), for its arrow.
+    std::optional<cad::SectionAnalysis> shownSection() const;
     // Sketches are shown until a displayed feature uses them, unless the user
     // switched them on or off.
     bool sketchShown(cad::FeatureId id) const;
@@ -173,6 +180,8 @@ private:
     SelectFilter m_filter;
     bool m_originVisible = false;
     bool m_originForced = false;
+    std::optional<std::optional<cad::SectionAnalysis>> m_sectionOverride;
+    std::optional<QVector4D> m_clip;
     cad::FeatureId m_hiddenSketch = cad::kNoFeature;
     std::set<cad::FeatureId> m_forcedSketches;
     std::set<cad::FeatureId> m_shownSketches; // drawn in the current scene

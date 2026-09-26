@@ -57,6 +57,10 @@ public:
 
     void setTool(ViewportTool *tool);
     ViewportTool *tool() const { return m_tool; }
+    // A tool that takes input whenever no other tool is set (the shown
+    // section's depth arrow).
+    void setIdleTool(ViewportTool *tool) { m_idleTool = tool; }
+    ViewportTool *activeTool() const { return m_tool ? m_tool : m_idleTool; }
     NavMode navMode() const { return m_navMode; }
     void setNavMode(NavMode m);
 
@@ -131,6 +135,7 @@ private:
     PickOptions m_pickOptions;
 
     ViewportTool *m_tool = nullptr;
+    ViewportTool *m_idleTool = nullptr;
     NavMode m_navMode = NavMode::Select;
     Drag m_drag = Drag::None;
     QPointF m_pressPos, m_lastPos;
