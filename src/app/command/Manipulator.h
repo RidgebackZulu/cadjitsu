@@ -26,8 +26,9 @@ public:
     void setVisible(bool on) { m_visible = on; }
     bool visible() const { return m_visible; }
     bool dragging() const { return m_dragging; }
-    // The head's position on screen (logical pixels).
+    // The head's position on screen (logical pixels) and in the model.
     QPointF headOnScreen() const;
+    QVector3D headPoint() const { return head(); }
 
     std::function<void(double)> onDrag;  // new distance while dragging
     std::function<void()> onRelease;

@@ -14,6 +14,7 @@
 #include <QPushButton>
 #include <QStyle>
 #include <QToolButton>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace cadly {
@@ -24,6 +25,7 @@ ValueField::ValueField(cad::ValueKind kind, Evaluator eval, QWidget *parent)
     : QLineEdit(parent), m_kind(kind), m_eval(std::move(eval)) {
     setMinimumWidth(110);
     connect(this, &QLineEdit::textEdited, this, [this] {
+        m_selectOnClick = false;
         revalidate();
         emit edited();
     });
@@ -32,7 +34,30 @@ ValueField::ValueField(cad::ValueKind kind, Evaluator eval, QWidget *parent)
 
 void ValueField::setExpression(const QString &expr) {
     setText(expr);
+    m_selectOnClick = true;
     revalidate();
+}
+
+void ValueField::enterExpression(const QString &expr) {
+    if(text() == expr) return;
+    setText(expr);
+    revalidate();
+    emit edited();
+}
+
+void ValueField::mouseReleaseEvent(QMouseEvent *e) {
+    QLineEdit::mouseReleaseEvent(e);
+    if(e->button() == Qt::LeftButton && m_selectOnClick && !hasSelectedText()) selectAll();
+    m_selectOnClick = false;
+}
+
+void ValueField::focusInEvent(QFocusEvent *e) {
+    QLineEdit::focusInEvent(e);
+    m_selectOnClick = true;
+    // After the click that focused it has placed the cursor.
+    QTimer::singleShot(0, this, [this] {
+        if(hasFocus()) selectAll();
+    });
 }
 
 void ValueField::revalidate() {
@@ -112,7 +137,8 @@ CommandPanel::CommandPanel(QWidget *canvas) : QFrame(canvas) {
         "#commandOk:disabled { background: #9db6d8; }"
         "#commandCancel { border-radius: 3px; padding: 4px 12px; }"
         "cadly--ValueField { border: 1px solid #b9c0ca; border-radius: 3px; padding: 2px 4px; background: white;"
-        " font-size: 12px; }"
+        " color: #10161f; selection-background-color: #9cc6ff; selection-color: #10161f; font-size: 12px; }"
+        "QComboBox, QCheckBox, QPushButton { color: #1c2128; font-size: 11px; }"
         "cadly--ValueField:focus { border: 1px solid #1a66c9; }"
         "cadly--ValueField[invalid=\"true\"] { border: 1px solid #d23c3c; background: #fff3f2; }"));
     auto *v = new QVBoxLayout(this);

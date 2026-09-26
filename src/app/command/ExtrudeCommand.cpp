@@ -284,7 +284,7 @@ void ExtrudeCommand::updateArrow() {
     if(show) {
         m_arrow.setAxis(toQ(p.XYZ()), toQ(n.XYZ()));
         m_arrow.setDistance(m_distanceField->value().value_or(0.0));
-        m_arrow.label = m_distanceField->expression();
+        // The value shows in the on-canvas box instead of a label.
     }
     m_ctx.viewport->refreshOverlay();
 }

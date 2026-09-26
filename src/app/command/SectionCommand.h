@@ -37,6 +37,10 @@ public:
     void end() override;
     void picked(const std::optional<SelectionItem> &item, const PickHit &hit, Qt::KeyboardModifiers mods) override;
     ViewportTool *tool() override { return &m_arrow; }
+    // The on-canvas value box sits at the arrow's head.
+    std::optional<QVector3D> canvasAnchor() const override {
+        return m_arrow.visible() ? std::optional<QVector3D>(m_arrow.headPoint()) : std::nullopt;
+    }
 
     // Where a section's depth arrow stands: on its plane (a face's middle, a
     // plane's centre, or the middle of the model), along the plane's normal.

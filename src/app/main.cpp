@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "selftest/SelfTest.h"
 #include "ui/AppIcon.h"
+#include "ui/Theme.h"
 #include "viewport/Viewport.h"
 
 #include "base/Version.h"
@@ -59,6 +60,7 @@ int main(int argc, char *argv[]) {
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QApplication app(argc, argv);
+    cadly::applyLightTheme(app);
     QApplication::setApplicationName(QStringLiteral("Cadly"));
     QApplication::setApplicationVersion(QString::fromLatin1(cad::version()));
     QApplication::setOrganizationName(QStringLiteral("Cadly"));

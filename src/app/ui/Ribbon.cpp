@@ -78,6 +78,7 @@ Ribbon::Ribbon(QWidget *parent) : QWidget(parent) {
     setAttribute(Qt::WA_StyledBackground);
     setStyleSheet(QStringLiteral(
         "#ribbon { background: #f4f5f7; border-bottom: 1px solid #c9ced6; }"
+        "QToolButton { color: #1c2128; }"
         "QTabBar::tab { padding: 3px 14px; border: none; color: #3c4450; font-weight: 600; }"
         "QTabBar::tab:selected { color: #1a66c9; border-bottom: 2px solid #1a66c9; }"
         "QToolButton { border-radius: 3px; padding: 2px; }"

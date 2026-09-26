@@ -55,7 +55,7 @@ TimelineWidget::TimelineWidget(cad::Document &doc, QWidget *parent) : QWidget(pa
     setMouseTracking(true);
     setAttribute(Qt::WA_StyledBackground);
     setStyleSheet(QStringLiteral("#timeline { background: #eef0f3; border-top: 1px solid #c9ced6; }"
-                                 "QToolButton { border-radius: 3px; padding: 2px; }"
+                                 "QToolButton { border-radius: 3px; padding: 2px; color: #1c2128; }"
                                  "QToolButton:hover { background: rgba(40, 110, 200, 35); }"));
     m_first = playButton(this, IconId::TimelineFirst, tr("Go to the beginning"), "timelineFirst");
     m_back = playButton(this, IconId::TimelineBack, tr("Step back"), "timelineBack");

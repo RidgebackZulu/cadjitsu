@@ -73,14 +73,15 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 
 | Action | Input |
 |---|---|
+| Orbit | Right drag, or Shift + middle drag; Shift + two-finger drag on a trackpad |
 | Pan | Middle drag; trackpad two-finger drag |
-| Orbit | Shift + middle drag; Shift + two-finger drag |
 | Zoom | Scroll wheel (towards the cursor); pinch |
 | Fit | Double-click middle button; F6 |
 | Select | Click a face, edge or vertex; Shift / Cmd-click adds |
 | Select bodies | Drag left-to-right (window) or right-to-left (crossing); double-click a face |
 | Standard views | Click a ViewCube face, edge or corner; Home button |
-| Marking menu | Right-click the canvas: a ring of commands (Repeat, Create Sketch, Extrude, undo / redo...) plus a short list; click one or press Esc |
+| Remap the mouse | **File > Settings…** (Cmd+,): presets for Cadly, Fusion 360 and SolidWorks, or choose the drag for orbit, pan and zoom; invert the wheel; trackpad drag orbits |
+| Marking menu | Right-click the canvas (without dragging): a ring of commands (Repeat, Create Sketch, Extrude, undo / redo...) plus a short list; click one or press Esc |
 | Extrude | E (with a profile or planar face selected, or inside a sketch to finish it and extrude its profile) |
 | Fillet / Hole | F / H |
 | 3D Print (export an STL) | Cmd+P |
@@ -119,6 +120,12 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - Closed regions (profiles) are shaded.
 - Selecting anything shows its length, radius, diameter, area and other stats at the bottom right.
 
+## Editing a sketch
+
+- Double-click a line, circle or arc to type its length, diameter or radius (its dimension, or a new one beside it); the sketch re-solves at once. Double-click a dimension to change it. Shift + double-click selects a chain of connected curves.
+- Drag points and curves to move what is not fixed by dimensions.
+- Double-click a sketch in the canvas (or in the browser, or its timeline icon) to edit it again.
+
 ## Modeling
 
 **Extrude (E)**
@@ -128,6 +135,7 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - **Extent:** Distance, To Object (click the face to stop at; faces at an angle work too), or All (through everything; Flip picks the side).
 - **Taper Angle:** positive angles flare the sides outwards, negative angles draw them in.
 - **Operation:** Join, Cut, Intersect or New Body. Until you choose one, it follows what you are doing: out of a body's face joins, into a body cuts, elsewhere makes a new body.
+- A value box next to the arrow shows the distance too: just type a number while the command is open (on the canvas or in the dialog) and it replaces the value. Clicking into a value selects it all, so what you type replaces it. A plain number is millimetres.
 - Values take expressions and units (`20`, `d1 / 2`, `0.5 in`). The model previews live; **OK** or Enter adds one timeline step, Esc or **Cancel** leaves the design untouched.
 
 **Command inputs**

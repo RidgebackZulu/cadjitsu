@@ -1,10 +1,12 @@
 #include "command/Command.h"
 
+#include "command/CanvasValueBox.h"
 #include "model/ModelView.h"
 #include "ui/Icons.h"
 #include "viewport/Viewport.h"
 #include "viewport/ViewportTool.h"
 
+#include <QKeyEvent>
 #include <QPushButton>
 #include <QTimer>
 
@@ -24,6 +26,12 @@ cad::StatePtr Command::baseState() const {
     return m_ctx.doc->knownStateAt(index);
 }
 
+ValueField *Command::canvasValue() const {
+    for(ValueField *f : m_ctx.panel->findChildren<ValueField *>())
+        if(f->isVisibleTo(m_ctx.panel) && f->isEnabled()) return f;
+    return nullptr;
+}
+
 // ---------------------------------------------------------------------------
 
 CommandController::CommandController(const CommandContext &ctx, RecomputeService *recompute, QObject *parent)
@@ -32,8 +40,17 @@ CommandController::CommandController(const CommandContext &ctx, RecomputeService
     connect(ctx.panel, &CommandPanel::cancelled, this, &CommandController::cancel);
     connect(ctx.view, &ModelView::picked, this,
             [this](const std::optional<SelectionItem> &it, const PickHit &hit, Qt::KeyboardModifiers m) {
-                if(m_cmd) m_cmd->picked(it, hit, m);
+                if(!m_cmd) return;
+                if(hit.valid()) m_cmd->notePick(hit.point);
+                m_cmd->picked(it, hit, m);
+                placeCanvasBox();
             });
+    m_box = new CanvasValueBox(ctx.viewport);
+    connect(m_box, &CanvasValueBox::commitRequested, this, [this] { commit(); });
+    connect(m_box, &CanvasValueBox::cancelRequested, this, &CommandController::cancel);
+    // Follow the view (and the arrow) every frame.
+    connect(ctx.viewport, &QRhiWidget::frameSubmitted, this, &CommandController::placeCanvasBox);
+    ctx.viewport->installEventFilter(this);
     connect(ctx.view, &ModelView::markClicked, this, [this](int tag) {
         if(m_cmd) m_cmd->markClicked(tag);
     });
@@ -56,12 +73,50 @@ void CommandController::start(std::unique_ptr<Command> cmd) {
         QTimer::singleShot(0, this, [this] {
             m_previewPending = false;
             preview();
+            placeCanvasBox();
         });
     });
     if(ViewportTool *t = m_cmd->tool()) m_ctx.viewport->setTool(t);
     emit activeChanged(true);
     emit editingChanged(m_cmd->editing());
     preview();
+    placeCanvasBox();
+}
+
+void CommandController::placeCanvasBox() {
+    ValueField *f = m_cmd ? m_cmd->canvasValue() : nullptr;
+    const auto anchor = m_cmd ? m_cmd->canvasAnchor() : std::nullopt;
+    m_box->bind(f);
+    if(!f || !anchor) {
+        m_box->hide();
+        return;
+    }
+    const QPointF px = m_ctx.viewport->camera().project(*anchor);
+    if(!QRectF(m_ctx.viewport->rect()).contains(px)) {
+        m_box->hide();
+        return;
+    }
+    m_box->showAt(px + QPointF(16, -18));
+}
+
+bool CommandController::eventFilter(QObject *o, QEvent *e) {
+    if(o == m_ctx.viewport && m_cmd && e->type() == QEvent::KeyPress) {
+        auto *k = static_cast<QKeyEvent *>(e);
+        const QString t = k->text();
+        const bool valueKey = t.size() == 1 && (t[0].isDigit() || QStringLiteral(".,-+(").contains(t[0])) &&
+                              !(k->modifiers() & (Qt::ControlModifier | Qt::MetaModifier | Qt::AltModifier));
+        ValueField *f = m_cmd->canvasValue();
+        if(valueKey && f) {
+            // Type straight into the value, replacing it.
+            QLineEdit *target = m_box->isVisible() ? static_cast<QLineEdit *>(m_box) : f;
+            target->setFocus(Qt::OtherFocusReason);
+            target->selectAll();
+            QKeyEvent copy(QEvent::KeyPress, k->key(), k->modifiers(), t);
+            QCoreApplication::sendEvent(target, &copy);
+            return true;
+        }
+    }
+    return QObject::eventFilter(o, e);
 }
 
 void CommandController::preview() {
@@ -159,6 +214,8 @@ void CommandController::finish() {
     if(m_cmd) m_cmd->end();
     if(m_cmd && m_ctx.viewport->tool() == m_cmd->tool()) m_ctx.viewport->setTool(nullptr);
     m_ctx.panel->end();
+    m_box->bind(nullptr);
+    m_box->hide();
     m_ctx.view->setCommandInput(false);
     m_ctx.view->setFilter(SelectFilter::idle());
     m_ctx.view->setOriginForced(false);

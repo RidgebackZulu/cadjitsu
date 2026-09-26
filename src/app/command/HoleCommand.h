@@ -43,6 +43,7 @@ public:
     QComboBox *extentBox() const { return m_extent; }
     QComboBox *tipBox() const { return m_tip; }
     ValueField *diameterField() const { return m_diameterField; }
+    ValueField *canvasValue() const override { return m_diameterField; }
     ValueField *depthField() const { return m_depthField; }
     ValueField *xField() const { return m_x; }
     ValueField *yField() const { return m_y; }

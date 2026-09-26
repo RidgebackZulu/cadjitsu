@@ -25,7 +25,10 @@ BrowserTree::BrowserTree(cad::Document &doc, ModelView *view, QWidget *parent)
     setFocusPolicy(Qt::ClickFocus);
     setEditTriggers(QAbstractItemView::EditKeyPressed | QAbstractItemView::SelectedClicked);
     setStyleSheet(QStringLiteral("#browser { background: rgba(250, 251, 253, 240); border: none;"
-                                 " border-right: 1px solid #c9ced6; font-size: 12px; }"));
+                                 " border-right: 1px solid #c9ced6; font-size: 12px; color: #1c2128; }"
+                                 "#browser::item { color: #1c2128; padding: 1px 0; }"
+                                 "#browser::item:selected { background: #cfe0f7; color: #0f1a2a; }"
+                                 "#browser::item:hover:!selected { background: #e6eef9; }"));
     connect(this, &QTreeWidget::itemClicked, this, &BrowserTree::onClicked);
     connect(this, &QTreeWidget::itemDoubleClicked, this, &BrowserTree::onDoubleClicked);
     connect(this, &QTreeWidget::itemChanged, this, &BrowserTree::onChanged);

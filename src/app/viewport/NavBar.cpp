@@ -38,8 +38,8 @@ NavBar::NavBar(Viewport *viewport) : QFrame(viewport), m_viewport(viewport) {
     lay->setContentsMargins(6, 3, 6, 3);
     lay->setSpacing(2);
 
-    m_orbit = makeButton(this, IconId::Orbit, tr("Orbit (Shift + middle drag)"), true);
-    m_pan = makeButton(this, IconId::Pan, tr("Pan (middle drag)"), true);
+    m_orbit = makeButton(this, IconId::Orbit, tr("Orbit (right drag by default; see Settings)"), true);
+    m_pan = makeButton(this, IconId::Pan, tr("Pan (middle drag by default; see Settings)"), true);
     m_zoom = makeButton(this, IconId::Zoom, tr("Zoom (scroll wheel)"), true);
     m_fit = makeButton(this, IconId::Fit, tr("Fit (F6)"));
     m_display = makeButton(this, IconId::Display, tr("Display settings"));

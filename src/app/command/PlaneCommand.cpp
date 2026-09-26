@@ -157,7 +157,7 @@ void PlaneCommand::updateArrow() {
         }
         m_arrow.setAxis(toQ(c.XYZ()), toQ(frame.Direction().XYZ()));
         m_arrow.setDistance(m_offsetField->value().value_or(0.0));
-        m_arrow.label = m_offsetField->expression();
+        // The value shows in the on-canvas box instead of a label.
     }
     m_ctx.viewport->refreshOverlay();
 }

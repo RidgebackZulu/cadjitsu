@@ -1,5 +1,7 @@
 #include "TestRegistry.h"
 
+#include "ui/Theme.h"
+
 #include <QApplication>
 #include <QStandardPaths>
 #include <QSurfaceFormat>
@@ -21,6 +23,7 @@ int main(int argc, char **argv) {
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QApplication app(argc, argv);
+    cadly::applyLightTheme(app);
     // Settings the tests touch stay out of the user's own Cadly settings.
     QStandardPaths::setTestModeEnabled(true);
     QCoreApplication::setOrganizationName(QStringLiteral("Cadly Tests"));

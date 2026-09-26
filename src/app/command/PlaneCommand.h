@@ -31,6 +31,10 @@ public:
     std::shared_ptr<cad::Feature> build(QString &why) override;
     void picked(const std::optional<SelectionItem> &item, const PickHit &hit, Qt::KeyboardModifiers mods) override;
     ViewportTool *tool() override { return &m_arrow; }
+    // The on-canvas value box sits at the arrow's head.
+    std::optional<QVector3D> canvasAnchor() const override {
+        return m_arrow.visible() ? std::optional<QVector3D>(m_arrow.headPoint()) : std::nullopt;
+    }
     void previewed(const cad::StatePtr &) override;
 
     // Inputs (tests).

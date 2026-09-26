@@ -9,6 +9,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QVector3D>
 
 #include <memory>
 #include <optional>
@@ -16,6 +17,7 @@
 
 namespace cadly {
 
+class CanvasValueBox;
 class ModelView;
 class Viewport;
 class ViewportTool;
@@ -65,6 +67,13 @@ public:
     // The command closes (OK or Cancel): take back what it showed.
     virtual void end() {}
 
+    // The value that numbers typed on the canvas go to, shown in a box on the
+    // canvas at canvasAnchor(): by default the panel's first visible value
+    // box, next to the last point picked.
+    virtual ValueField *canvasValue() const;
+    virtual std::optional<QVector3D> canvasAnchor() const { return m_lastPick; }
+    void notePick(const QVector3D &p) { m_lastPick = p; }
+
     cad::FeatureId editing() const { return m_editing; }
     bool isEditing() const { return m_editing != cad::kNoFeature; }
     const CommandContext &context() const { return m_ctx; }
@@ -81,6 +90,7 @@ protected:
 
     CommandContext m_ctx;
     cad::FeatureId m_editing;
+    std::optional<QVector3D> m_lastPick;
 };
 
 // Runs one command at a time: previews its candidate feature through the
@@ -107,6 +117,13 @@ public:
     void onEvaluation(const EvaluationPtr &e);
     // Index of the candidate in the preview timeline (-1 when none).
     int candidateIndex() const { return m_candidateIndex; }
+    CanvasValueBox *canvasBox() const { return m_box; }
+    // Moves the on-canvas value box to where the command wants it.
+    void placeCanvasBox();
+
+protected:
+    // Numbers typed on the canvas go to the command's value.
+    bool eventFilter(QObject *o, QEvent *e) override;
 
 signals:
     void activeChanged(bool active);
@@ -120,6 +137,7 @@ private:
     CommandContext m_ctx;
     RecomputeService *m_recompute;
     std::unique_ptr<Command> m_cmd;
+    CanvasValueBox *m_box = nullptr;
     uint64_t m_request = 0;
     int m_candidateIndex = -1;
     bool m_previewPending = false;

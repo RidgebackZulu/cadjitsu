@@ -325,18 +325,32 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
     m_pressPos = m_lastPos = pos;
     m_dragMoved = false;
     m_dragButton = e->button();
+    m_drag = Drag::None;
 
-    if(e->button() == Qt::MiddleButton) {
-        if(e->modifiers() & Qt::ShiftModifier) {
+    // View drags, as the mouse settings bind them.
+    auto bound = [&](MouseBindings::Drag a, MouseBindings::Drag b) {
+        return MouseBindings::matches(a, e->button(), e->modifiers()) ||
+               MouseBindings::matches(b, e->button(), e->modifiers());
+    };
+    const bool overCube = e->button() == Qt::LeftButton && ViewCube::rect(size()).contains(pos.toPoint());
+    if(!overCube) {
+        if(bound(m_bindings.orbit, m_bindings.orbit2)) {
             m_drag = Drag::Orbit;
             m_pivot = raycast(pos).value_or(m_camera.target);
-        } else {
+        } else if(bound(m_bindings.pan, m_bindings.pan2)) {
             m_drag = Drag::Pan;
             m_pivot = anchorAt(pos);
+        } else if(bound(m_bindings.zoom, m_bindings.zoom2)) {
+            m_drag = Drag::Zoom;
+            m_pivot = anchorAt(pos);
         }
-        setCursor(Qt::ClosedHandCursor);
-        return;
+        if(m_drag != Drag::None) {
+            // A right button still opens the marking menu if it does not move.
+            if(e->button() != Qt::RightButton) setCursor(Qt::ClosedHandCursor);
+            return;
+        }
     }
+    if(e->button() == Qt::MiddleButton) return;
     if(e->button() == Qt::LeftButton) {
         if(ViewCube::rect(size()).contains(pos.toPoint())) {
             m_drag = Drag::Cube;
@@ -369,9 +383,6 @@ void Viewport::mousePressEvent(QMouseEvent *e) {
         m_box = QRectF(pos, pos);
         return;
     }
-    if(e->button() == Qt::RightButton) {
-        m_drag = Drag::None;
-    }
 }
 
 void Viewport::mouseMoveEvent(QMouseEvent *e) {
@@ -379,6 +390,10 @@ void Viewport::mouseMoveEvent(QMouseEvent *e) {
     const QPointF delta = pos - m_lastPos;
     m_lastPos = pos;
     if((pos - m_pressPos).manhattanLength() > 4) m_dragMoved = true;
+    // A right-button view drag starts once it moves (a click is the marking menu).
+    if(m_dragButton == Qt::RightButton && !m_dragMoved &&
+       (m_drag == Drag::Orbit || m_drag == Drag::Pan || m_drag == Drag::Zoom))
+        return;
 
     switch(m_drag) {
     case Drag::Pan:
@@ -472,7 +487,8 @@ void Viewport::wheelEvent(QWheelEvent *e) {
     if(trackpad && !(e->modifiers() & Qt::ControlModifier)) {
         // Two-finger drag pans (Shift orbits), like Fusion's trackpad mode.
         const QPointF d = e->pixelDelta();
-        if(e->modifiers() & Qt::ShiftModifier) m_camera.orbit(float(-d.x()), float(-d.y()), raycast(pos).value_or(m_camera.target));
+        const bool orbit = bool(e->modifiers() & Qt::ShiftModifier) != m_bindings.trackpadOrbits;
+        if(orbit) m_camera.orbit(float(-d.x()), float(-d.y()), raycast(pos).value_or(m_camera.target));
         else m_camera.pan(d, anchorAt(pos));
         changed();
         e->accept();
@@ -481,6 +497,7 @@ void Viewport::wheelEvent(QWheelEvent *e) {
     float steps = float(e->angleDelta().y());
     if(steps == 0.0f) steps = float(e->angleDelta().x());
     if(steps == 0.0f && trackpad) steps = float(e->pixelDelta().y()) * 2.0f;
+    if(m_bindings.invertWheel) steps = -steps;
     m_camera.zoom(std::pow(1.0015f, steps), anchorAt(pos));
     changed();
     e->accept();

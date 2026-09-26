@@ -44,6 +44,10 @@ public:
     void markClicked(int tag) override;
     std::set<cad::FeatureId> sketchesToShow() const override;
     ViewportTool *tool() override { return &m_arrow; }
+    // The on-canvas value box sits at the arrow's head.
+    std::optional<QVector3D> canvasAnchor() const override {
+        return m_arrow.visible() ? std::optional<QVector3D>(m_arrow.headPoint()) : std::nullopt;
+    }
     void previewed(const cad::StatePtr &state) override;
 
     // Inputs (tests).

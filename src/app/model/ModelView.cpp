@@ -654,7 +654,14 @@ void ModelView::onClicked(const PickHit &hit, Qt::KeyboardModifiers mods) {
 }
 
 void ModelView::onDoubleClicked(const PickHit &hit) {
-    if(!hit.valid() || !m_filter.bodies || m_commandInput) return;
+    if(m_commandInput) return;
+    // A double-click on a sketch (a curve or a profile) opens it for editing.
+    if(const auto it = itemAt(hit);
+       it && (it->kind == SelectionItem::Kind::Profile || it->kind == SelectionItem::Kind::SketchEntity)) {
+        emit editSketchRequested(it->feature);
+        return;
+    }
+    if(!hit.valid() || !m_filter.bodies) return;
     SelectionItem it;
     it.kind = SelectionItem::Kind::Body;
     it.body = hit.body;

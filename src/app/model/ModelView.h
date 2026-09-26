@@ -144,6 +144,8 @@ signals:
     // Command input mode: the user clicked something (or empty space) / a mark.
     void picked(const std::optional<cadly::SelectionItem> &item, const cadly::PickHit &hit, Qt::KeyboardModifiers modifiers);
     void markClicked(int tag);
+    // A sketch in the canvas was double-clicked (edit it).
+    void editSketchRequested(cad::FeatureId sketch);
     void selectionChanged();
     // Only for picks made by the user in the canvas (not programmatic changes).
     void userSelectionChanged();

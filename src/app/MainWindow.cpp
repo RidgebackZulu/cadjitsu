@@ -14,6 +14,7 @@
 #include "ui/BrowserTree.h"
 #include "ui/ExportDialog.h"
 #include "ui/Icons.h"
+#include "ui/SettingsDialog.h"
 #include "ui/MarkingMenu.h"
 #include "ui/Ribbon.h"
 #include "ui/TimelineWidget.h"
@@ -33,6 +34,7 @@
 #include <QMessageBox>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -87,6 +89,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
         }
     };
     m_viewport->setIdleTool(m_sectionArrow.get());
+    m_viewport->setMouseBindings(MouseBindings::load());
 
     // Bottom-right selection statistics, as in Fusion 360; a busy note to their left.
     m_busy = new QLabel(this);
@@ -119,6 +122,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
     connect(m_commands, &CommandController::editingChanged, m_timeline, &TimelineWidget::setEditing);
     connect(m_timeline, &TimelineWidget::editRequested, this, &MainWindow::editFeature);
     connect(m_browser, &BrowserTree::editSketchRequested, this, [this](cad::FeatureId id) { editFeature(id); });
+    connect(m_modelView, &ModelView::editSketchRequested, this, [this](cad::FeatureId id) {
+        // Deferred: the double-click is still being delivered to the canvas.
+        QTimer::singleShot(0, this, [this, id] { editFeature(id); });
+    });
     connect(m_browser, &BrowserTree::editSectionRequested, this, &MainWindow::editSection);
     m_document->changed = [this] { onDocumentChanged(); };
 
@@ -385,6 +392,18 @@ void MainWindow::showMarkingMenu(QPoint canvasPos) {
     m_marking->open(canvasPos);
 }
 
+SettingsDialog *MainWindow::openSettings() {
+    auto *dlg = new SettingsDialog(m_viewport->mouseBindings(), this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    connect(dlg, &QDialog::accepted, this, [this, dlg] {
+        const MouseBindings b = dlg->bindings();
+        b.save();
+        m_viewport->setMouseBindings(b);
+    });
+    dlg->open();
+    return dlg;
+}
+
 ExportDialog *MainWindow::openExportDialog(ExportJob::Format format) {
     // Export the design, not a command's preview or a result still computing.
     finishInteractions();
@@ -422,6 +441,9 @@ void MainWindow::buildActions() {
                                 [this] { openExportDialog(ExportJob::Format::Stl); });
     print->setToolTip(tr("3D Print (%1): export a watertight STL, checked for printing")
                           .arg(print->shortcut().toString(QKeySequence::NativeText)));
+    QAction *settings = makeAction("settings", tr("Settings..."), IconId::Display, QKeySequence::Preferences,
+                                   [this] { openSettings(); });
+    settings->setMenuRole(QAction::PreferencesRole);
     makeAction("undo", tr("Undo"), IconId::Undo, QKeySequence::Undo, [this] { undo(); });
     QAction *redo = makeAction("redo", tr("Redo"), IconId::Redo, QKeySequence::Redo, [this] { this->redo(); });
     redo->setShortcuts({QKeySequence::Redo, QKeySequence(Qt::CTRL | Qt::Key_Y)});
@@ -564,6 +586,8 @@ void MainWindow::buildMenus() {
     file->addSeparator();
     file->addAction(action(QStringLiteral("export")));
     file->addAction(action(QStringLiteral("print3d")));
+    file->addSeparator();
+    file->addAction(action(QStringLiteral("settings")));
 
     QMenu *edit = menuBar()->addMenu(tr("&Edit"));
     edit->addAction(action(QStringLiteral("undo")));

@@ -32,6 +32,8 @@ public:
 
     ValueField(cad::ValueKind kind, Evaluator eval, QWidget *parent = nullptr);
     void setExpression(const QString &expr); // without emitting edited()
+    // As if the user had typed `expr` (emits edited()).
+    void enterExpression(const QString &expr);
     QString expression() const { return text().trimmed(); }
     std::optional<double> value() const { return m_value; }
     bool valid() const { return m_value.has_value(); }
@@ -40,12 +42,19 @@ public:
 signals:
     void edited();
 
+protected:
+    // Focusing a value, or the first click into one the user has not typed
+    // in yet, selects it all, so typing replaces it (as in Fusion).
+    void focusInEvent(QFocusEvent *e) override;
+    void mouseReleaseEvent(QMouseEvent *e) override;
+
 private:
     void revalidate();
 
     cad::ValueKind m_kind;
     Evaluator m_eval;
     std::optional<double> m_value;
+    bool m_selectOnClick = true;
 };
 
 // A selection input ("1 selected"): click it to make it the input that

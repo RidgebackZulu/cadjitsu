@@ -184,7 +184,7 @@ public:
     using SketchTool::SketchTool;
     SketchToolKind kind() const override { return SketchToolKind::Select; }
     QString prompt() const override {
-        return tr("Select or drag sketch geometry. Double-click a dimension to change it.");
+        return tr("Select or drag sketch geometry. Double-click a line, circle, arc or dimension to type its size.");
     }
     Qt::CursorShape cursor() const override { return Qt::ArrowCursor; }
 
@@ -242,7 +242,9 @@ public:
     bool mouseDoubleClick(QMouseEvent *e) override {
         const SketchHit hit = editor().hitTest(e->position());
         if(hit.kind == HitKind::Dimension) m_mode.editDimension(hit.id);
-        else if(hit.kind == HitKind::Curve) editor().selectEntities(editor().connectedChain(hit.id), false);
+        else if(hit.kind == HitKind::Curve && (e->modifiers() & Qt::ShiftModifier))
+            editor().selectEntities(editor().connectedChain(hit.id), false);
+        else if(hit.kind == HitKind::Curve) m_mode.editSize(hit.id);
         return true;
     }
     bool keyPress(QKeyEvent *e) override { return commonKey(e); }

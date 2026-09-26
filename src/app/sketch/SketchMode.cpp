@@ -425,6 +425,44 @@ void SketchMode::editDimension(int constraintId) {
     });
 }
 
+bool SketchMode::editSize(int entityId) {
+    if(!m_editor) return false;
+    const cad::Sketch &sk = m_editor->sketch();
+    const cad::SkEntity *e = sk.find(entityId);
+    if(!e) return false;
+    cad::SkCon type;
+    switch(e->type) {
+    case cad::SkType::Line: type = cad::SkCon::Distance; break;
+    case cad::SkType::Circle: type = cad::SkCon::Diameter; break;
+    case cad::SkType::Arc: type = cad::SkCon::Radius; break;
+    default: return false;
+    }
+    for(const cad::SkConstraint &c : sk.constraints)
+        if(c.e1 == entityId && (c.type == type || (e->type != cad::SkType::Line &&
+                                                    (c.type == cad::SkCon::Diameter || c.type == cad::SkCon::Radius))) &&
+           (type != cad::SkCon::Distance || c.e2 == 0)) {
+            editDimension(c.id);
+            return true;
+        }
+    // About 28 pixels beside the geometry.
+    double unit = 5.0;
+    const QPointF c0 = m_editor->toScreen(sk.pointPos(e->a));
+    if(const auto p = m_editor->toSketch(c0), q = m_editor->toSketch(c0 + QPointF(28, 0)); p && q) unit = (*q - *p).length();
+    cad::Vec2 label;
+    if(e->type == cad::SkType::Line) {
+        const cad::Vec2 a = sk.pointPos(e->a), b = sk.pointPos(e->b);
+        if((b - a).length() < 1e-9) return false;
+        label = (b - a).normalized().perp() * unit;
+    } else {
+        const double r = e->type == cad::SkType::Circle ? e->r : (sk.pointPos(e->b) - sk.pointPos(e->a)).length();
+        label = cad::Vec2(0.7071, 0.7071) * (r + unit);
+    }
+    bool driven = false;
+    const int id = m_editor->addDimension(type, entityId, 0, label, false, &driven);
+    if(id && !driven) editDimension(id);
+    return id != 0;
+}
+
 bool SketchMode::undo() {
     if(!m_editor) return false;
     closeDimensionEditor();

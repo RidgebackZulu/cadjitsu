@@ -55,6 +55,9 @@ public:
     SketchTool *currentTool() const { return m_tool.get(); }
     // Opens the inline value box on a dimension's label.
     void editDimension(int constraintId);
+    // Opens a line's length, a circle's diameter or an arc's radius for
+    // typing: its dimension if it has one, else a new one beside it.
+    bool editSize(int entityId);
     InlineValueEditor *dimensionEditor() const { return m_dimensionEdit; }
     bool undo();
     bool redo();

@@ -24,6 +24,7 @@ class CommandController;
 class DistanceManipulator;
 class CommandPanel;
 class ExportDialog;
+class SettingsDialog;
 class MarkingMenu;
 class ModelView;
 class Ribbon;
@@ -78,6 +79,8 @@ public:
     // File > Export and MAKE > 3D Print: opens the export dialog (window-modal,
     // deleted when closed) for the model as it is now.
     ExportDialog *openExportDialog(ExportJob::Format format);
+    // Cadly > Settings (mouse bindings).
+    SettingsDialog *openSettings();
 
 private:
     QAction *makeAction(const char *name, const QString &text, IconId icon, const QKeySequence &shortcut,
