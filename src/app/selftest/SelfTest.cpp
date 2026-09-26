@@ -4,14 +4,20 @@
 #include "model/ModelView.h"
 #include "selftest/DemoModels.h"
 #include "selftest/TestUtil.h"
+#include "sketch/HeadsUpInput.h"
+#include "sketch/SketchEditor.h"
+#include "sketch/SketchMode.h"
 #include "viewport/ViewCube.h"
 #include "viewport/Viewport.h"
 
 #include "base/Version.h"
+#include "features/SketchFeature.h"
 
+#include <QAction>
 #include <QCoreApplication>
 #include <QDir>
 #include <QImage>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QTextStream>
@@ -133,10 +139,173 @@ bool viewsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
+// Keys go to whichever widget of the window has focus (the canvas or a value box).
+void sendKey(MainWindow &w, int key, const QString &text = {}) {
+    QWidget *target = w.focusWidget() ? w.focusWidget() : w.viewport();
+    QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier, text);
+    QCoreApplication::sendEvent(target, &press);
+    QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier, text);
+    QCoreApplication::sendEvent(target, &release);
+}
+
+void typeText(MainWindow &w, const QString &text) {
+    for(const QChar c : text) sendKey(w, c.isDigit() ? Qt::Key_0 + c.digitValue() : c.unicode(), QString(c));
+}
+
+void clickAt(Viewport *vp, QPointF p) {
+    sendMouse(vp, QEvent::MouseMove, p, Qt::NoButton, Qt::NoButton);
+    sendMouse(vp, QEvent::MouseButtonPress, p, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(vp, QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
+}
+
+// Sketch mode end to end: pick the XY plane, draw a plate outline with typed
+// dimensions, a hole, a slot of lines and an arc, dimension it, select for
+// statistics, and finish the sketch into the timeline.
+bool sketchScenario(MainWindow &w, const QDir &out, QTextStream &log) {
+    Viewport *vp = w.viewport();
+    SketchMode *mode = w.sketchMode();
+    vp->setStandardView(StandardView::Home, false);
+    if(!waitForFrames(vp, 2)) return false;
+    bool ok = true;
+    auto check = [&](bool cond, const QString &what) {
+        log << (cond ? "  ok   " : "  FAIL ") << what << "\n";
+        ok &= cond;
+    };
+    auto shot = [&](const char *name) {
+        waitForFrames(vp, 2);
+        processEventsFor(30);
+        w.grab().save(out.filePath(QString::fromLatin1(name)));
+    };
+
+    // Create Sketch shows the origin planes; hover then click the XY plane.
+    w.action(QStringLiteral("createSketch"))->trigger();
+    check(mode->pickingPlane(), QStringLiteral("Create Sketch asks for a plane"));
+    const float s = vp->camera().viewHeightAtTarget() * 0.2f;
+    const QPointF xy = vp->camera().project(QVector3D(s * 0.85f, s * 0.85f, 0));
+    sendMouse(vp, QEvent::MouseMove, xy, Qt::NoButton, Qt::NoButton);
+    shot("sketch_pick_plane.png");
+    clickAt(vp, xy);
+    check(mode->active(), QStringLiteral("clicking the XY plane starts a sketch"));
+    if(!mode->active()) return false;
+    processEventsFor(450);
+    check(vp->camera().forward().z() < -0.999f, QStringLiteral("the view looks at the sketch plane"));
+    SketchEditor *ed = mode->editor();
+    auto at = [&](double x, double y) { return ed->toScreen({x, y}); };
+
+    // Plate outline: rectangle from the origin, 60 x 40 typed in the heads-up boxes.
+    w.action(QStringLiteral("sketchRectangle"))->trigger();
+    clickAt(vp, at(0, 0));
+    sendMouse(vp, QEvent::MouseMove, at(45, 28), Qt::NoButton, Qt::NoButton);
+    typeText(w, QStringLiteral("60"));
+    sendKey(w, Qt::Key_Tab);
+    typeText(w, QStringLiteral("40"));
+    shot("sketch_hud.png");
+    sendKey(w, Qt::Key_Return);
+
+    // A 12 mm hole.
+    w.action(QStringLiteral("sketchCircle"))->trigger();
+    clickAt(vp, at(18, 20));
+    sendMouse(vp, QEvent::MouseMove, at(24, 20), Qt::NoButton, Qt::NoButton);
+    typeText(w, QStringLiteral("12"));
+    sendKey(w, Qt::Key_Return);
+
+    // A slot: two lines and two arcs.
+    w.action(QStringLiteral("sketchLine"))->trigger();
+    clickAt(vp, at(36, 14));
+    clickAt(vp, at(48, 14.2));
+    sendKey(w, Qt::Key_Escape);
+    clickAt(vp, at(36, 26));
+    clickAt(vp, at(48, 26.2));
+    sendKey(w, Qt::Key_Escape);
+    w.action(QStringLiteral("sketchArc"))->trigger();
+    clickAt(vp, at(48, 14));
+    clickAt(vp, at(48, 26));
+    clickAt(vp, at(54, 20));
+    clickAt(vp, at(36, 26));
+    clickAt(vp, at(36, 14));
+    clickAt(vp, at(30, 20));
+    sendKey(w, Qt::Key_Escape);
+
+    // Dimension the hole position from the origin (horizontal) and edit it to 16.
+    w.action(QStringLiteral("sketchDimension"))->trigger();
+    clickAt(vp, at(0, 0));
+    clickAt(vp, at(18, 20));
+    clickAt(vp, at(9, -8));
+    if(auto *box = mode->dimensionEditor()) {
+        box->selectAll();
+        typeText(w, QStringLiteral("16"));
+        sendKey(w, Qt::Key_Return);
+    }
+    processEventsFor(30);
+    sendKey(w, Qt::Key_Escape);
+
+    // A construction circle around the hole, sharing its centre (X toggles construction).
+    w.action(QStringLiteral("sketchCircle"))->trigger();
+    clickAt(vp, at(16, 20));
+    sendMouse(vp, QEvent::MouseMove, at(26, 20), Qt::NoButton, Qt::NoButton);
+    typeText(w, QStringLiteral("22"));
+    sendKey(w, Qt::Key_Return);
+    sendKey(w, Qt::Key_Escape);
+    clickAt(vp, at(16, 31));
+    w.action(QStringLiteral("sketchConstruction"))->trigger();
+    int construction = 0;
+    for(const auto &e : ed->sketch().entities) construction += e.construction && e.type == cad::SkType::Circle;
+    check(construction == 1, QStringLiteral("X turns the selected circle into construction geometry"));
+
+    const cad::Sketch &sk = ed->sketch();
+    int lines = 0, circles = 0, arcs = 0, dims = 0;
+    for(const auto &e : sk.entities) {
+        lines += e.type == cad::SkType::Line;
+        circles += e.type == cad::SkType::Circle;
+        arcs += e.type == cad::SkType::Arc;
+    }
+    for(const auto &c : sk.constraints) dims += cad::isDimension(c.type) ? 1 : 0;
+    log << "  sketch: " << lines << " lines, " << circles << " circles, " << arcs << " arcs, " << dims
+        << " dimensions, " << ed->profiles().size() << " profiles, dof " << ed->solveResult().dof << "\n";
+    check(lines == 6 && circles == 2 && arcs == 2, QStringLiteral("all curves were drawn"));
+    check(dims == 5, QStringLiteral("typed values became dimensions"));
+    check(ed->profiles().size() == 3, QStringLiteral("plate, hole and slot profiles"));
+    const cad::Profile *plate = nullptr;
+    for(const auto &p : ed->profiles())
+        if(!plate || std::fabs(p.area) > std::fabs(plate->area)) plate = &p;
+    const double slotArea = 12 * 12 + cad::kPi * 36;
+    const double expect = 60 * 40 - cad::kPi * 36 - slotArea;
+    check(plate && std::fabs(std::fabs(plate->area) - expect) < 0.5,
+          QStringLiteral("plate profile area %1 (expected %2)").arg(plate ? std::fabs(plate->area) : 0).arg(expect));
+    bool holeAt16 = false;
+    for(const auto &e : sk.entities)
+        if(e.type == cad::SkType::Circle && !e.construction) holeAt16 = std::fabs(sk.pointPos(e.a).x - 16.0) < 1e-6;
+    check(holeAt16, QStringLiteral("editing the dimension moved the hole to x = 16"));
+
+    // Select the bottom edge: statistics at the bottom right.
+    clickAt(vp, at(30, 0));
+    const QString stats = w.selectionStatsLabel()->text();
+    log << "  stats: " << stats << "\n";
+    check(stats.contains(QStringLiteral("Length")) && stats.contains(QStringLiteral("60.00")),
+          QStringLiteral("selecting a line shows its length"));
+    shot("sketch_done.png");
+
+    // Finish: the sketch lands in the timeline with its profiles.
+    w.action(QStringLiteral("finishSketch"))->trigger();
+    check(!mode->active(), QStringLiteral("Finish Sketch leaves sketch mode"));
+    const auto &features = w.document().features();
+    auto sf = features.empty() ? nullptr : std::dynamic_pointer_cast<const cad::SketchFeature>(features.back());
+    check(sf != nullptr, QStringLiteral("the sketch is in the timeline"));
+    if(sf) {
+        const auto st = w.document().displayedState();
+        check(st->sketches.count(sf->id) && st->sketches.at(sf->id)->profiles.size() == 3,
+              QStringLiteral("the committed sketch has the same profiles"));
+    }
+    vp->setStandardView(StandardView::Home, false);
+    shot("sketch_finished.png");
+    return ok;
+}
+
 const std::map<QString, Scenario> &scenarios() {
     static const std::map<QString, Scenario> s = {
         {QStringLiteral("smoke"), smokeScenario},
         {QStringLiteral("views"), viewsScenario},
+        {QStringLiteral("sketch"), sketchScenario},
     };
     return s;
 }

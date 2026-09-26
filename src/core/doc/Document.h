@@ -49,7 +49,9 @@ public:
     // --- Edits (each is one undo step) ----------------------------------------
     // Inserts at the marker (assigning id and default name) and advances the marker.
     FeatureId addFeature(std::shared_ptr<Feature> f, const std::string &undoLabel = {});
-    bool replaceFeature(std::shared_ptr<Feature> f, const std::string &undoLabel = {});
+    // `recordUndo` = false folds the change into the previous undo step (a new
+    // sketch is created and later filled in as one step).
+    bool replaceFeature(std::shared_ptr<Feature> f, const std::string &undoLabel = {}, bool recordUndo = true);
     bool setSuppressed(FeatureId id, bool suppressed);
     bool deleteFeature(FeatureId id);
     bool renameFeature(FeatureId id, const std::string &name);

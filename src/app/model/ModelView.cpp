@@ -1,5 +1,6 @@
 #include "model/ModelView.h"
 
+#include "sketch/ProfileMesh.h"
 #include "viewport/Camera.h"
 #include "viewport/Viewport.h"
 
@@ -70,9 +71,25 @@ void ModelView::refresh() {
         lb.segments = {c[0], c[1], c[1], c[2], c[2], c[3], c[3], c[0]};
         scene.lines.push_back(lb);
     }
-    // Sketches that no later feature consumes stay visible (Fusion hides used sketches).
+    // Sketches that no later feature consumes stay visible, profiles shaded
+    // (Fusion hides used sketches).
+    std::map<std::shared_ptr<const cad::SketchResult>, std::vector<QVector3D>> profileCache;
+    TriangleBatch profiles;
+    profiles.color = QColor(255, 200, 120, 80);
     for(const auto &[fid, sk] : m_state->sketches) {
-        if(!m_doc.dependents(fid).empty()) continue;
+        if(fid == m_hiddenSketch || !m_doc.dependents(fid).empty()) continue;
+        auto cached = m_profileCache.find(sk);
+        std::vector<QVector3D> tris;
+        if(cached != m_profileCache.end()) {
+            tris = cached->second;
+        } else {
+            for(const auto &p : sk->profiles) {
+                const auto t = triangulateProfile(p, sk->frame);
+                tris.insert(tris.end(), t.begin(), t.end());
+            }
+        }
+        profiles.triangles.insert(profiles.triangles.end(), tris.begin(), tris.end());
+        profileCache[sk] = std::move(tris);
         LineBatch solid, construction;
         solid.color = QColor(40, 90, 200);
         solid.width = 1.6f;
@@ -105,6 +122,8 @@ void ModelView::refresh() {
         if(!solid.segments.empty()) scene.lines.push_back(solid);
         if(!construction.segments.empty()) scene.lines.push_back(construction);
     }
+    if(!profiles.triangles.empty()) scene.triangles.push_back(profiles);
+    m_profileCache = std::move(profileCache);
     m_viewport->setContent(scene, targets);
     pruneSelection();
     updateHighlights();

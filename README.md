@@ -77,6 +77,41 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 | Select | Click a face, edge or vertex; Shift / Cmd-click adds |
 | Select bodies | Drag left-to-right (window) or right-to-left (crossing); double-click a face |
 | Standard views | Click a ViewCube face, edge or corner; Home button |
+| Canvas menu | Right-click (Create Sketch, Edit Sketch, undo / redo, fit) |
+| Undo / redo | Cmd+Z / Shift+Cmd+Z (inside a sketch: the sketch's own steps) |
+
+## Sketching
+
+**Starting a sketch**
+- Click **Create Sketch**, then click one of the orange origin planes or any planar face.
+- The view turns to look straight at the sketch plane.
+- **Finish Sketch** (ribbon or palette) puts the whole sketch in the timeline as one undo step.
+
+**Drawing**
+
+| Tool | Key | Heads-up input |
+|---|---|---|
+| Line (click-click chains; Esc or double-click ends) | L | length, angle |
+| 2-point rectangle / center rectangle | R | width, height |
+| Center diameter circle | C | diameter |
+| 3-point arc | | |
+| Point | | |
+| Sketch dimension | D | the value box opens when the dimension is placed |
+
+- Points snap to existing points, the origin, midpoints, quadrants, curves and the sketch axes.
+- Lines within 3° of level or plumb become horizontal or vertical.
+- While drawing, type a number to fill the active value box. Tab moves to the next box. Enter commits the shape, and each typed value becomes a dimension.
+
+**Editing**
+- **Dimensions:** double-click a dimension to change it. The value box accepts expressions such as `2*d1` or `1 in`. A dimension that would over-constrain the sketch becomes a driven (reference) dimension.
+- **Constraints:** coincident, horizontal/vertical, parallel, perpendicular, tangent, equal, midpoint, concentric, fix and symmetric. Apply them to the current selection, or pick the entities after choosing the tool. A constraint that repeats or contradicts others is refused.
+- **Selection:** drag geometry to move it, drag in empty space to box-select, and double-click a curve to select its chain.
+- **Other keys:** Delete removes the selection, X toggles construction geometry, and Esc steps back to Select.
+
+**Display**
+- Fully constrained geometry is black, under-constrained geometry blue, and construction geometry orange dashed.
+- Closed regions (profiles) are shaded.
+- Selecting anything shows its length, radius, diameter, area and other stats at the bottom right.
 
 ## Self tests
 
@@ -99,10 +134,12 @@ command layer. It saves screenshots and exits with status 0 on success.
   - face, edge and vertex picking
   - window and crossing selection
   - selection statistics
-- [ ] **M3** Sketch mode:
-  - line, rectangle, circle and arc tools
+- [x] **M3** Sketch mode:
+  - SolveSpace constraint solving with black/blue constrained colouring
+  - sketches on origin planes and planar faces
+  - line, rectangle, circle, arc and point tools with snapping and heads-up input
   - constraints and direct dimension editing
-  - selection stats
+  - profiles, selection stats, drag, local undo
 - [ ] **M4** Extrude command, timeline (scrub, suppress, edit feature), browser, undo, files
 - [ ] **M5** Fillet, chamfer, hole, combine (keep tools), offset and rotated construction planes
 - [ ] **M6** Section analysis

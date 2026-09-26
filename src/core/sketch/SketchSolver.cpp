@@ -440,6 +440,45 @@ std::vector<int> pointIds(const Sketch &s) {
     return out;
 }
 
+// Splits a sketch into groups of entities linked by shared points or
+// constraints (the fixed origin and axes link nothing). Groups cannot affect
+// each other, so the free-entity analysis probes each one on its own.
+std::vector<Sketch> connectedParts(const Sketch &s) {
+    std::map<int, int> parent;
+    for(const auto &e : s.entities) parent[e.id] = e.id;
+    auto find = [&](int x) {
+        while(parent[x] != x) x = parent[x] = parent[parent[x]];
+        return x;
+    };
+    auto unite = [&](int a, int b) { parent[find(a)] = find(b); };
+    auto known = [&](int id) { return id > 0 && parent.count(id) > 0; };
+    for(const auto &e : s.entities)
+        for(int p : {e.a, e.b, e.c})
+            if(known(p)) unite(e.id, p);
+    for(const auto &c : s.constraints) {
+        int first = 0;
+        for(int id : {c.e1, c.e2, c.e3}) {
+            if(!known(id)) continue;
+            if(first) unite(first, id);
+            else first = id;
+        }
+    }
+    std::map<int, Sketch> parts;
+    for(const auto &e : s.entities) parts[find(e.id)].entities.push_back(e);
+    for(const auto &c : s.constraints)
+        for(int id : {c.e1, c.e2, c.e3})
+            if(known(id)) {
+                parts[find(id)].constraints.push_back(c);
+                break;
+            }
+    std::vector<Sketch> out;
+    for(auto &[root, part] : parts) {
+        part.nextId = s.nextId;
+        out.push_back(std::move(part));
+    }
+    return out;
+}
+
 } // namespace
 
 SolveOutcome solveSketch(Sketch &sketch, const DimensionLookup &lookup, const SolveOptions &options) {
@@ -462,25 +501,32 @@ SolveOutcome solveSketch(Sketch &sketch, const DimensionLookup &lookup, const So
     system.writeBack(sketch);
     if(r.code == SLVS_RESULT_REDUNDANT_OKAY) {
         out.ok = true;
+        out.redundant = true;
         if(out.message.empty()) out.message = "the sketch has redundant constraints";
     }
 
     if(options.computeFreeEntities && out.dof > 0) {
         // A point is fully constrained if pinning it does not remove any
-        // degree of freedom; a circle's radius likewise.
+        // degree of freedom; a circle's radius likewise. Each connected part
+        // of the sketch is probed separately, which keeps this fast for
+        // sketches made of many separate shapes.
         std::set<int> freePoints, freeRadii;
-        for(int pid : pointIds(sketch)) {
-            SlvsSystem probe(sketch, lookup);
-            probe.addWhereDragged(pid);
-            const SlvsSystem::Result pr = probe.solve({}, false);
-            if(pr.dof >= 0 && pr.dof < out.dof) freePoints.insert(pid);
-        }
-        for(const auto &e : sketch.entities) {
-            if(e.type != SkType::Circle) continue;
-            SlvsSystem probe(sketch, lookup);
-            probe.addFixedDiameter(e.id);
-            const SlvsSystem::Result pr = probe.solve({}, false);
-            if(pr.dof >= 0 && pr.dof < out.dof) freeRadii.insert(e.id);
+        for(const Sketch &part : connectedParts(sketch)) {
+            const int partDof = SlvsSystem(part, lookup).solve({}, false).dof;
+            if(partDof <= 0) continue; // fully constrained
+            for(int pid : pointIds(part)) {
+                SlvsSystem probe(part, lookup);
+                probe.addWhereDragged(pid);
+                const SlvsSystem::Result pr = probe.solve({}, false);
+                if(pr.dof >= 0 && pr.dof < partDof) freePoints.insert(pid);
+            }
+            for(const auto &e : part.entities) {
+                if(e.type != SkType::Circle) continue;
+                SlvsSystem probe(part, lookup);
+                probe.addFixedDiameter(e.id);
+                const SlvsSystem::Result pr = probe.solve({}, false);
+                if(pr.dof >= 0 && pr.dof < partDof) freeRadii.insert(e.id);
+            }
         }
         for(const auto &e : sketch.entities) {
             bool isFree = false;

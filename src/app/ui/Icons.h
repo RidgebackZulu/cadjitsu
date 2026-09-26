@@ -9,8 +9,9 @@ namespace cadly {
 // flat blue-grey icon set.
 enum class IconId {
     Home, Orbit, Pan, Zoom, Fit, Display, Grid, Camera,
-    Sketch, FinishSketch, Line, Rectangle, Circle, Arc, Point, Dimension, Construction,
-    Coincident, Horizontal, Vertical, Parallel, Perpendicular, Tangent, Equal, Midpoint, Concentric, Fix,
+    Sketch, FinishSketch, Line, Rectangle, CenterRectangle, Circle, Arc, Point, Dimension, Construction, LookAt,
+    Coincident, Horizontal, Vertical, HorizontalVertical, Parallel, Perpendicular, Tangent, Equal, Midpoint,
+    Concentric, Fix, Symmetric,
     Extrude, Fillet, Chamfer, Hole, Combine, Plane, Section, Measure,
     Undo, Redo, Save, Open, New, ExportStl, ExportStep,
     Eye, EyeOff, Body, SketchNode, PlaneNode, Folder, Warning, Error,

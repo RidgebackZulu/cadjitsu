@@ -72,7 +72,9 @@ struct SkConstraint {
     std::string expr;      // dimensions: the parameter's expression, e.g. "20 mm" or "d1 * 2"
     bool driven = false;   // reference ("driven") dimension: displays, does not constrain
     bool supplementary = false; // Angle: measure the supplementary angle
-    Vec2 label;            // dimension label position (sketch coordinates)
+    Vec2 label;            // dimension label offset from the dimension's anchor (sketch units):
+                           // the midpoint of the measured points, a circle's centre, or the
+                           // intersection of an angle's lines; labels follow their geometry
 };
 
 struct Sketch {

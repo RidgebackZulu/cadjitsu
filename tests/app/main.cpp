@@ -20,9 +20,12 @@ int main(int argc, char **argv) {
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QApplication app(argc, argv);
+    // CADLY_TEST_CLASS=SketchTests runs one test class (other arguments go to QtTest).
+    const QByteArray only = qgetenv("CADLY_TEST_CLASS");
     int failures = 0;
     for(const auto &make : cadlyTestFactories()) {
         std::unique_ptr<QObject> t(make());
+        if(!only.isEmpty() && only != t->metaObject()->className()) continue;
         failures += QTest::qExec(t.get(), argc, argv);
     }
     return failures;

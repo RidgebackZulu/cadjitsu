@@ -151,6 +151,27 @@ void drawIcon(QPainter &p, IconId id, const QColor &accent) {
         p.drawRect(QRectF(24.5, 21.5, 5, 5));
         break;
     }
+    case IconId::CenterRectangle: {
+        p.setPen(acc);
+        p.drawRect(QRectF(5, 8, 22, 16));
+        p.setPen(QPen(kInk, 1.2, Qt::DashLine));
+        p.drawLine(QPointF(5, 8), QPointF(27, 24));
+        p.setPen(ink);
+        p.setBrush(Qt::white);
+        p.drawEllipse(QPointF(16, 16), 2.4, 2.4);
+        p.drawRect(QRectF(24.5, 21.5, 5, 5));
+        break;
+    }
+    case IconId::LookAt: {
+        QPolygonF pl;
+        pl << QPointF(3, 23) << QPointF(10, 13) << QPointF(29, 13) << QPointF(22, 23);
+        p.setBrush(QColor(accent.red(), accent.green(), accent.blue(), 60));
+        p.drawPolygon(pl);
+        p.setPen(acc);
+        p.drawLine(QPointF(16, 18), QPointF(16, 4));
+        arrowHead(QPointF(16, 18.5), M_PI / 2, 5.0);
+        break;
+    }
     case IconId::Circle: {
         p.setPen(acc);
         p.drawEllipse(QPointF(16, 16), 11, 11);
@@ -212,6 +233,14 @@ void drawIcon(QPainter &p, IconId id, const QColor &accent) {
         p.drawText(QRectF(18, 0, 14, 32), Qt::AlignCenter, QStringLiteral("V"));
         break;
     }
+    case IconId::HorizontalVertical: {
+        p.setPen(acc);
+        p.drawLine(QPointF(5, 26), QPointF(24, 26));
+        p.drawLine(QPointF(26, 6), QPointF(26, 24));
+        p.setPen(ink);
+        p.drawText(QRectF(2, 2, 22, 20), Qt::AlignCenter, QStringLiteral("H/V"));
+        break;
+    }
     case IconId::Parallel: {
         p.setPen(acc);
         p.drawLine(QPointF(6, 22), QPointF(20, 6));
@@ -258,6 +287,18 @@ void drawIcon(QPainter &p, IconId id, const QColor &accent) {
         p.setBrush(kFill);
         p.drawRoundedRect(QRectF(8, 14, 16, 13), 2, 2);
         p.drawArc(QRectF(10.5, 6, 11, 14), 0, 180 * 16);
+        break;
+    }
+    case IconId::Symmetric: {
+        p.setPen(QPen(kInk, 1.4, Qt::DashLine));
+        p.drawLine(QPointF(16, 3), QPointF(16, 29));
+        p.setPen(acc);
+        p.drawLine(QPointF(5, 22), QPointF(12, 10));
+        p.drawLine(QPointF(27, 22), QPointF(20, 10));
+        p.setPen(ink);
+        p.setBrush(Qt::white);
+        p.drawEllipse(QPointF(5, 22), 2.2, 2.2);
+        p.drawEllipse(QPointF(27, 22), 2.2, 2.2);
         break;
     }
     case IconId::Extrude: {

@@ -5,6 +5,11 @@
 #include "viewport/RenderScene.h"
 
 #include "doc/Document.h"
+#include "sketch/SketchResult.h"
+
+#include <map>
+#include <memory>
+#include <vector>
 
 #include <QColor>
 #include <QObject>
@@ -37,6 +42,8 @@ public:
 
     // What canvas clicks may select (commands restrict this, e.g. Fillet -> edges).
     void setSelectable(bool faces, bool edges, bool vertices, bool bodies);
+    // A sketch drawn by its editor instead (while it is being edited).
+    void setHiddenSketch(cad::FeatureId id) { m_hiddenSketch = id; }
 
     static QColor defaultBodyColor();
 
@@ -61,6 +68,9 @@ private:
     PickHit m_hover;
     QString m_stats;
     bool m_selectBodies = true;
+    cad::FeatureId m_hiddenSketch = cad::kNoFeature;
+    // Profile shading of visible sketches, per evaluated sketch.
+    std::map<std::shared_ptr<const cad::SketchResult>, std::vector<QVector3D>> m_profileCache;
 };
 
 } // namespace cadly

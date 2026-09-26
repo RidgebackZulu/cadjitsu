@@ -78,6 +78,8 @@ public:
 
     // Paints overlays (selection rectangle, tool labels) - called by the overlay widget.
     void paintOverlay(QPainter &p);
+    // Schedules a repaint of the 3D view and its overlay (after tool state changes).
+    void refreshOverlay();
 
 signals:
     void hoverChanged(const cadly::PickHit &hit);

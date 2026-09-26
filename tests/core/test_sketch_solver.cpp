@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <map>
+#include <set>
 
 using namespace cadtest;
 
@@ -173,6 +174,54 @@ TEST_CASE("dimensions") {
     const Vec2 d1 = (P(s, E(s, l1).b) - P(s, E(s, l1).a)).normalized();
     const Vec2 d2 = (P(s, E(s, l2).b) - P(s, E(s, l2).a)).normalized();
     CHECK(std::acos(std::clamp(d1.dot(d2), -1.0, 1.0)) == doctest::Approx(PI / 6));
+}
+
+TEST_CASE("points on lines stay where they are") {
+    // Regression for the vendored libslvs: PT_ON_LINE's line parameter used to
+    // start at 0, pulling a point that already lay on the line halfway to its start.
+    Solver sv;
+    for(const int axis : {kSketchXAxis, kSketchYAxis}) {
+        Sketch s;
+        const Vec2 at = axis == kSketchXAxis ? Vec2(20, 0) : Vec2(0, 20);
+        const int p = s.addPoint(at.x, at.y);
+        s.addConstraint(SkCon::PointOnCurve, p, axis);
+        REQUIRE(sv.solve(s).ok);
+        CHECK(distance(P(s, p), at) < 1e-9);
+    }
+    Sketch s;
+    const int l = s.addLine(Vec2{0, 0}, Vec2{40, 20});
+    const int p = s.addPoint(30, 15);
+    s.addConstraint(SkCon::PointOnCurve, p, l);
+    REQUIRE(sv.solve(s).ok);
+    CHECK(distance(P(s, p), Vec2(30, 15)) < 1e-9);
+    CHECK(distance(P(s, E(s, l).a), Vec2(0, 0)) < 1e-9);
+    // A point off the line moves onto it, near where it was.
+    s.find(p)->y = 17;
+    REQUIRE(sv.solve(s).ok);
+    const Vec2 d = (P(s, E(s, l).b) - P(s, E(s, l).a)).normalized();
+    CHECK(std::fabs(d.cross(P(s, p) - P(s, E(s, l).a))) < 1e-9);
+    CHECK(distance(P(s, p), Vec2(30, 16)) < 2.0);
+}
+
+TEST_CASE("free-entity analysis treats separate shapes independently") {
+    Solver sv;
+    Sketch s;
+    const auto rect = s.addRectangle({0, 0}, {40, 20});
+    s.addConstraint(SkCon::Coincident, E(s, rect[0]).a, kSketchOrigin);
+    dim(s, sv, SkCon::Distance, 40.0, rect[0]);
+    dim(s, sv, SkCon::Distance, 20.0, rect[1]);
+    const int circle = s.addCircle(Vec2{80, 10}, 5);
+    const int lone = s.addLine(Vec2{0, 40}, Vec2{30, 50});
+    s.addConstraint(SkCon::Horizontal, lone);
+    const auto r = sv.solve(s);
+    REQUIRE(r.ok);
+    CHECK(r.dof == 3 + 3);
+    const std::set<int> isFree(r.freeEntities.begin(), r.freeEntities.end());
+    CHECK(isFree.count(circle));
+    CHECK(isFree.count(E(s, circle).a));
+    CHECK(isFree.count(lone));
+    for(int l : rect) CHECK_FALSE(isFree.count(l));
+    for(int l : rect) CHECK_FALSE(isFree.count(E(s, l).a));
 }
 
 TEST_CASE("over-constrained sketches are rejected without moving geometry") {

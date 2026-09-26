@@ -77,14 +77,6 @@ void Viewport::releaseResources() { m_renderer.releaseResources(); }
 
 void Viewport::render(QRhiCommandBuffer *cb) {
     m_camera.viewport = size();
-    Box3 bounds = contentBounds();
-    Box3 withGrid = bounds;
-    if(m_grid) {
-        withGrid.add(QVector3D(-m_content.gridExtent, -m_content.gridExtent, 0));
-        withGrid.add(QVector3D(m_content.gridExtent, m_content.gridExtent, 0));
-    }
-    m_camera.updateClipPlanes(withGrid);
-
     RenderScene scene = m_content;
     scene.style = m_style;
     scene.grid = m_grid;
@@ -99,8 +91,29 @@ void Viewport::render(QRhiCommandBuffer *cb) {
     scene.points.insert(scene.points.end(), m_pointHi.begin(), m_pointHi.end());
     if(m_tool) m_tool->contribute(scene);
 
+    // Near / far planes around everything drawn, including tool geometry and
+    // the grid wherever it is placed (the sketch plane while sketching).
+    Box3 bounds = contentBounds();
+    for(const auto &l : scene.lines)
+        for(const auto &p : l.segments) bounds.add(p);
+    for(const auto &pb : scene.points)
+        for(const auto &p : pb.points) bounds.add(p);
+    for(const auto &t : scene.triangles)
+        for(const auto &p : t.triangles) bounds.add(p);
+    if(scene.grid) {
+        const float e = scene.gridExtent;
+        for(const QVector3D &c : {QVector3D(-e, -e, 0), QVector3D(e, -e, 0), QVector3D(e, e, 0), QVector3D(-e, e, 0)})
+            bounds.add(scene.gridFrame.map(c));
+    }
+    m_camera.updateClipPlanes(bounds);
+
     m_renderer.render(cb, renderTarget(), scene, m_camera, float(devicePixelRatioF()));
     ++m_frames;
+}
+
+void Viewport::refreshOverlay() {
+    update();
+    m_overlay->update();
 }
 
 void Viewport::setContent(const RenderScene &scene, std::vector<PickTarget> targets) {

@@ -900,11 +900,12 @@ Slvs_SolveResult Slvs_SolveSketch(uint32_t shg, Slvs_hConstraint **bad = nullptr
         // This generates at most a single additional param
         c->Generate(&SK.param);
         if(c->valP.v) {
-            SYS.param.Add(SK.GetParam(c->valP));
-
-            if(Slvs_CanInitiallySatisfy(*c)) {
+            // Cadly patch: initialise before the solver copies the parameter, and
+            // always for PT_ON_LINE (see Slvs_Solve).
+            if(Slvs_CanInitiallySatisfy(*c) || c->type == ConstraintBase::Type::PT_ON_LINE) {
                 c->ModifyToSatisfy();
             }
+            SYS.param.Add(SK.GetParam(c->valP));
         }
     }
 
@@ -1047,13 +1048,18 @@ void Slvs_Solve(Slvs_System *ssys, uint32_t shg)
             for(Param &p : params) {
                 p.h = SK.param.AddAndAssignId(&p);
                 c.valP = p.h;
-                SYS.param.Add(&p);
             }
             params.Clear();
 
-            if(Slvs_CanInitiallySatisfy(c)) {
+            // Cadly patch: initialise the constraint's parameter *before* the solver
+            // copies it, and always for PT_ON_LINE, whose ModifyToSatisfy() only sets
+            // the parameter to the point's projection onto the line. Upstream left it
+            // at 0, so the solver dragged a point that was already on the line
+            // halfway towards the line's first point.
+            if(Slvs_CanInitiallySatisfy(c) || c.type == ConstraintBase::Type::PT_ON_LINE) {
                 c.ModifyToSatisfy();
             }
+            SYS.param.Add(SK.GetParam(c.valP));
         }
 
         SK.constraint.Add(&c);

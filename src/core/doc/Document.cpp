@@ -134,10 +134,10 @@ FeatureId Document::addFeature(std::shared_ptr<Feature> f, const std::string &un
     return f->id;
 }
 
-bool Document::replaceFeature(std::shared_ptr<Feature> f, const std::string &undoLabel) {
+bool Document::replaceFeature(std::shared_ptr<Feature> f, const std::string &undoLabel, bool recordUndo) {
     const int i = f ? indexOf(f->id) : -1;
     if(i < 0) return false;
-    pushUndo(undoLabel.empty() ? "Edit " + f->name : undoLabel);
+    if(recordUndo) pushUndo(undoLabel.empty() ? "Edit " + f->name : undoLabel);
     m_features[size_t(i)] = f;
     touch(true);
     return true;

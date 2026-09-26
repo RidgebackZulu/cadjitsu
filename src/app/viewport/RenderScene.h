@@ -3,6 +3,7 @@
 #include "mesh/MeshData.h"
 
 #include <QColor>
+#include <QMatrix4x4>
 #include <QRectF>
 #include <QVector3D>
 #include <QVector4D>
@@ -64,6 +65,7 @@ struct TriangleBatch {
 struct RenderScene {
     DisplayStyle style = DisplayStyle::ShadedWithEdges;
     bool grid = true;
+    QMatrix4x4 gridFrame; // grid plane placement (the XY plane by default; the sketch plane while sketching)
     float gridExtent = 500.0f;
     float gridMinor = 10.0f;
     float gridMajor = 100.0f;

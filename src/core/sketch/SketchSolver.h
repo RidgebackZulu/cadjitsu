@@ -10,6 +10,7 @@ namespace cad {
 
 struct SolveOutcome {
     bool ok = true;
+    bool redundant = false;          // solved, but some constraints repeat others
     std::string message;
     int dof = -1;                    // remaining degrees of freedom (-1 = not computed)
     std::vector<int> failed;         // constraints that could not be satisfied
