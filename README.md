@@ -66,6 +66,18 @@ tests/app/    QtTest tests driving the real UI
 third_party/  vendored libslvs, doctest, nlohmann/json
 ```
 
+## Mouse and keyboard (Fusion 360 bindings)
+
+| Action | Input |
+|---|---|
+| Pan | Middle drag; trackpad two-finger drag |
+| Orbit | Shift + middle drag; Shift + two-finger drag |
+| Zoom | Scroll wheel (towards the cursor); pinch |
+| Fit | Double-click middle button; F6 |
+| Select | Click a face, edge or vertex; Shift / Cmd-click adds |
+| Select bodies | Drag left-to-right (window) or right-to-left (crossing); double-click a face |
+| Standard views | Click a ViewCube face, edge or corner; Home button |
+
 ## Self tests
 
 `Cadly --selftest=<name> --out <dir>` runs a scripted scenario through the real UI and
@@ -81,10 +93,12 @@ command layer. It saves screenshots and exits with status 0 on success.
   - sketch profiles
   - extrude, fillet, chamfer, hole, combine and construction planes (geometry)
   - STL and STEP export
-- [ ] **M2** Viewport:
+- [x] **M2** Viewport:
   - Fusion-style navigation and ViewCube
   - shaded, wireframe and edge display
-  - face and edge picking
+  - face, edge and vertex picking
+  - window and crossing selection
+  - selection statistics
 - [ ] **M3** Sketch mode:
   - line, rectangle, circle and arc tools
   - constraints and direct dimension editing

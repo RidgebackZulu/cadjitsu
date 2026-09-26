@@ -25,9 +25,12 @@ struct MeshData {
     std::vector<float> normals;   // xyz per vertex
     std::vector<uint32_t> indices;
     std::vector<Range> faceRanges; // [face index - 1] -> range in `indices`
+    std::vector<uint32_t> triangleFace; // [triangle] -> face index (1-based)
 
     std::vector<float> edgePoints;   // xyz per polyline point
     std::vector<Range> edgeRanges;   // [edge index - 1] -> range of points (a line strip)
+
+    std::vector<float> vertexPoints; // [vertex index - 1] -> xyz
 
     float bboxMin[3] = {0, 0, 0};
     float bboxMax[3] = {0, 0, 0};

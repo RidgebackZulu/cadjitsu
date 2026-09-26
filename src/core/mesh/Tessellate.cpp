@@ -79,6 +79,7 @@ std::shared_ptr<MeshData> tessellateForDisplay(const NamedShape &named, double d
             mesh->indices.push_back(base + uint32_t(a - 1));
             mesh->indices.push_back(base + uint32_t(b - 1));
             mesh->indices.push_back(base + uint32_t(c - 1));
+            mesh->triangleFace.push_back(uint32_t(fi));
         }
         range.count = uint32_t(mesh->indices.size()) - range.first;
     }
@@ -93,6 +94,8 @@ std::shared_ptr<MeshData> tessellateForDisplay(const NamedShape &named, double d
         const int k = edgeFaces.FindIndex(edge);
         if(k <= 0 || edgeFaces(k).IsEmpty()) continue;
         const TopoDS_Face face = TopoDS::Face(edgeFaces(k).First());
+        // Seams of periodic faces (the "cut" line of a cylinder) are not real edges.
+        if(BRep_Tool::IsClosed(edge, face)) continue;
         TopLoc_Location loc;
         Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
         if(tri.IsNull()) continue;
@@ -107,6 +110,15 @@ std::shared_ptr<MeshData> tessellateForDisplay(const NamedShape &named, double d
             mesh->edgePoints.push_back(float(p.Z()));
         }
         range.count = uint32_t(mesh->edgePoints.size() / 3) - range.first;
+    }
+
+    TopTools_IndexedMapOfShape verts;
+    TopExp::MapShapes(copy, TopAbs_VERTEX, verts);
+    for(int vi = 1; vi <= verts.Extent(); ++vi) {
+        const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(verts(vi)));
+        mesh->vertexPoints.push_back(float(p.X()));
+        mesh->vertexPoints.push_back(float(p.Y()));
+        mesh->vertexPoints.push_back(float(p.Z()));
     }
 
     if(mesh->vertexCount() > 0) {

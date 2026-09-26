@@ -1,9 +1,10 @@
 // Application-level tests: drive the real MainWindow under a (virtual) display.
+#include "TestRegistry.h"
+
 #include "MainWindow.h"
 #include "selftest/TestUtil.h"
 #include "viewport/Viewport.h"
 
-#include <QSurfaceFormat>
 #include <QtTest>
 
 using namespace cadly;
@@ -27,17 +28,6 @@ private slots:
     }
 };
 
-int main(int argc, char **argv) {
-    QSurfaceFormat fmt;
-    fmt.setVersion(3, 3);
-    fmt.setProfile(QSurfaceFormat::CoreProfile);
-    fmt.setDepthBufferSize(24);
-    fmt.setStencilBufferSize(8);
-    QSurfaceFormat::setDefaultFormat(fmt);
-
-    QApplication app(argc, argv);
-    AppTests tests;
-    return QTest::qExec(&tests, argc, argv);
-}
+CADLY_REGISTER_TEST(AppTests)
 
 #include "tst_app.moc"
