@@ -35,6 +35,7 @@ public:
     QPushButton *applyButton() const { return m_apply; }
     QTreeWidget *logView() const { return m_log; }
     QLabel *statusLabel() const { return m_status; }
+    QComboBox *clientBox() const { return m_client; }
     QString snippet() const;
 
 private:

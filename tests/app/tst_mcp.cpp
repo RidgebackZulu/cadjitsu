@@ -24,6 +24,8 @@
 #include <QTcpServer>
 #include <QTemporaryDir>
 #include <QTreeWidget>
+#include <QComboBox>
+#include <QSpinBox>
 #include <QtTest>
 
 #include <nlohmann/json.hpp>
@@ -316,6 +318,13 @@ private slots:
         QCOMPARE(token.size(), 43);
         QVERIFY(token != before);
         QVERIFY(dlg->snippet().contains(token));
+        // Hermes: the plugin folder (not the repository) and `hermes mcp add` with this port.
+        dlg->clientBox()->setCurrentIndex(dlg->clientBox()->findText(QStringLiteral("Hermes Agent")));
+        QVERIFY(dlg->snippet().contains(QStringLiteral("hermes plugins install RidgebackZulu/cadly/plugins/cadly")));
+        QVERIFY(dlg->snippet().contains(
+            QStringLiteral("hermes mcp add cadly --url http://127.0.0.1:%1/mcp").arg(dlg->portBox()->value())));
+        QVERIFY(dlg->snippet().contains(token));
+        dlg->clientBox()->setCurrentIndex(0);
         dlg->applyButton()->click();
         QCOMPARE(m_window->mcpServer()->settings().token, token);
         QCOMPARE(McpSettings::load().token, token);

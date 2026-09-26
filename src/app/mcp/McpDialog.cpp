@@ -153,7 +153,7 @@ McpDialog::McpDialog(McpServer &server, McpLog &log, QWidget *parent)
     auto *clientRow = new QHBoxLayout;
     m_client = new QComboBox(settings);
     m_client->addItems({tr("Claude Code (command)"), tr("Claude Code plugin (environment)"), tr("Claude Desktop (config)"),
-                        tr("Hermes Agent (config.yaml)"), tr("URL and header")});
+                        tr("Hermes Agent"), tr("Hermes Agent (manual config)"), tr("URL and header")});
     auto *copySnippet = new QPushButton(tr("Copy"), settings);
     clientRow->addWidget(m_client, 1);
     clientRow->addWidget(copySnippet);
@@ -167,8 +167,9 @@ McpDialog::McpDialog(McpServer &server, McpLog &log, QWidget *parent)
     m_snippet->setFont(mono);
     m_snippet->setMaximumHeight(96);
     sv->addWidget(m_snippet);
-    auto *skillHint = new QLabel(tr("The Cadly skill for Claude and Hermes (how to model printable parts with these "
-                                    "tools) installs from GitHub: <code>/plugin marketplace add RidgebackZulu/cadly</code>"),
+    auto *skillHint = new QLabel(tr("The Cadly skill (how to model printable parts with these tools) installs from "
+                                    "GitHub: Claude Code <code>/plugin marketplace add RidgebackZulu/cadly</code>; Hermes "
+                                    "<code>hermes plugins install RidgebackZulu/cadly/plugins/cadly</code>."),
                                  settings);
     skillHint->setWordWrap(true);
     skillHint->setObjectName(QStringLiteral("mcpHint"));
@@ -325,6 +326,14 @@ void McpDialog::updateSnippet() {
                    .arg(url, token);
         break;
     case 3:
+        // The plugin brings the skill; `hermes mcp add` connects, stores the token in Hermes' secrets
+        // and enables the tools.
+        text = QStringLiteral("hermes plugins install RidgebackZulu/cadly/plugins/cadly --enable\n"
+                              "hermes mcp add cadly --url %1 --auth header\n"
+                              "# When asked for the Bearer token, paste: %2")
+                   .arg(url, token);
+        break;
+    case 4:
         text = QStringLiteral("# ~/.hermes/config.yaml\nmcp_servers:\n  cadly:\n    url: \"%1\"\n    headers:\n"
                               "      Authorization: \"Bearer %2\"")
                    .arg(url, token);

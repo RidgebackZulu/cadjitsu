@@ -5,9 +5,8 @@ version: 1.0.0
 author: Cadly
 license: GPL-3.0-or-later
 metadata:
-  hermes:
-    tags: [cad, 3d-printing, parametric, mcp, design, stl]
-    category: design
+  category: design
+  tags: "cad, 3d-printing, parametric, mcp, design, stl"
 ---
 
 # Designing printable parts with Cadly
@@ -28,14 +27,9 @@ toolbar (or File > MCP Server...), tick **Enable the MCP server**, click **Apply
   (`CADLY_MCP_URL` too if the port is not 7823).
 - **Claude Code without the plugin:**
   `claude mcp add --transport http cadly http://127.0.0.1:7823/mcp --header "Authorization: Bearer <token>"`
-- **Hermes Agent:** add to `~/.hermes/config.yaml`
-  ```yaml
-  mcp_servers:
-    cadly:
-      url: "http://127.0.0.1:7823/mcp"
-      headers:
-        Authorization: "Bearer <token>"
-  ```
+- **Hermes Agent:** `hermes plugins install RidgebackZulu/cadly/plugins/cadly --enable` (the plugin folder,
+  not the whole repository) for this skill, then `hermes mcp add cadly --url http://127.0.0.1:7823/mcp --auth
+  header` and paste the token when asked.
 - **Claude Desktop:** use the "Claude Desktop (config)" snippet from the dialog (it runs `npx mcp-remote`).
 
 When an agent is connected the MCP button glows green, and every call appears in the dialog's **Event log**.

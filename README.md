@@ -235,9 +235,16 @@ Everything an agent does is ordinary history: one undo step per tool call, visib
 - **Skill and plugin:** this repository is a Claude Code plugin marketplace. `/plugin marketplace add
   RidgebackZulu/cadly` then `/plugin install cadly@cadly` installs the MCP connection (set `CADLY_MCP_TOKEN`)
   and the `cadly-cad` skill, which teaches agents the workflow, how to pick faces and edges, fastener
-  clearances and 3D-printing design rules, with worked examples. For Hermes Agent, copy
-  `plugins/cadly/skills/cadly-cad` to `~/.hermes/skills/` and add the server to `~/.hermes/config.yaml`
-  (see [plugins/cadly/README.md](plugins/cadly/README.md)).
+  clearances and 3D-printing design rules, with worked examples.
+- **Hermes Agent:** install the plugin folder, then connect the server (Cadly running, MCP on):
+  ```sh
+  hermes plugins install RidgebackZulu/cadly/plugins/cadly --enable
+  hermes mcp add cadly --url http://127.0.0.1:7823/mcp --auth header   # paste the token when asked
+  ```
+  The first gives Hermes the `cadly-cad` skill; the second checks the connection, stores the token in Hermes'
+  secrets and enables Cadly's tools. Install the `plugins/cadly` folder, not the repository itself: the repository
+  is the app's source, whose build and CI scripts (sudo, binary patching) Hermes' plugin scanner rightly flags.
+  See [plugins/cadly/README.md](plugins/cadly/README.md).
 - **Tools:** see [the tool reference](plugins/cadly/skills/cadly-cad/references/tools.md) (generated from the app
   with `Cadly --mcp-tools`).
 
