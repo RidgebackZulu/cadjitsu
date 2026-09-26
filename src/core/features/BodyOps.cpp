@@ -36,10 +36,10 @@ BooleanResult runBoolean(BoolOp op, const std::vector<const NamedShape *> &args,
     algo->SetTools(t);
     algo->SetNonDestructive(Standard_True);
     algo->SetRunParallel(Standard_False);
-    // Sketch-solved coordinates are good to ~1e-7 mm, right at OCCT's own
-    // confusion tolerance, so faces drawn onto existing ones can miss them by
-    // a hair and leave sliver faces the mesher cannot handle. Treat anything
-    // closer than 1 nm as touching (wider hairlines are handled at export).
+    // Sketch-solved coordinates carry solver error (1e-7..1e-5 mm), so a body
+    // drawn onto an existing face or edge can miss it by a hair and leave
+    // sliver faces and micro-steps that break meshing. Anything closer than
+    // 0.1 um - far below what a printer can make - counts as touching.
     algo->SetFuzzyValue(kBooleanFuzz);
     algo->Build();
     if(algo->HasErrors() || !algo->IsDone()) {

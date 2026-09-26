@@ -1176,7 +1176,7 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     settle();
     const double bracket = base + 60.0 * 8.0 * 40.0;
     check(doc.features().size() == 4 && w.modelView()->state()->bodies.size() == 1 &&
-              std::fabs(shown() - bracket) < 1e-3, // the solver places points to ~1e-7 mm
+              std::fabs(shown() - bracket) < 0.01, // solver error and the booleans' 0.1 um fuzz
           QStringLiteral("upright joined: one body, %1 mm3").arg(vol(shown())));
 
     // 3. Two counterbored screw holes through the base.

@@ -215,9 +215,9 @@ TEST_CASE("a hairline sliver left by a boolean does not stop the STL export") {
 }
 
 TEST_CASE("joining a body drawn a hair off another leaves no sliver faces") {
-    // The sketch solver places points to ~1e-7 mm; an upright drawn onto the
-    // plate's back edge can miss it by that much.
-    for(double gap : {1e-7, 5e-7, 9e-7}) {
+    // The sketch solver's error: an upright drawn onto the plate's back edge
+    // can miss it by up to ~1e-5 mm.
+    for(double gap : {1e-7, 5e-7, 3e-6, 2e-5, 9e-5}) {
         CAPTURE(gap);
         const NamedShape plate(BRepPrimAPI_MakeBox(60, 40, 8).Shape(), {});
         const NamedShape upright(BRepPrimAPI_MakeBox(gp_Pnt(0, 32 + gap, 8 - gap), gp_Pnt(60, 40 + gap, 48)).Shape(), {});
@@ -237,5 +237,29 @@ TEST_CASE("joining a body drawn a hair off another leaves no sliver faces") {
         std::string error;
         REQUIRE_MESSAGE(buildStlMesh({r.shape.shape()}, o, out, error), error);
         CHECK(out.report.ok);
+    }
+}
+
+TEST_CASE("an upright a few micrometres past the plate's side exports watertight") {
+    // The upright drawn from the plate's far corner with a typed width lands
+    // micrometres past the plate's other side: a microscopic step.
+    for(double ex : {-3e-5, -1e-5, -3e-6, -1e-6, 1e-6, 1e-5}) {
+        for(double ey : {0.0, 1e-5}) {
+            CAPTURE(ex);
+            CAPTURE(ey);
+            const NamedShape plate(BRepPrimAPI_MakeBox(60, 40, 10).Shape(), {});
+            const NamedShape upright(BRepPrimAPI_MakeBox(gp_Pnt(ex, 32 + ey, 10), gp_Pnt(60, 40 + ey, 50)).Shape(), {});
+            const BooleanResult r = runBoolean(BoolOp::Fuse, {&plate}, {&upright}, "t");
+            REQUIRE(r.ok);
+            for(auto res : {StlResolution::Coarse, StlResolution::Fine}) {
+                StlOptions o;
+                o.resolution = res;
+                StlExport out;
+                std::string error;
+                REQUIRE_MESSAGE(buildStlMesh({r.shape.shape()}, o, out, error), error);
+                INFO(out.report.summary());
+                CHECK(out.report.ok);
+            }
+        }
     }
 }
