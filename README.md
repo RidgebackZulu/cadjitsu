@@ -75,11 +75,11 @@ command layer. It saves screenshots and exits with status 0 on success.
 ## Roadmap
 
 - [x] **M0** Build infrastructure, vendored solver, app skeleton, CI (Linux + macOS arm64)
-- [ ] **M1** Headless kernel:
+- [x] **M1** Headless kernel:
   - document, timeline, result cache and parameters
   - topological naming
   - sketch profiles
-  - extrude and fillet
+  - extrude, fillet, chamfer, hole, combine and construction planes (geometry)
   - STL and STEP export
 - [ ] **M2** Viewport:
   - Fusion-style navigation and ViewCube
