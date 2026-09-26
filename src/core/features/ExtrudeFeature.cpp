@@ -235,8 +235,9 @@ FeatureResult ExtrudeFeature::compute(const StatePtr &input, const ComputeContex
         std::vector<PrismInput> inputs;
         for(const auto &pr : profiles) {
             const SketchResult *sk = nullptr;
-            const Profile *p = resolveProfile(*input, pr, sk, st);
-            if(!p) continue;
+            // Curves added to the sketch since may have split the region: then
+            // all its pieces are swept (and fused below), so the body stays.
+            for(const Profile *p : resolveProfiles(*input, pr, sk, st)) {
             ProfileFace pf;
             std::string err;
             if(!profileToFace(*p, sk->frame, pf, err)) {
@@ -250,6 +251,7 @@ FeatureResult ExtrudeFeature::compute(const StatePtr &input, const ComputeContex
             for(const auto &[e, k] : pf.edgeKeys) in.edgeNames.push_back({e, skp + k});
             in.capKey = skp + firstKey(p->key);
             inputs.push_back(std::move(in));
+            }
         }
         for(const auto &fr : faces) {
             ResolvedRef r = resolveRef(*input, fr);

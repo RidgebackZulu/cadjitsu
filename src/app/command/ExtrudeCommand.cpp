@@ -376,7 +376,13 @@ std::shared_ptr<cad::Feature> ExtrudeCommand::build(QString &why) {
     f->profiles.clear();
     f->faces.clear();
     for(const auto &r : m_refs[Profiles]) {
-        if(r.kind == SelectionItem::Kind::Profile) f->profiles.push_back(r.profile);
+        if(r.kind == SelectionItem::Kind::Profile) {
+            cad::ProfileRef p = r.profile;
+            // Remember the region's shape, so curves added to the sketch later
+            // do not change this extrude.
+            if(const cad::StatePtr base = baseState()) cad::captureProfileOutline(*base, p);
+            f->profiles.push_back(p);
+        }
         else f->faces.push_back(r.topo);
     }
     f->direction = dir;

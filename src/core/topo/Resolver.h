@@ -31,6 +31,16 @@ bool resolvePlane(const ModelState &state, const PlaneRef &ref, gp_Ax3 &frame, S
 const Profile *resolveProfile(const ModelState &state, const ProfileRef &ref, const SketchResult *&sketch,
                               Status &status);
 
+// The region a profile reference means now: the profile itself, or, if
+// curves added to the sketch since split it, every piece of it (found by the
+// reference's stored outline). Falls back to resolveProfile().
+std::vector<const Profile *> resolveProfiles(const ModelState &state, const ProfileRef &ref, const SketchResult *&sketch,
+                                             Status &status);
+
+// Stores the shape of the region `ref` names in `state` (see ProfileRef::outline),
+// if it resolves exactly by key; leaves it as it is otherwise.
+void captureProfileOutline(const ModelState &state, ProfileRef &ref);
+
 // Standard frames of the origin planes (Z up).
 gp_Ax3 originPlaneFrame(PlaneRef::Kind kind);
 

@@ -6,6 +6,7 @@
 #include "topo/NamedShape.h"
 
 #include <string>
+#include <vector>
 
 namespace cad {
 
@@ -57,6 +58,11 @@ struct ProfileRef {
     FeatureId sketch = kNoFeature;
     std::string key;
     Vec2 sample; // a point inside the region when it was picked (fallback)
+    // The region's shape when it was picked (sketch coordinates): if later
+    // sketch curves split it, every piece inside this outline (and outside
+    // its holes) is still the region. Empty in designs from before.
+    std::vector<Vec2> outline;
+    std::vector<std::vector<Vec2>> holes;
 
     json toJson() const;
     static ProfileRef fromJson(const json &j);

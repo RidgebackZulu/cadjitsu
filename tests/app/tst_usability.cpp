@@ -294,6 +294,44 @@ private slots:
         QVERIFY2(std::fabs(v[0] - (8000.0 - 10 * 10 * 10)) < 1e-6, qPrintable(QString::number(v[0])));
     }
 
+    // Bug report: going back into the sketch a body was extruded from and
+    // drawing across it cut the body (its region was split by the new lines).
+    void drawingInAUsedSketchLeavesTheBodyAlone() {
+        QVERIFY(startExtrude()); // the 40 x 20 rectangle
+        const cad::FeatureId sid = doc().features().front()->id;
+        QTest::keyClicks(extrude()->distanceField(), QStringLiteral("10"));
+        m_window->commandPanel()->okButton()->click();
+        QVERIFY(m_window->waitForModel());
+        auto volume = [&] {
+            double v = 0;
+            for(const auto &kv : m_window->modelView()->state()->bodies) v += cad::volumeOf(kv.second->shape.shape());
+            return v;
+        };
+        QVERIFY(std::fabs(volume() - 8000.0) < 1e-6);
+        // Edit Sketch, and draw a line right across the rectangle.
+        m_window->editFeature(sid);
+        SketchMode *mode = m_window->sketchMode();
+        QVERIFY(mode->active());
+        processEventsFor(500);
+        SketchEditor *ed = mode->editor();
+        m_window->action(QStringLiteral("sketchLine"))->trigger();
+        auto click = [&](QPointF p) {
+            send(vp(), QEvent::MouseMove, p, Qt::NoButton, Qt::NoButton);
+            send(vp(), QEvent::MouseButtonPress, p, Qt::LeftButton, Qt::LeftButton);
+            send(vp(), QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
+        };
+        click(ed->toScreen({12, -6}));
+        click(ed->toScreen({27, 26}));
+        QTest::keyClick(vp(), Qt::Key_Escape);
+        QVERIFY(ed->profiles().size() >= 2); // the line split the rectangle
+        m_window->action(QStringLiteral("finishSketch"))->trigger();
+        QVERIFY(!mode->active());
+        QVERIFY(m_window->waitForModel());
+        QCOMPARE(int(m_window->modelView()->state()->bodies.size()), 1);
+        QVERIFY2(std::fabs(volume() - 8000.0) < 1e-6, qPrintable(QString::number(volume())));
+        for(const auto &f : doc().features()) QVERIFY(doc().statusOf(f->id).isOk());
+    }
+
     void doubleClickingASketchInTheModelEditsIt() {
         const cad::FeatureId sid = sketch();
         QVERIFY(!m_window->sketchMode()->active());

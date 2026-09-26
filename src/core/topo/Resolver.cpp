@@ -217,4 +217,33 @@ const Profile *resolveProfile(const ModelState &state, const ProfileRef &ref, co
     return nullptr;
 }
 
+std::vector<const Profile *> resolveProfiles(const ModelState &state, const ProfileRef &ref, const SketchResult *&sketch,
+                                             Status &status) {
+    auto it = state.sketches.find(ref.sketch);
+    if(it != state.sketches.end() && !ref.outline.empty() && !it->second->profileByKey(ref.key)) {
+        sketch = it->second.get();
+        std::vector<const Profile *> pieces;
+        for(const auto &p : sketch->profiles) {
+            if(!pointInPolygon(ref.outline, p.sample)) continue;
+            bool inHole = false;
+            for(const auto &h : ref.holes) inHole = inHole || pointInPolygon(h, p.sample);
+            if(!inHole) pieces.push_back(&p);
+        }
+        if(!pieces.empty()) return pieces;
+    }
+    const Profile *p = resolveProfile(state, ref, sketch, status);
+    if(!p) return {};
+    return {p};
+}
+
+void captureProfileOutline(const ModelState &state, ProfileRef &ref) {
+    auto it = state.sketches.find(ref.sketch);
+    if(it == state.sketches.end()) return;
+    const Profile *p = it->second->profileByKey(ref.key);
+    if(!p) return;
+    ref.outline = p->outer.polygon(0.12);
+    ref.holes.clear();
+    for(const auto &h : p->holes) ref.holes.push_back(h.polygon(0.12));
+}
+
 } // namespace cad

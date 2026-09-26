@@ -240,3 +240,54 @@ TEST_CASE("construction plane: offset, rotated, used by a sketch, upstream edit"
     CHECK(p.bodies() == 1);
     CHECK(p.volume() == doctest::Approx(72000 + PI * 25 * 10).epsilon(1e-9));
 }
+
+// Drawing more curves in a sketch that an extrude already uses splits its
+// region into pieces; the extrude keeps sweeping the whole region, so the body
+// does not change. The new pieces are there to extrude as new bodies.
+TEST_CASE("curves added to a used sketch do not change the body") {
+    Document doc;
+    const FeatureId sk = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {0, 0}, {40, 20}));
+    auto e = extrudeAll(doc, sk, "10 mm");
+    REQUIRE(e->profiles.size() == 1);
+    captureProfileOutline(*doc.stateAt(doc.indexOf(sk) + 1), e->profiles[0]);
+    CHECK(e->profiles[0].outline.size() >= 4);
+    const FeatureId ex = doc.addFeature(e);
+    CHECK(totalVolume(doc.displayedState()) == doctest::Approx(8000).epsilon(1e-9));
+
+    // A line across the rectangle and a circle over its right edge.
+    auto s = std::static_pointer_cast<SketchFeature>(doc.feature(sk)->clone());
+    s->sketch.addLine(Vec2{15, -5}, Vec2{25, 25});
+    s->sketch.addCircle(Vec2{40, 10}, 6);
+    doc.replaceFeature(s);
+    const auto st = doc.displayedState();
+    CHECK(st->sketches.at(sk)->profiles.size() > 3); // split into pieces
+    CHECK(st->bodies.size() == 1);
+    CHECK(totalVolume(st) == doctest::Approx(8000).epsilon(1e-9));
+    CHECK(doc.statusOf(ex).isOk());
+
+    // Saved and loaded: the outline goes with it.
+    Document again;
+    std::string error;
+    REQUIRE(again.fromJson(doc.toJson(), error));
+    CHECK(totalVolume(again.displayedState()) == doctest::Approx(8000).epsilon(1e-9));
+    const auto ref = ProfileRef::fromJson(e->profiles[0].toJson());
+    CHECK(ref.outline.size() == e->profiles[0].outline.size());
+
+    // A piece outside the rectangle (part of the circle) extruded as a new body.
+    const Profile *outside = nullptr;
+    for(const auto &p : st->sketches.at(sk)->profiles)
+        if(p.sample.x > 40) outside = &p;
+    REQUIRE(outside);
+    auto e2 = std::make_shared<ExtrudeFeature>();
+    e2->profiles.push_back({sk, outside->key, outside->sample});
+    e2->distance = doc.makeSlot("10 mm");
+    doc.addFeature(e2);
+    CHECK(doc.displayedState()->bodies.size() == 2);
+    CHECK(totalVolume(doc.displayedState()) == doctest::Approx(8000 + PI * 36 / 2 * 10).epsilon(1e-6));
+
+    // Old designs (no outline) keep the previous behaviour: one piece.
+    ProfileRef old{sk, "no-such-key", Vec2{5, 5}};
+    const SketchResult *sr = nullptr;
+    Status status;
+    CHECK(resolveProfiles(*doc.displayedState(), old, sr, status).size() == 1);
+}

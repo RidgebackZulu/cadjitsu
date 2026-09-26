@@ -55,7 +55,21 @@ PlaneRef PlaneRef::fromJson(const json &j) {
     return r;
 }
 
-json ProfileRef::toJson() const { return json{{"sketch", sketch}, {"key", key}, {"sample", cad::toJson(sample)}}; }
+json ProfileRef::toJson() const {
+    json j{{"sketch", sketch}, {"key", key}, {"sample", cad::toJson(sample)}};
+    auto poly = [](const std::vector<Vec2> &pts) {
+        json a = json::array();
+        for(const Vec2 &p : pts) a.push_back(cad::toJson(p));
+        return a;
+    };
+    if(!outline.empty()) {
+        j["outline"] = poly(outline);
+        json hs = json::array();
+        for(const auto &h : holes) hs.push_back(poly(h));
+        j["holes"] = hs;
+    }
+    return j;
+}
 
 ProfileRef ProfileRef::fromJson(const json &j) {
     ProfileRef r;
@@ -63,6 +77,14 @@ ProfileRef ProfileRef::fromJson(const json &j) {
     r.sketch = jget<int>(j, "sketch", kNoFeature);
     r.key = jget<std::string>(j, "key", "");
     r.sample = vec2FromJson(j.value("sample", json()));
+    auto poly = [](const json &a) {
+        std::vector<Vec2> pts;
+        if(a.is_array())
+            for(const auto &p : a) pts.push_back(vec2FromJson(p));
+        return pts;
+    };
+    r.outline = poly(j.value("outline", json()));
+    for(const auto &h : j.value("holes", json::array())) r.holes.push_back(poly(h));
     return r;
 }
 
