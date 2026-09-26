@@ -10,7 +10,7 @@ Apple Silicon. It copies the parts of Autodesk Fusion 360 that matter for printe
 
 It leaves out mesh, sheet metal, plastics and rendering workspaces.
 
-> Status: under active development, built in milestones (see *Roadmap*).
+> Status: every planned milestone (M0 to M7) is done; see *Roadmap*.
 
 ## Stack
 
@@ -42,6 +42,8 @@ Each CI run uploads an ad-hoc-signed `Cadly-macos-arm64` artifact.
 1. Download the zip from the run's **Artifacts** section and unzip it.
 2. Clear the quarantine flag once: `xattr -dr com.apple.quarantine Cadly.app`.
 3. Open `Cadly.app`.
+
+The bundle is built for Apple Silicon and draws with Metal. Before the zip is uploaded, CI runs the `acceptance` self test on the packaged app itself.
 
 ## Building on Linux
 
@@ -80,6 +82,7 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 | Marking menu | Right-click the canvas: a ring of commands (Repeat, Create Sketch, Extrude, undo / redo...) plus a short list; click one or press Esc |
 | Extrude | E (with a profile or planar face selected, or inside a sketch to finish it and extrude its profile) |
 | Fillet / Hole | F / H |
+| 3D Print (export an STL) | Cmd+P |
 | Undo / redo | Cmd+Z / Shift+Cmd+Z (inside a sketch: the sketch's own steps; while a command is open: cancel it) |
 
 ## Sketching
@@ -169,7 +172,35 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - The model is recomputed on a background thread, so the window never waits for it: a *Computing…* note appears at the bottom right while it works.
 - Every step's result is cached, so scrubbing, suppressing and unsuppressing, undo and Cancel are usually instant.
 
-**Files:** New, Open, Save and Save As (`.cadly`, a JSON document with the whole history).
+**Files:** New, Open, Save and Save As (`.cadly`, a JSON document with the whole history). On macOS, double-clicking a `.cadly` file in Finder (or dropping it on the Dock icon) opens it; `Cadly design.cadly` does the same from a shell.
+
+## Display
+
+**View > visual style** (also the display button in the navigation bar under the canvas):
+
+| Style | What it shows |
+|---|---|
+| Shaded with Visible Edges | The default: shaded bodies with their edges drawn. |
+| Shaded | Shaded bodies, no edges. |
+| Wireframe | Edges only, including hidden ones. |
+| Rendered | A studio look for checking a part: a softer material with rim light, a contact shadow on the ground, no edges or grid. |
+
+The canvas can be used the same way in every style: picking, commands and section analysis all work.
+
+## Export and 3D printing
+
+**MAKE > 3D Print** (Cmd+P) and **File > Export…** open the same dialog: 3D Print starts on STL, Export on STEP.
+- **Bodies:** every visible body, or only the selected ones (bodies, or the bodies of selected faces and edges). If something is selected when the dialog opens, it starts on the selection.
+- **STL (3D printing):** Refinement is Coarse, Medium, Fine or Custom (chord and angle tolerances). **Merge bodies into one solid** unites bodies that touch or overlap, so the slicer gets one watertight solid. Binary or ASCII.
+- **Printability check:** the mesh is welded along the model's edges and checked before it is written:
+  - every edge is shared by exactly two triangles, facing opposite ways (watertight, manifold);
+  - no degenerate triangles;
+  - outward-facing (positive volume);
+  - the mesh volume matches the exact model volume.
+
+  The dialog reports the triangle and shell counts and both volumes. A mesh that fails is not written unless you say so.
+- **STEP:** AP242 (or AP214), in millimetres, one named solid per body. After writing, the file is read back and its volume shown next to the model's.
+- Exports run in the background; the window stays usable. An open command is ended first, so what you export is the design, never a preview.
 
 ## Self tests
 
@@ -180,6 +211,7 @@ command layer. It saves screenshots and exits with status 0 on success.
 | Scenario | What it does |
 |---|---|
 | `smoke` | The window opens and the canvas renders. |
+| `acceptance` | The M7 acceptance run, all through the UI: an L bracket (a 60 x 40 plate extruded 8 mm, an upright sketched on its top face and extruded 40 mm, two counterbored screw holes, a hole through the upright, an R4 fillet in the inside corner, chamfers), then Extrude1 edited from 8 to 10 mm with every later feature following. Screenshots in all four visual styles; 3D Print to an STL that passes the printability check and reads back as one manifold shell; File > Export to a STEP that reads back with the same volume; save, New, reopen. The macOS CI job also runs it on the packaged app. |
 | `views` | A demo part in every display style; hover, selection statistics and the ViewCube. |
 | `sketch` | Sketch mode end to end: typed dimensions, a hole, a slot, constraints, statistics. |
 | `features` | Fillet, Chamfer, Hole, Offset Plane and Combine through their dialogs, with a screenshot of each live preview; Edit Feature; the design checked against a from-scratch evaluation. |
@@ -214,4 +246,7 @@ command layer. It saves screenshots and exits with status 0 on success.
   - browser, marking menu, undo / redo, New / Open / Save
 - [x] **M5** Fillet, chamfer, hole (on faces or at sketch points), combine with keep tools, offset and rotated construction planes, all editable from the timeline
 - [x] **M6** Section analysis on any plane or face: hatched caps, a depth arrow to drag at any time, browser eye, modelling while sectioned
-- [ ] **M7** Export dialogs, rendered view, packaging
+- [x] **M7** Export and packaging:
+  - 3D Print / Export dialog: STL with the printability check, STEP read back
+  - Rendered visual style; styles in the View menu and the navigation bar
+  - app icon, macOS bundle that opens `.cadly` documents, acceptance run on the packaged app

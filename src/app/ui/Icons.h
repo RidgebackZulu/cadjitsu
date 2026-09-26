@@ -13,7 +13,7 @@ enum class IconId {
     Coincident, Horizontal, Vertical, HorizontalVertical, Parallel, Perpendicular, Tangent, Equal, Midpoint,
     Concentric, Fix, Symmetric,
     Extrude, Fillet, Chamfer, Hole, Combine, Plane, Section, Measure,
-    Undo, Redo, Save, Open, New, ExportStl, ExportStep,
+    Undo, Redo, Save, Open, New, ExportStl, ExportStep, Print3D,
     Eye, EyeOff, Body, SketchNode, PlaneNode, Folder, Warning, Error,
     TimelineFirst, TimelineBack, TimelineForward, TimelineLast, Origin, Flip,
 };

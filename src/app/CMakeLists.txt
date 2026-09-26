@@ -28,4 +28,26 @@ set_target_properties(Cadly PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER "app.cadly.Cadly"
     MACOSX_BUNDLE_BUNDLE_NAME "Cadly"
     MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
-    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
+    MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    MACOSX_BUNDLE_COPYRIGHT "Cadly is free software under the GNU GPL v3"
+    MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in)
+
+# Draws the app icon to PNG files (QtGui only, no application object).
+add_executable(cadly_icongen ${PROJECT_SOURCE_DIR}/src/tools/icongen.cpp ui/AppIcon.cpp ui/AppIcon.h)
+target_include_directories(cadly_icongen PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(cadly_icongen PRIVATE Qt6::Gui)
+
+# macOS: the bundle's Cadly.icns, made from those PNGs with iconutil.
+if(APPLE)
+    set(CADLY_ICONSET ${CMAKE_CURRENT_BINARY_DIR}/Cadly.iconset)
+    set(CADLY_ICNS ${CMAKE_CURRENT_BINARY_DIR}/Cadly.icns)
+    add_custom_command(OUTPUT ${CADLY_ICNS}
+        COMMAND cadly_icongen ${CADLY_ICONSET}
+        COMMAND iconutil -c icns ${CADLY_ICONSET} -o ${CADLY_ICNS}
+        DEPENDS cadly_icongen
+        COMMENT "Drawing Cadly.icns"
+        VERBATIM)
+    target_sources(Cadly PRIVATE ${CADLY_ICNS})
+    set_source_files_properties(${CADLY_ICNS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    set_target_properties(Cadly PROPERTIES MACOSX_BUNDLE_ICON_FILE Cadly.icns)
+endif()

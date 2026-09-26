@@ -94,7 +94,14 @@ jobs:
           cp -R build/macos/src/app/Cadly.app out/Cadly.app
           "$(brew --prefix qtbase)/bin/macdeployqt" out/Cadly.app -always-overwrite
           codesign --force --deep --sign - out/Cadly.app
-          out/Cadly.app/Contents/MacOS/Cadly --selftest=smoke --out out/macos-bundled
+          plutil -lint out/Cadly.app/Contents/Info.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' out/Cadly.app/Contents/Info.plist)" = Cadly.icns
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:CFBundleTypeName' out/Cadly.app/Contents/Info.plist
+          test -s out/Cadly.app/Contents/Resources/Cadly.icns
+
+      - name: Acceptance test of the bundled app
+        run: |
+          out/Cadly.app/Contents/MacOS/Cadly --selftest=acceptance --out out/macos-bundled
           (cd out && ditto -c -k --keepParent Cadly.app Cadly-macos-arm64.zip)
 
       - uses: actions/upload-artifact@v4

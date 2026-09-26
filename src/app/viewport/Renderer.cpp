@@ -72,6 +72,7 @@ struct Renderer::GpuMesh {
 
 struct Renderer::DrawCall {
     QRhiGraphicsPipeline *pipeline = nullptr;
+    QRhiShaderResourceBindings *srb = nullptr; // the common one if null
     quint32 uniform = 0;
     QRhiBuffer *vb0 = nullptr;
     quint32 vb0Offset = 0;
@@ -92,10 +93,18 @@ struct Renderer::Pipelines {
     std::unique_ptr<QRhiTexture> cubeTex;
     std::unique_ptr<QRhiSampler> cubeSampler;
     std::unique_ptr<QRhiBuffer> dynLines, dynPoints, dynTris, capQuad;
+    // Rendered style: the model seen from above (white where it is) for the
+    // ground's contact shadow.
+    std::unique_ptr<QRhiTexture> silTex;
+    std::unique_ptr<QRhiTextureRenderTarget> silRt;
+    std::unique_ptr<QRhiRenderPassDescriptor> silRp;
+    std::unique_ptr<QRhiBuffer> silUbo;
+    std::unique_ptr<QRhiSampler> silSampler;
+    std::unique_ptr<QRhiShaderResourceBindings> silSrb, groundSrb;
     QRhiResourceUpdateBatch *pending = nullptr;
 
     std::unique_ptr<QRhiGraphicsPipeline> bg, mesh, meshOverlay, meshOverlayNoDepth, line, lineNoDepth, point,
-        pointNoDepth, grid, cube, stencilParity, cap;
+        pointNoDepth, grid, cube, stencilParity, cap, silhouette, ground;
 };
 
 Renderer::Renderer() = default;
@@ -128,6 +137,22 @@ void Renderer::ensureDynamicBuffer(std::unique_ptr<QRhiBuffer> &buf, quint32 siz
     buf->create();
 }
 
+// Frame + per-draw uniforms for everything, the top-down frame for the
+// silhouette pass, and the silhouette image for the ground.
+void Renderer::rebuildBindings() {
+    Pipelines &p = *m_p;
+    const auto stages = QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage;
+    const auto draw = QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(1, stages, p.drawUbo.get(), sizeof(DrawUniforms));
+    p.srb->setBindings({QRhiShaderResourceBinding::uniformBuffer(0, stages, p.frameUbo.get()), draw});
+    p.srb->create();
+    p.silSrb->setBindings({QRhiShaderResourceBinding::uniformBuffer(0, stages, p.silUbo.get()), draw});
+    p.silSrb->create();
+    p.groundSrb->setBindings({QRhiShaderResourceBinding::uniformBuffer(0, stages, p.frameUbo.get()), draw,
+                              QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage,
+                                                                        p.silTex.get(), p.silSampler.get())});
+    p.groundSrb->create();
+}
+
 void Renderer::createPipelines() {
     Pipelines &p = *m_p;
     QRhi *rhi = m_rhi;
@@ -141,11 +166,23 @@ void Renderer::createPipelines() {
     p.drawUbo->create();
 
     const auto stages = QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage;
+    // The rendered style's ground shadow: an offscreen top-down coverage image.
+    p.silTex.reset(rhi->newTexture(QRhiTexture::RGBA8, QSize(512, 512), 1,
+                                   QRhiTexture::RenderTarget | QRhiTexture::MipMapped | QRhiTexture::UsedWithGenerateMips));
+    p.silTex->create();
+    p.silRt.reset(rhi->newTextureRenderTarget(QRhiTextureRenderTargetDescription(QRhiColorAttachment(p.silTex.get()))));
+    p.silRp.reset(p.silRt->newCompatibleRenderPassDescriptor());
+    p.silRt->setRenderPassDescriptor(p.silRp.get());
+    p.silRt->create();
+    p.silUbo.reset(rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(FrameUniforms)));
+    p.silUbo->create();
+    p.silSampler.reset(rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::Linear,
+                                       QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
+    p.silSampler->create();
     p.srb.reset(rhi->newShaderResourceBindings());
-    p.srb->setBindings({QRhiShaderResourceBinding::uniformBuffer(0, stages, p.frameUbo.get()),
-                        QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(1, stages, p.drawUbo.get(),
-                                                                                  sizeof(DrawUniforms))});
-    p.srb->create();
+    p.silSrb.reset(rhi->newShaderResourceBindings());
+    p.groundSrb.reset(rhi->newShaderResourceBindings());
+    rebuildBindings();
 
     p.bgUbo.reset(rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(BackgroundUniforms)));
     p.bgUbo->create();
@@ -283,6 +320,39 @@ void Renderer::createPipelines() {
     flip.compareOp = QRhiGraphicsPipeline::Always;
     flip.passOp = QRhiGraphicsPipeline::Invert;
     p.stencilParity = stencilPipeline("mesh.vert", "mesh.frag", false, flip);
+
+    // Rendered style: the silhouette pass and the ground.
+    {
+        std::unique_ptr<QRhiGraphicsPipeline> pl(rhi->newGraphicsPipeline());
+        pl->setShaderStages({{QRhiShaderStage::Vertex, loadShader(QStringLiteral("mesh.vert"))},
+                             {QRhiShaderStage::Fragment, loadShader(QStringLiteral("mesh.frag"))}});
+        pl->setVertexInputLayout(meshLayout);
+        pl->setShaderResourceBindings(p.silSrb.get());
+        pl->setRenderPassDescriptor(p.silRp.get());
+        pl->create();
+        p.silhouette = std::move(pl);
+    }
+    {
+        std::unique_ptr<QRhiGraphicsPipeline> pl(rhi->newGraphicsPipeline());
+        pl->setShaderStages({{QRhiShaderStage::Vertex, loadShader(QStringLiteral("ground.vert"))},
+                             {QRhiShaderStage::Fragment, loadShader(QStringLiteral("ground.frag"))}});
+        pl->setVertexInputLayout(gridLayout);
+        pl->setDepthTest(true);
+        pl->setDepthWrite(false);
+        pl->setDepthOp(QRhiGraphicsPipeline::LessOrEqual);
+        QRhiGraphicsPipeline::TargetBlend b;
+        b.enable = true;
+        b.srcColor = QRhiGraphicsPipeline::SrcAlpha;
+        b.dstColor = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+        b.srcAlpha = QRhiGraphicsPipeline::One;
+        b.dstAlpha = QRhiGraphicsPipeline::OneMinusSrcAlpha;
+        pl->setTargetBlends({b});
+        pl->setSampleCount(m_sampleCount);
+        pl->setShaderResourceBindings(p.groundSrb.get());
+        pl->setRenderPassDescriptor(m_rp);
+        pl->create();
+        p.ground = std::move(pl);
+    }
     QRhiGraphicsPipeline::StencilOpState fill;
     fill.compareOp = QRhiGraphicsPipeline::NotEqual; // against reference 0
     fill.passOp = QRhiGraphicsPipeline::StencilZero;
@@ -393,8 +463,8 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
     };
 
     const bool faces = scene.style != DisplayStyle::Wireframe;
-    const bool edges = scene.style == DisplayStyle::ShadedWithEdges || scene.style == DisplayStyle::Wireframe ||
-                       scene.style == DisplayStyle::Rendered;
+    const bool rendered = scene.style == DisplayStyle::Rendered;
+    const bool edges = scene.style == DisplayStyle::ShadedWithEdges || scene.style == DisplayStyle::Wireframe;
     const QColor edgeColor(28, 33, 40);
 
     // Opaque bodies.
@@ -406,7 +476,7 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
         if(!faces || b.opacity < 0.999f || !gpu[i]->ibuf) continue;
         DrawCall d;
         d.pipeline = p.mesh.get();
-        d.uniform = uniform(b.color, b.color.darker(160), 0, 0, 1, 0);
+        d.uniform = uniform(b.color, b.color.darker(160), 0, 0, 1, rendered ? 1.0f : 0.0f);
         d.vb0 = gpu[i]->vbuf.get();
         d.ib = gpu[i]->ibuf.get();
         d.count = gpu[i]->indexCount;
@@ -440,8 +510,52 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
         }
     }
 
-    // Grid on the XY plane.
-    if(scene.grid) {
+    // Rendered style: a soft contact shadow on the ground under the model, from
+    // a top-down silhouette of it (drawn before the main pass).
+    std::vector<DrawCall> silDraws;
+    if(rendered) {
+        QVector3D lo(1e30f, 1e30f, 1e30f), hi(-1e30f, -1e30f, -1e30f);
+        for(size_t i = 0; i < scene.bodies.size(); ++i) {
+            const RenderBody &b = scene.bodies[i];
+            if(!gpu[i] || !gpu[i]->ibuf || b.opacity < 0.999f) continue;
+            lo = QVector3D(std::min(lo.x(), b.mesh->bboxMin[0]), std::min(lo.y(), b.mesh->bboxMin[1]), std::min(lo.z(), b.mesh->bboxMin[2]));
+            hi = QVector3D(std::max(hi.x(), b.mesh->bboxMax[0]), std::max(hi.y(), b.mesh->bboxMax[1]), std::max(hi.z(), b.mesh->bboxMax[2]));
+            DrawCall d;
+            d.pipeline = p.silhouette.get();
+            d.srb = p.silSrb.get();
+            d.uniform = uniform(Qt::white, Qt::white, 0, 0, 0, 0);
+            d.vb0 = gpu[i]->vbuf.get();
+            d.ib = gpu[i]->ibuf.get();
+            d.count = gpu[i]->indexCount;
+            silDraws.push_back(d);
+        }
+        if(!silDraws.empty()) {
+            const float size = (hi - lo).length();
+            const float half = std::max(hi.x() - lo.x(), hi.y() - lo.y()) * 0.5f * 1.7f + size * 0.1f + 1.0f;
+            const QVector3D c = (lo + hi) * 0.5f;
+            QMatrix4x4 view, proj;
+            view.lookAt(QVector3D(c.x(), c.y(), hi.z() + 1.0f), QVector3D(c.x(), c.y(), lo.z()), QVector3D(0, 1, 0));
+            proj.ortho(-half, half, -half, half, 0.5f, hi.z() - lo.z() + 2.0f);
+            const QMatrix4x4 top = corr * proj * view;
+            FrameUniforms sf = fu;
+            setMat(sf.viewProj, top);
+            u->updateDynamicBuffer(p.silUbo.get(), 0, sizeof sf, &sf);
+            DrawCall g;
+            g.pipeline = p.ground.get();
+            g.srb = p.groundSrb.get();
+            const bool flipY = m_rhi->isYUpInNDC() && !m_rhi->isYUpInFramebuffer();
+            g.uniform = uniform(QColor(18, 24, 34, 165), QColor(flipY ? 255 : 0, 0, 0), c.x(), c.y(), half,
+                                lo.z() - 0.002f * size);
+            setMat(uniforms.back().model, top);
+            setVec(uniforms.back().color2, flipY ? 1.0f : 0.0f, 0.014f, 0.055f, 0.0f);
+            g.vb0 = p.quadCorners.get();
+            g.count = 6;
+            draws.push_back(g);
+        }
+    }
+
+    // Grid on the XY plane (not in the rendered style: the ground takes its place).
+    if(scene.grid && !rendered) {
         DrawCall d;
         d.pipeline = p.grid.get();
         d.uniform = uniform(QColor(120, 132, 148, 70), QColor(96, 108, 124, 130), scene.gridExtent, scene.gridMinor,
@@ -599,11 +713,7 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
         while(p.drawCapacity < uniforms.size()) p.drawCapacity *= 2;
         p.drawUbo.reset(m_rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, p.drawStride * p.drawCapacity));
         p.drawUbo->create();
-        const auto stages = QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage;
-        p.srb->setBindings({QRhiShaderResourceBinding::uniformBuffer(0, stages, p.frameUbo.get()),
-                            QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(1, stages, p.drawUbo.get(),
-                                                                                      sizeof(DrawUniforms))});
-        p.srb->create();
+        rebuildBindings();
     }
     if(!uniforms.empty()) {
         std::vector<char> blob(size_t(p.drawStride) * uniforms.size(), 0);
@@ -623,6 +733,23 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
 
     // Record.
     const QRhiViewport full(0, 0, float(fb.width()), float(fb.height()));
+    if(!silDraws.empty()) {
+        cb->beginPass(p.silRt.get(), QColor(0, 0, 0, 0), {1.0f, 0}, u);
+        u = nullptr;
+        cb->setViewport(QRhiViewport(0, 0, 512, 512));
+        for(const DrawCall &d : silDraws) {
+            cb->setGraphicsPipeline(d.pipeline);
+            const QRhiCommandBuffer::DynamicOffset off(1, d.uniform * p.drawStride);
+            cb->setShaderResources(d.srb, 1, &off);
+            const QRhiCommandBuffer::VertexInput vi(d.vb0, 0);
+            cb->setVertexInput(0, 1, &vi, d.ib, 0, QRhiCommandBuffer::IndexUInt32);
+            cb->drawIndexed(d.count);
+        }
+        cb->endPass();
+        // Blurred versions of it for the soft shadow.
+        u = m_rhi->nextResourceUpdateBatch();
+        u->generateMips(p.silTex.get());
+    }
     cb->beginPass(rt, backgroundBottom, {1.0f, 0}, u);
     cb->setGraphicsPipeline(p.bg.get());
     cb->setViewport(full);
@@ -635,7 +762,7 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
         if(d.pipeline == p.stencilParity.get() || d.pipeline == p.cap.get()) cb->setStencilRef(0);
         cb->setViewport(full);
         const QRhiCommandBuffer::DynamicOffset off(1, d.uniform * p.drawStride);
-        cb->setShaderResources(p.srb.get(), 1, &off);
+        cb->setShaderResources(d.srb ? d.srb : p.srb.get(), 1, &off);
         QRhiCommandBuffer::VertexInput vi[2] = {{d.vb0, d.vb0Offset}, {d.vb1, d.vb1Offset}};
         const int nvb = d.vb1 ? 2 : 1;
         if(d.ib) {

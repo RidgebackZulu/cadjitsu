@@ -148,8 +148,10 @@ void Viewport::setHighlights(std::vector<FaceHighlight> faces, std::vector<EdgeH
 }
 
 void Viewport::setDisplayStyle(DisplayStyle s) {
+    if(s == m_style) return;
     m_style = s;
     update();
+    emit displayStyleChanged(s);
 }
 
 void Viewport::setGridVisible(bool on) {

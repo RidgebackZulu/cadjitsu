@@ -34,6 +34,21 @@ void main() {
     if(backFace)
         N = -N;
     vec3 L = normalize(lightDir.xyz);
+    if(params.w > 0.5) {
+        // Rendered style: a studio light set on a satin plastic.
+        vec3 H1 = normalize(L + V);
+        vec3 L2 = normalize(vec3(-L.x, -L.y, 0.35));
+        float hemi1 = 0.5 + 0.5 * N.z;
+        vec3 ambient1 = mix(vec3(0.36, 0.35, 0.34), vec3(0.72, 0.76, 0.82), hemi1);
+        float key = max(dot(N, L), 0.0);
+        float fill1 = max(dot(N, L2), 0.0);
+        float spec1 = pow(max(dot(N, H1), 0.0), 90.0) * 0.45;
+        float rim = pow(1.0 - max(dot(N, V), 0.0), 4.0) * 0.30;
+        vec3 base1 = backFace ? color2.rgb : color.rgb;
+        vec3 c = base1 * (ambient1 * 0.50 + key * 0.62 + fill1 * 0.18) + vec3(spec1) + rim * vec3(0.80, 0.86, 0.95);
+        fragColor = vec4(c / (1.0 + 0.18 * c), color.a); // gentle roll-off of highlights
+        return;
+    }
     vec3 H = normalize(L + V);
     float diffuse = max(dot(N, L), 0.0);
     float fill = max(dot(N, V), 0.0);

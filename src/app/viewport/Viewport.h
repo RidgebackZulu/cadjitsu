@@ -96,6 +96,7 @@ signals:
     void contextMenuRequested(const QPoint &globalPos, const cadly::PickHit &hit);
     void escapePressed();
     void cameraChanged();
+    void displayStyleChanged(cadly::DisplayStyle style);
 
 protected:
     void initialize(QRhiCommandBuffer *cb) override;

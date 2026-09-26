@@ -47,6 +47,7 @@ private:
 
     GpuMesh &meshFor(const std::shared_ptr<const cad::MeshData> &mesh, QRhiResourceUpdateBatch *u);
     void createPipelines();
+    void rebuildBindings();
     void ensureDynamicBuffer(std::unique_ptr<QRhiBuffer> &buf, quint32 size, int usage);
     void evictMeshes();
 

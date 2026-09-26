@@ -1,5 +1,6 @@
 #pragma once
 
+#include "io/Exporter.h"
 #include "model/RecomputeService.h"
 #include "sketch/SketchTools.h"
 
@@ -22,6 +23,7 @@ class Command;
 class CommandController;
 class DistanceManipulator;
 class CommandPanel;
+class ExportDialog;
 class MarkingMenu;
 class ModelView;
 class Ribbon;
@@ -73,6 +75,9 @@ public:
     // The shown section's depth arrow on the canvas (always there to drag).
     DistanceManipulator *sectionArrow() const { return m_sectionArrow.get(); }
     void showMarkingMenu(QPoint canvasPos);
+    // File > Export and MAKE > 3D Print: opens the export dialog (window-modal,
+    // deleted when closed) for the model as it is now.
+    ExportDialog *openExportDialog(ExportJob::Format format);
 
 private:
     QAction *makeAction(const char *name, const QString &text, IconId icon, const QKeySequence &shortcut,

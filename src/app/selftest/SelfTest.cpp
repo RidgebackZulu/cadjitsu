@@ -16,6 +16,7 @@
 #include "sketch/HeadsUpInput.h"
 #include "sketch/SketchEditor.h"
 #include "sketch/SketchMode.h"
+#include "ui/ExportDialog.h"
 #include "ui/MarkingMenu.h"
 #include "ui/TimelineWidget.h"
 #include "viewport/ViewCube.h"
@@ -27,6 +28,9 @@
 #include "features/FilletFeature.h"
 #include "features/SketchFeature.h"
 #include "geom/OcctUtil.h"
+#include "io/StepIO.h"
+#include "io/StlWriter.h"
+#include "mesh/MeshValidator.h"
 #include "topo/Resolver.h"
 
 #include <QAction>
@@ -35,6 +39,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QEventLoop>
+#include <QFileInfo>
 #include <QImage>
 #include <QKeyEvent>
 #include <QLabel>
@@ -138,6 +144,7 @@ bool viewsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
 
     const std::pair<DisplayStyle, const char *> styles[] = {{DisplayStyle::Shaded, "views_shaded.png"},
                                                             {DisplayStyle::Wireframe, "views_wireframe.png"},
+                                                            {DisplayStyle::Rendered, "views_rendered.png"},
                                                             {DisplayStyle::ShadedWithEdges, "views_edges.png"}};
     for(const auto &[style, file] : styles) {
         vp->setDisplayStyle(style);
@@ -987,6 +994,344 @@ bool sectionScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
+// Fraction of the frame that is not background, and how different two frames are.
+double partFraction(const Viewport *vp, const QImage &img) {
+    size_t part = 0;
+    for(int y = 0; y < img.height(); y += 2) {
+        const QColor bg = expectedBackground(vp, img, y);
+        for(int x = 0; x < img.width(); x += 2) {
+            const QRgb c = img.pixel(x, y);
+            part += std::abs(qRed(c) - bg.red()) + std::abs(qGreen(c) - bg.green()) + std::abs(qBlue(c) - bg.blue()) > 36;
+        }
+    }
+    return double(part) / double(((img.width() + 1) / 2) * ((img.height() + 1) / 2));
+}
+
+double meanDifference(const QImage &a, const QImage &b) {
+    if(a.size() != b.size()) return 255.0;
+    double sum = 0;
+    size_t n = 0;
+    for(int y = 0; y < a.height(); y += 2)
+        for(int x = 0; x < a.width(); x += 2, ++n) {
+            const QRgb p = a.pixel(x, y), q = b.pixel(x, y);
+            sum += (std::abs(qRed(p) - qRed(q)) + std::abs(qGreen(p) - qGreen(q)) + std::abs(qBlue(p) - qBlue(q))) / 3.0;
+        }
+    return n ? sum / double(n) : 0.0;
+}
+
+// The dialog that `action` opens (the visible one: a closed one may not be deleted yet).
+ExportDialog *openedExportDialog(MainWindow &w, const char *action) {
+    w.action(QString::fromLatin1(action))->trigger();
+    for(ExportDialog *d : w.findChildren<ExportDialog *>())
+        if(d->isVisible()) return d;
+    return nullptr;
+}
+
+// Presses Export and waits for it to finish, measuring how long the UI thread
+// was kept from running meanwhile (the export runs in the background).
+bool pressExport(ExportDialog *dlg, const QString &file, double &stall) {
+    dlg->setOutputPath(file);
+    dlg->setAskBeforeWritingInvalid(false);
+    auto *button = dlg->findChild<QPushButton *>(QStringLiteral("exportButton"));
+    if(!button || !button->isEnabled()) return false;
+    QEventLoop loop;
+    bool finished = false;
+    QObject::connect(dlg, &ExportDialog::exportFinished, &loop, [&] {
+        finished = true;
+        loop.quit();
+    });
+    QTimer::singleShot(120000, &loop, &QEventLoop::quit);
+    StallMeter meter;
+    meter.start();
+    button->click();
+    if(!finished) loop.exec();
+    stall = meter.stop();
+    return finished;
+}
+
+// M7 acceptance, all through the UI: a printable L bracket (sketches with
+// typed dimensions, extrudes, counterbored and through holes, a fillet and
+// chamfers), a parametric edit of the first extrude that everything follows,
+// screenshots in every visual style, 3D Print to an STL that passes the
+// printability check (and reads back as a valid mesh), File > Export to a STEP
+// that reads back with the same volume, and a save / reopen round trip.
+bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
+    Viewport *vp = w.viewport();
+    SketchMode *mode = w.sketchMode();
+    cad::Document &doc = w.document();
+    vp->setStandardView(StandardView::Home, false);
+    if(!waitForFrames(vp, 2)) return false;
+    bool ok = true;
+    auto check = [&](bool cond, const QString &what) {
+        log << (cond ? "  ok   " : "  FAIL ") << what << "\n";
+        log.flush();
+        ok &= cond;
+    };
+    auto shot = [&](const char *name) {
+        waitForFrames(vp, 2);
+        processEventsFor(30);
+        w.grab().save(out.filePath(QString::fromLatin1(name)));
+    };
+    auto settle = [&] {
+        w.waitForModel(60000);
+        waitForFrames(vp, 1);
+    };
+    auto home = [&] {
+        vp->setStandardView(StandardView::Home, false);
+        vp->fitAll(false);
+        waitForFrames(vp, 1);
+    };
+    auto at = [&](double x, double y, double z) { return vp->camera().project(QVector3D(float(x), float(y), float(z))); };
+    auto type = [&](ValueField *f, const QString &text) {
+        f->setFocus();
+        f->selectAll();
+        typeText(w, text);
+    };
+    auto shown = [&] { return modelVolume(w.modelView()->state()); };
+    auto vol = [](double v) { return QString::number(v, 'f', 2); };
+    auto allOk = [&](cad::Document &d) {
+        for(const auto &f : d.features())
+            if(!d.statusOf(f->id).isOk()) return false;
+        return true;
+    };
+    auto lastOk = [&] { return !doc.features().empty() && doc.statusOf(doc.features().back()->id).isOk(); };
+    auto extrudeCommand = [&] { return qobject_cast<ExtrudeCommand *>(w.commands()->command()); };
+    // Draws a rectangle between two world points on the open sketch's plane,
+    // typing its size in the heads-up boxes.
+    auto rectangle = [&](QVector3D a, QVector3D b) {
+        SketchEditor *ed = mode->editor();
+        const auto p = ed->toSketch(vp->camera().project(a)), q = ed->toSketch(vp->camera().project(b));
+        if(!p || !q) return false;
+        w.action(QStringLiteral("sketchRectangle"))->trigger();
+        clickAt(vp, ed->toScreen(*p));
+        sendMouse(vp, QEvent::MouseMove, ed->toScreen({p->x + (q->x - p->x) * 0.7, p->y + (q->y - p->y) * 0.7}),
+                  Qt::NoButton, Qt::NoButton);
+        typeText(w, QString::number(std::fabs(q->x - p->x)));
+        sendKey(w, Qt::Key_Tab);
+        typeText(w, QString::number(std::fabs(q->y - p->y)));
+        sendKey(w, Qt::Key_Return);
+        sendKey(w, Qt::Key_Escape);
+        return true;
+    };
+
+    // 1. The base: a 60 x 40 rectangle on the XY plane, extruded 8 mm.
+    w.action(QStringLiteral("createSketch"))->trigger();
+    const float s = vp->camera().viewHeightAtTarget() * 0.2f;
+    clickAt(vp, vp->camera().project(QVector3D(s * 0.85f, s * 0.85f, 0)));
+    if(!mode->active()) {
+        check(false, QStringLiteral("Create Sketch on the XY plane"));
+        return false;
+    }
+    processEventsFor(450);
+    rectangle({0, 0, 0}, {60, 40, 0});
+    w.action(QStringLiteral("extrude"))->trigger();
+    ExtrudeCommand *ex = extrudeCommand();
+    if(!ex) return false;
+    settle();
+    typeText(w, QStringLiteral("8"));
+    settle();
+    sendKey(w, Qt::Key_Return);
+    settle();
+    const double base = 60.0 * 40.0 * 8.0;
+    check(doc.features().size() == 2 && std::fabs(shown() - base) < 1e-6,
+          QStringLiteral("base plate 60 x 40 x 8 (%1 mm3)").arg(vol(shown())));
+
+    // 2. The upright: a 60 x 8 rectangle on the plate's top face, extruded 40 mm up (joins).
+    home();
+    w.action(QStringLiteral("createSketch"))->trigger();
+    clickAt(vp, at(30, 20, 8));
+    if(!mode->active()) {
+        check(false, QStringLiteral("Create Sketch on the top face"));
+        return false;
+    }
+    processEventsFor(450);
+    rectangle({0, 32, 8}, {60, 40, 8});
+    w.action(QStringLiteral("extrude"))->trigger();
+    ex = extrudeCommand();
+    if(!ex) return false;
+    settle();
+    typeText(w, QStringLiteral("40"));
+    settle();
+    check(ex->operation() == cad::BodyOperation::Join, QStringLiteral("extruding out of the face joins"));
+    sendKey(w, Qt::Key_Return);
+    settle();
+    const double bracket = base + 60.0 * 8.0 * 40.0;
+    check(doc.features().size() == 4 && w.modelView()->state()->bodies.size() == 1 &&
+              std::fabs(shown() - bracket) < 1e-6,
+          QStringLiteral("upright joined: one body, %1 mm3").arg(vol(shown())));
+
+    // 3. Two counterbored screw holes through the base.
+    home();
+    w.action(QStringLiteral("hole"))->trigger();
+    auto *hole = qobject_cast<HoleCommand *>(w.commands()->command());
+    if(!hole) return false;
+    hole->typeBox()->setCurrentIndex(1); // counterbore
+    hole->extentBox()->setCurrentIndex(1); // all
+    clickAt(vp, at(14, 14, 8));
+    clickAt(vp, at(46, 14, 8));
+    settle();
+    check(hole->holeCount() == 2 && w.modelView()->evaluation()->tool != nullptr,
+          QStringLiteral("two counterbored holes previewed"));
+    w.commandPanel()->okButton()->click();
+    settle();
+    const double screws = 2.0 * cad::kPi * (2.5 * 2.5 * 5.0 + 4.5 * 4.5 * 3.0);
+    check(lastOk() && std::fabs(shown() - (bracket - screws)) < 0.01,
+          QStringLiteral("counterbored holes: %1 mm3").arg(vol(shown())));
+
+    // 4. A through hole in the upright, placed on its front face.
+    w.action(QStringLiteral("hole"))->trigger();
+    hole = qobject_cast<HoleCommand *>(w.commands()->command());
+    if(!hole) return false;
+    hole->typeBox()->setCurrentIndex(0);
+    hole->extentBox()->setCurrentIndex(1);
+    type(hole->diameterField(), QStringLiteral("8"));
+    clickAt(vp, at(30, 32, 30));
+    settle();
+    w.commandPanel()->okButton()->click();
+    settle();
+    const double drilled = bracket - screws - cad::kPi * 16.0 * 8.0;
+    check(lastOk() && std::fabs(shown() - drilled) < 0.01, QStringLiteral("hole through the upright: %1 mm3").arg(vol(shown())));
+
+    // 5. Fillet the inside corner between base and upright.
+    w.action(QStringLiteral("fillet"))->trigger();
+    auto *fillet = qobject_cast<FilletCommand *>(w.commands()->command());
+    if(!fillet) return false;
+    clickAt(vp, at(12, 32, 8));
+    type(fillet->radiusField(), QStringLiteral("4"));
+    settle();
+    check(fillet->edgeCount() == 1, QStringLiteral("the inside edge is picked"));
+    w.commandPanel()->okButton()->click();
+    settle();
+    const double filleted = drilled + (16.0 - cad::kPi * 4.0) * 60.0;
+    check(lastOk() && std::fabs(shown() - filleted) < 0.05, QStringLiteral("inside fillet R4: %1 mm3").arg(vol(shown())));
+
+    // 6. Chamfer the upright's top face and the base's front corners.
+    w.action(QStringLiteral("chamfer"))->trigger();
+    auto *chamfer = qobject_cast<ChamferCommand *>(w.commands()->command());
+    if(!chamfer) return false;
+    clickAt(vp, at(30, 36, 48));
+    clickAt(vp, at(0, 0, 4));
+    clickAt(vp, at(60, 0, 4));
+    type(chamfer->distanceField(), QStringLiteral("1"));
+    settle();
+    check(chamfer->edgeCount() == 3, QStringLiteral("a face and two edges picked for the chamfer"));
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(lastOk() && shown() < filleted - 1.0, QStringLiteral("chamfers: %1 mm3").arg(vol(shown())));
+    home();
+    shot("acceptance_1_bracket.png");
+
+    // 7. Parametric edit: Extrude1 from 8 to 10 mm; everything downstream follows.
+    const double before = shown();
+    const cad::FeatureId first = doc.features()[1]->id;
+    w.editFeature(first);
+    ex = extrudeCommand();
+    check(ex && ex->isEditing() && ex->distanceField()->expression() == QStringLiteral("8"),
+          QStringLiteral("Edit Feature reopens Extrude1 at 8 mm"));
+    if(!ex) return false;
+    type(ex->distanceField(), QStringLiteral("10"));
+    settle();
+    w.commandPanel()->okButton()->click();
+    settle();
+    const double grown = shown() - before;
+    check(allOk(doc) && doc.marker() == int(doc.features().size()) && grown > 4600.0 && grown < 4800.0,
+          QStringLiteral("every feature follows the thicker base (+%1 mm3)").arg(vol(grown)));
+    cad::Document fresh;
+    std::string error;
+    fresh.fromJson(doc.toJson(), error);
+    check(allOk(fresh) && std::fabs(modelVolume(fresh.displayedState()) - shown()) < 1e-6,
+          QStringLiteral("the design recomputes from scratch to the same %1 mm3").arg(vol(shown())));
+
+    // 8. Every visual style, from the View menu.
+    home();
+    w.modelView()->clearSelection();
+    const std::tuple<const char *, const char *, DisplayStyle> styles[] = {
+        {"displayWireframe", "acceptance_2_wireframe.png", DisplayStyle::Wireframe},
+        {"displayShaded", "acceptance_3_shaded.png", DisplayStyle::Shaded},
+        {"displayShadedEdges", "acceptance_4_shaded_edges.png", DisplayStyle::ShadedWithEdges},
+        {"displayRendered", "acceptance_5_rendered.png", DisplayStyle::Rendered}};
+    std::map<DisplayStyle, QImage> frames;
+    for(const auto &[action, file, style] : styles) {
+        w.action(QString::fromLatin1(action))->trigger();
+        waitForFrames(vp, 3);
+        check(vp->displayStyle() == style, QStringLiteral("View > %1").arg(w.action(QString::fromLatin1(action))->text()));
+        frames[style] = vp->grabFramebuffer();
+        frames[style].save(out.filePath(QString::fromLatin1(file)));
+    }
+    const double wire = partFraction(vp, frames[DisplayStyle::Wireframe]),
+                 shaded = partFraction(vp, frames[DisplayStyle::Shaded]),
+                 rendered = partFraction(vp, frames[DisplayStyle::Rendered]);
+    log << QStringLiteral("         part covers %1% shaded, %2% wireframe, %3% rendered\n")
+               .arg(shaded * 100, 0, 'f', 1)
+               .arg(wire * 100, 0, 'f', 1)
+               .arg(rendered * 100, 0, 'f', 1);
+    check(shaded > 0.04 && rendered > 0.04 && wire > 0.002 && wire < shaded * 0.6,
+          QStringLiteral("shaded and rendered fill the part, wireframe draws only its edges"));
+    const double styleDiff = meanDifference(frames[DisplayStyle::Rendered], frames[DisplayStyle::ShadedWithEdges]);
+    check(styleDiff > 1.0, QStringLiteral("rendered differs from shaded (mean %1 levels)").arg(styleDiff, 0, 'f', 1));
+    w.action(QStringLiteral("displayShadedEdges"))->trigger();
+    waitForFrames(vp, 1);
+
+    // 9. MAKE > 3D Print: a watertight STL, checked before it is written.
+    const double design = shown();
+    ExportDialog *dlg = openedExportDialog(w, "print3d");
+    check(dlg && dlg->format() == ExportJob::Format::Stl, QStringLiteral("3D Print opens the export dialog on STL"));
+    if(!dlg) return false;
+    dlg->refinementBox()->setCurrentIndex(2); // fine
+    const QString stlPath = out.filePath(QStringLiteral("acceptance.stl"));
+    QFile::remove(stlPath);
+    double stall = 0;
+    check(pressExport(dlg, stlPath, stall), QStringLiteral("the STL export finishes"));
+    const ExportResult stl = dlg->lastResult();
+    log << "         " << dlg->report().replace(QStringLiteral("<br>"), QStringLiteral(" | ")) << "\n";
+    check(stl.ok && stl.meshChecked && stl.report.ok && stl.report.shells == 1,
+          QStringLiteral("STL written: %1 triangles, one watertight shell").arg(stl.report.triangles));
+    check(std::fabs(stl.solidVolume - design) < 1e-6 * design,
+          QStringLiteral("what was exported is the design (%1 mm3)").arg(vol(stl.solidVolume)));
+    check(stall < 50.0, QStringLiteral("the UI kept running while exporting (longest stall %1 ms)").arg(stall, 0, 'f', 1));
+    cad::TriMesh mesh;
+    std::string readError;
+    const bool read = cad::readStlFile(stlPath.toStdString(), mesh, readError);
+    const cad::MeshReport back = read ? cad::validateMesh(mesh, design) : cad::MeshReport{};
+    check(read && back.ok && back.boundaryEdges == 0 && back.nonManifoldEdges == 0 && back.flippedEdges == 0,
+          QStringLiteral("the STL file reads back manifold: %1").arg(QString::fromStdString(read ? back.summary() : readError)));
+    dlg->grab().save(out.filePath(QStringLiteral("acceptance_6_print_dialog.png")));
+    dlg->reject();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+    // 10. File > Export: STEP, read back with the same volume.
+    dlg = openedExportDialog(w, "export");
+    check(dlg && dlg->format() == ExportJob::Format::Step, QStringLiteral("File > Export opens on STEP"));
+    if(!dlg) return false;
+    const QString stepPath = out.filePath(QStringLiteral("acceptance.step"));
+    QFile::remove(stepPath);
+    check(pressExport(dlg, stepPath, stall), QStringLiteral("the STEP export finishes"));
+    const ExportResult step = dlg->lastResult();
+    check(step.ok && step.reimported && std::fabs(step.reimportedVolume - design) < 1e-6 * design,
+          QStringLiteral("STEP written and read back: %1 mm3 (design %2 mm3)").arg(vol(step.reimportedVolume), vol(design)));
+    std::vector<cad::NamedSolid> solids;
+    check(cad::readStepFile(stepPath.toStdString(), solids, readError) && solids.size() == 1 &&
+              QFileInfo(stepPath).size() > 1000,
+          QStringLiteral("the STEP file holds the one bracket"));
+    dlg->grab().save(out.filePath(QStringLiteral("acceptance_7_export_dialog.png")));
+    dlg->reject();
+    QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+    // 11. Save, start over, and open it again.
+    const QString designPath = out.filePath(QStringLiteral("acceptance.cadly"));
+    check(w.saveFile(designPath), QStringLiteral("saved %1").arg(QFileInfo(designPath).fileName()));
+    const size_t features = doc.features().size();
+    w.newDocument();
+    check(doc.features().empty(), QStringLiteral("New Design is empty"));
+    check(w.openFile(designPath), QStringLiteral("reopened"));
+    settle();
+    check(doc.features().size() == features && allOk(doc) && std::fabs(shown() - design) < 1e-6 * design,
+          QStringLiteral("the reopened design is the same (%1 features, %2 mm3)").arg(doc.features().size()).arg(vol(shown())));
+    home();
+    shot("acceptance_8_reopened.png");
+    return ok;
+}
+
 const std::map<QString, Scenario> &scenarios() {
     static const std::map<QString, Scenario> s = {
         {QStringLiteral("smoke"), smokeScenario},
@@ -995,6 +1340,7 @@ const std::map<QString, Scenario> &scenarios() {
         {QStringLiteral("plate"), plateScenario},
         {QStringLiteral("features"), featuresScenario},
         {QStringLiteral("section"), sectionScenario},
+        {QStringLiteral("acceptance"), acceptanceScenario},
     };
     return s;
 }

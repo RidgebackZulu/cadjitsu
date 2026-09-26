@@ -12,6 +12,7 @@
 #include "sketch/SketchEditor.h"
 #include "sketch/SketchMode.h"
 #include "ui/BrowserTree.h"
+#include "ui/ExportDialog.h"
 #include "ui/Icons.h"
 #include "ui/MarkingMenu.h"
 #include "ui/Ribbon.h"
@@ -384,6 +385,18 @@ void MainWindow::showMarkingMenu(QPoint canvasPos) {
     m_marking->open(canvasPos);
 }
 
+ExportDialog *MainWindow::openExportDialog(ExportJob::Format format) {
+    // Export the design, not a command's preview or a result still computing.
+    finishInteractions();
+    m_modelView->showDocumentNow();
+    m_recompute->supersedeRequests();
+    auto *dlg = new ExportDialog(*m_modelView, *m_document, this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setFormat(format);
+    dlg->open();
+    return dlg;
+}
+
 // --- actions, ribbon, menus -------------------------------------------------------------
 
 void MainWindow::buildActions() {
@@ -404,6 +417,11 @@ void MainWindow::buildActions() {
                                          tr("Cadly designs (*.cadly)"));
         if(!p.isEmpty()) saveFile(p);
     });
+    makeAction("export", tr("Export..."), IconId::ExportStep, {}, [this] { openExportDialog(ExportJob::Format::Step); });
+    QAction *print = makeAction("print3d", tr("3D Print"), IconId::Print3D, QKeySequence(Qt::CTRL | Qt::Key_P),
+                                [this] { openExportDialog(ExportJob::Format::Stl); });
+    print->setToolTip(tr("3D Print (%1): export a watertight STL, checked for printing")
+                          .arg(print->shortcut().toString(QKeySequence::NativeText)));
     makeAction("undo", tr("Undo"), IconId::Undo, QKeySequence::Undo, [this] { undo(); });
     QAction *redo = makeAction("redo", tr("Redo"), IconId::Redo, QKeySequence::Redo, [this] { this->redo(); });
     redo->setShortcuts({QKeySequence::Redo, QKeySequence(Qt::CTRL | Qt::Key_Y)});
@@ -491,6 +509,9 @@ void MainWindow::buildRibbon() {
     fileButton->setFocusPolicy(Qt::NoFocus);
     auto *fileMenu = new QMenu(fileButton);
     for(const char *name : {"newDocument", "open", "save", "saveAs"}) fileMenu->addAction(action(QString::fromLatin1(name)));
+    fileMenu->addSeparator();
+    fileMenu->addAction(action(QStringLiteral("export")));
+    fileMenu->addAction(action(QStringLiteral("print3d")));
     fileButton->setMenu(fileMenu);
     m_ribbon->addLeadingWidget(fileButton);
     for(const char *name : {"save", "undo", "redo"}) {
@@ -515,6 +536,8 @@ void MainWindow::buildRibbon() {
     construct->addAction(action(QStringLiteral("offsetPlane")));
     RibbonGroup *inspect = m_solidTab->addGroup(tr("INSPECT"));
     inspect->addAction(action(QStringLiteral("sectionAnalysis")));
+    RibbonGroup *make = m_solidTab->addGroup(tr("MAKE"));
+    make->addAction(action(QStringLiteral("print3d")));
     m_solidTab->addStretch();
 
     m_sketchTab = m_ribbon->addTab(tr("SKETCH"));
@@ -538,6 +561,9 @@ void MainWindow::buildRibbon() {
 void MainWindow::buildMenus() {
     QMenu *file = menuBar()->addMenu(tr("&File"));
     for(const char *name : {"newDocument", "open", "save", "saveAs"}) file->addAction(action(QString::fromLatin1(name)));
+    file->addSeparator();
+    file->addAction(action(QStringLiteral("export")));
+    file->addAction(action(QStringLiteral("print3d")));
 
     QMenu *edit = menuBar()->addMenu(tr("&Edit"));
     edit->addAction(action(QStringLiteral("undo")));
@@ -556,17 +582,26 @@ void MainWindow::buildMenus() {
         view->addAction(tr(name), this, [this, sv] { m_viewport->setStandardView(sv); });
     }
     view->addSeparator();
+    // Visual styles (also in the navigation bar's display menu; both follow the canvas).
     auto *styles = new QActionGroup(this);
-    const std::pair<const char *, DisplayStyle> styleList[] = {{"Shaded with Visible Edges", DisplayStyle::ShadedWithEdges},
-                                                               {"Shaded", DisplayStyle::Shaded},
-                                                               {"Wireframe", DisplayStyle::Wireframe}};
-    for(const auto &[name, s] : styleList) {
+    const std::tuple<const char *, const char *, DisplayStyle> styleList[] = {
+        {"displayShadedEdges", QT_TR_NOOP("Shaded with Visible Edges"), DisplayStyle::ShadedWithEdges},
+        {"displayShaded", QT_TR_NOOP("Shaded"), DisplayStyle::Shaded},
+        {"displayWireframe", QT_TR_NOOP("Wireframe"), DisplayStyle::Wireframe},
+        {"displayRendered", QT_TR_NOOP("Rendered"), DisplayStyle::Rendered}};
+    for(const auto &[name, text, s] : styleList) {
         const DisplayStyle ds = s;
-        QAction *a = view->addAction(tr(name), this, [this, ds] { m_viewport->setDisplayStyle(ds); });
+        QAction *a = view->addAction(tr(text), this, [this, ds] { m_viewport->setDisplayStyle(ds); });
+        a->setObjectName(QString::fromLatin1(name));
         a->setCheckable(true);
-        a->setChecked(ds == DisplayStyle::ShadedWithEdges);
+        a->setChecked(ds == m_viewport->displayStyle());
+        a->setData(int(ds));
         styles->addAction(a);
+        m_actions[a->objectName()] = a;
     }
+    connect(m_viewport, &Viewport::displayStyleChanged, this, [styles](DisplayStyle ds) {
+        for(QAction *a : styles->actions()) a->setChecked(a->data().toInt() == int(ds));
+    });
     view->addSeparator();
     view->addAction(action(QStringLiteral("toggleOrigin")));
 }

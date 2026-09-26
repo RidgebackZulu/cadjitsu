@@ -442,6 +442,22 @@ void drawIcon(QPainter &p, IconId id, const QColor &accent) {
         p.drawText(QRectF(0, 24, 32, 8), Qt::AlignCenter, id == IconId::ExportStl ? QStringLiteral("STL") : QStringLiteral("STEP"));
         break;
     }
+    case IconId::Print3D: {
+        // A hot end printing a part on the bed.
+        p.setPen(QPen(kInk, 2.4, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(QPointF(3, 28), QPointF(29, 28));
+        p.setPen(ink);
+        box3d(QRectF(6, 18, 12, 9), 4, true);
+        p.setBrush(kFill);
+        p.drawRect(QRectF(18, 3, 11, 7));
+        QPolygonF nozzle;
+        nozzle << QPointF(20, 10) << QPointF(27, 10) << QPointF(23.5, 15);
+        p.setPen(acc);
+        p.setBrush(accent);
+        p.drawPolygon(nozzle);
+        p.drawLine(QPointF(23.5, 15), QPointF(23.5, 17.5));
+        break;
+    }
     case IconId::Eye:
     case IconId::EyeOff: {
         QPainterPath eye;

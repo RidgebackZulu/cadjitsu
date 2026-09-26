@@ -1,11 +1,13 @@
 #include "MainWindow.h"
 #include "selftest/SelfTest.h"
+#include "ui/AppIcon.h"
 #include "viewport/Viewport.h"
 
 #include "base/Version.h"
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QFileOpenEvent>
 #include <QSurfaceFormat>
 #include <QTimer>
 
@@ -25,6 +27,26 @@ QRhiWidget::Api parseApi(const QString &name, bool *ok) {
     return QRhiWidget::Api::OpenGL;
 }
 
+// Finder opens .cadly documents (double-click, drop on the Dock icon) with a
+// FileOpen event to the application.
+class FileOpenFilter : public QObject {
+public:
+    explicit FileOpenFilter(cadly::MainWindow &window) : m_window(window) {}
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override {
+        if(event->type() == QEvent::FileOpen) {
+            const QString path = static_cast<QFileOpenEvent *>(event)->file();
+            if(!path.isEmpty()) m_window.openFile(path);
+            return true;
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    cadly::MainWindow &m_window;
+};
+
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -40,6 +62,7 @@ int main(int argc, char *argv[]) {
     QApplication::setApplicationName(QStringLiteral("Cadly"));
     QApplication::setApplicationVersion(QString::fromLatin1(cad::version()));
     QApplication::setOrganizationName(QStringLiteral("Cadly"));
+    QApplication::setWindowIcon(cadly::appIcon());
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Parametric CAD for 3D-printable parts"));
@@ -57,6 +80,7 @@ int main(int argc, char *argv[]) {
     QCommandLineOption listOpt(QStringLiteral("list-selftests"),
                                QStringLiteral("Print the available self tests and exit."));
     parser.addOptions({selfTestOpt, outOpt, rhiOpt, listOpt});
+    parser.addPositionalArgument(QStringLiteral("file"), QStringLiteral("A .cadly design to open."), QStringLiteral("[file]"));
     parser.process(app);
 
     if(parser.isSet(listOpt)) {
@@ -74,7 +98,11 @@ int main(int argc, char *argv[]) {
         }
         window.viewport()->setApi(api);
     }
+    FileOpenFilter fileOpen(window);
+    app.installEventFilter(&fileOpen);
     window.show();
+    if(!parser.isSet(selfTestOpt) && !parser.positionalArguments().isEmpty())
+        QTimer::singleShot(0, &window, [&] { window.openFile(parser.positionalArguments().constFirst()); });
 
     if(parser.isSet(selfTestOpt)) {
         int code = 0;
