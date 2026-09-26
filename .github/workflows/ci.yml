@@ -58,15 +58,18 @@ jobs:
 
   macos:
     name: macOS Apple Silicon (Homebrew, Metal)
-    runs-on: macos-14
+    runs-on: macos-15
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
-          brew update --quiet || true
-          brew install --quiet qt opencascade eigen ninja
-          brew list --versions qt opencascade eigen
+          brew install --quiet qtbase qtshadertools opencascade eigen ninja
+          brew list --versions qtbase qtshadertools opencascade eigen
 
       - name: Configure
         run: cmake --preset macos-brew
@@ -89,7 +92,7 @@ jobs:
       - name: Bundle Cadly.app
         run: |
           cp -R build/macos/src/app/Cadly.app out/Cadly.app
-          "$(brew --prefix qt)/bin/macdeployqt" out/Cadly.app -always-overwrite
+          "$(brew --prefix qtbase)/bin/macdeployqt" out/Cadly.app -always-overwrite
           codesign --force --deep --sign - out/Cadly.app
           out/Cadly.app/Contents/MacOS/Cadly --selftest=smoke --out out/macos-bundled
           (cd out && ditto -c -k --keepParent Cadly.app Cadly-macos-arm64.zip)

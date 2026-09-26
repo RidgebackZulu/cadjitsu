@@ -27,7 +27,7 @@ Cadly is licensed under the GPLv3 (see `LICENSE`) because it links SolveSpace's 
 ## Building on macOS (Apple Silicon)
 
 ```sh
-brew install qt opencascade eigen ninja cmake
+brew install qtbase qtshadertools opencascade eigen ninja cmake
 cmake --preset macos-brew
 cmake --build --preset macos-brew
 open build/macos/src/app/Cadly.app

@@ -15,12 +15,12 @@
     },
     {
       "name": "macos-brew",
-      "displayName": "macOS Apple Silicon (Homebrew qt, opencascade, eigen)",
+      "displayName": "macOS Apple Silicon (Homebrew qtbase, qtshadertools, opencascade, eigen)",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/macos",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_PREFIX_PATH": "/opt/homebrew/opt/qt;/opt/homebrew/opt/opencascade;/opt/homebrew/opt/eigen;/opt/homebrew",
+        "CMAKE_PREFIX_PATH": "/opt/homebrew",
         "CMAKE_OSX_ARCHITECTURES": "arm64"
       }
     }
