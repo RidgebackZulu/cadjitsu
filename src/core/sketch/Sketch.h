@@ -15,6 +15,11 @@ namespace cad {
 
 enum class SkType { Point, Line, Circle, Arc };
 
+// Fixed reference geometry every sketch has; constraints may use these ids.
+constexpr int kSketchOrigin = -1; // the sketch origin point (0, 0)
+constexpr int kSketchXAxis = -2;  // the sketch X axis line
+constexpr int kSketchYAxis = -3;  // the sketch Y axis line
+
 struct SkEntity {
     int id = 0;
     SkType type = SkType::Point;

@@ -46,13 +46,18 @@ FeatureResult SketchFeature::compute(const StatePtr &input, const ComputeContext
         result->sketch = sketch;
 
         // Evaluate dimensions and solve the constraints.
-        SolveOutcome solved = solveSketch(result->sketch, [&](const std::string &param, double &value) {
-            if(!ctx.params) return false;
-            const ParamValue *v = ctx.params->find(param);
-            if(!v || !v->ok) return false;
-            value = v->value;
-            return true;
-        });
+        SolveOptions options;
+        options.computeFreeEntities = false; // only needed while editing the sketch
+        SolveOutcome solved = solveSketch(
+            result->sketch,
+            [&](const std::string &param, double &value) {
+                if(!ctx.params) return false;
+                const ParamValue *v = ctx.params->find(param);
+                if(!v || !v->ok) return false;
+                value = v->value;
+                return true;
+            },
+            options);
         result->dof = solved.dof;
         result->failedConstraints = solved.failed;
         result->freeEntities = solved.freeEntities;
