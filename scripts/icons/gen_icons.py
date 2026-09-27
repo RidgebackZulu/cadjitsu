@@ -533,6 +533,32 @@ def pattern_circ():
     return s
 
 
+def thread():
+    """A threaded rod standing in a nut-like block: crests drawn as slanted
+    rings, the thread orange."""
+    iso = Iso(32, 44, 1.0)
+    P = iso.p
+    s = iso.floor_shadow(-14, -14, 28, 28)
+    s += iso.box(-14, -14, 0, 28, 28, 7)
+    r, h = 7.5, 26
+    top = iso.top_ellipse(0, 0, 7 + h, r)
+    base = iso.top_ellipse(0, 0, 7, r)
+    lo = [p for p in base if p[1] >= P(0, 0, 7)[1] - 0.1]
+    left = min(top, key=lambda p: p[0])
+    right = max(top, key=lambda p: p[0])
+    # The rod's side, then its thread crests (front halves of slanted rings).
+    s += poly([left] + [p for p in top if p[1] >= P(0, 0, 7 + h)[1]] + [right] + lo[::-1], "url(#oSide)", "#8E4A0A", 1.4)
+    for k in range(6):
+        z = 9 + k * 4
+        ring = [P(r * math.cos(t), r * math.sin(t), z + 1.6 * math.sin(t) + 1.6)
+                for t in (math.pi * i / 16 for i in range(-4, 21))]
+        front = [q for q in ring if q[1] >= P(0, 0, z)[1] - 3.5]
+        s += path("M" + " L".join(f"{f(x)},{f(y)}" for x, y in front), "none", "#8E4A0A", 1.3)
+    s += poly(top, "url(#oTop)", "#8E4A0A", 1.4)
+    s += ellipse(P(0, 0, 7 + h), r * 0.45, r * 0.26, "#C9620A")
+    return s
+
+
 def flip():
     iso = Iso(32, 44, 1.0)
     s = iso.floor_shadow(-13, -13, 26, 26)
@@ -1034,7 +1060,7 @@ ICONS = {
     "parallel": g_parallel, "perpendicular": g_perpendicular, "tangent": g_tangent, "equal": g_equal,
     "midpoint": g_midpoint, "concentric": g_concentric, "fix": g_fix, "symmetric": g_symmetric,
     "extrude": extrude, "fillet": fillet, "chamfer": chamfer, "hole": hole, "combine": combine, "plane": plane,
-    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "draft": draft, "mirror": mirror, "pattern-rect": pattern_rect, "pattern-circ": pattern_circ,
+    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "draft": draft, "mirror": mirror, "pattern-rect": pattern_rect, "pattern-circ": pattern_circ, "thread": thread,
     "undo": undo, "redo": redo, "save": save, "open": open_, "new": new, "export-stl": export_stl,
     "export-step": export_step, "print-3d": print3d,
     "eye": eye, "eye-off": eye_off, "body": body, "sketch-node": sketch_node, "plane-node": plane_node,

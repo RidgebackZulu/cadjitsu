@@ -10,6 +10,7 @@
 #include "features/PatternFeature.h"
 #include "features/SketchFeature.h"
 #include "features/SplitFeature.h"
+#include "features/ThreadFeature.h"
 
 #include <Standard_Failure.hxx>
 
@@ -36,6 +37,7 @@ const TypeName kTypes[] = {
     {FeatureType::Split, "split", "Split"},
     {FeatureType::Draft, "draft", "Draft"},
     {FeatureType::Pattern, "pattern", "Pattern"},
+    {FeatureType::Thread, "thread", "Thread"},
 };
 
 } // namespace
@@ -104,6 +106,7 @@ std::shared_ptr<Feature> Feature::create(FeatureType type) {
     case FeatureType::Split: return std::make_shared<SplitFeature>();
     case FeatureType::Draft: return std::make_shared<DraftFeature>();
     case FeatureType::Pattern: return std::make_shared<PatternFeature>();
+    case FeatureType::Thread: return std::make_shared<ThreadFeature>();
     }
     return nullptr;
 }

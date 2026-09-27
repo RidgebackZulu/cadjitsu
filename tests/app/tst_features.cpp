@@ -15,6 +15,7 @@
 #include "command/PatternCommand.h"
 #include "command/PlaneCommand.h"
 #include "command/SplitCommand.h"
+#include "command/ThreadCommand.h"
 #include "ui/AngleDial.h"
 #include "model/ModelView.h"
 #include "selftest/TestUtil.h"
@@ -31,6 +32,7 @@
 #include "features/PatternFeature.h"
 #include "features/SketchFeature.h"
 #include "features/SplitFeature.h"
+#include "features/ThreadFeature.h"
 #include "geom/OcctUtil.h"
 #include "topo/Resolver.h"
 
@@ -785,6 +787,69 @@ private slots:
         QVERIFY(p && p->featureCount() == 1 && p->countField()->expression() == QStringLiteral("5"));
         panel()->cancelButton()->click();
         settle();
+    }
+
+    void threadAHoleAndTapAnother() {
+        box(0, 0, 20, 20, 10);
+        const cad::Body &plate = *doc().displayedState()->bodies.begin()->second;
+        auto h = std::make_shared<cad::HoleFeature>();
+        for(int i = 1; i <= plate.shape.faceCount(); ++i) {
+            gp_Pln pl;
+            if(cad::planeOfFace(plate.shape.face(i), pl) && pl.Axis().Direction().Z() > 0.9)
+                h->face = cad::makeTopoRef(plate, cad::TopoKind::Face, i);
+        }
+        h->points = {{10, 10}};
+        h->extent = cad::ExtentType::ThroughAll;
+        h->diameter = doc().makeSlot("5 mm");
+        doc().addFeature(h);
+        showHome();
+        settle();
+        const double drilled = shown();
+        trigger("thread");
+        auto *t = command<ThreadCommand>();
+        QVERIFY(t);
+        const QPointF c = at(10, 10, 10);
+        for(int r = 0; r <= 8 && t->faceCount() == 0; ++r)
+            for(int k = 0; k < 8 && t->faceCount() == 0; ++k)
+                click(c + QPointF(r * std::cos(k * M_PI / 4), r * std::sin(k * M_PI / 4)));
+        QCOMPARE(t->faceCount(), 1);
+        QVERIFY2(t->detectedLabel()->text().contains(QStringLiteral("M6")), qPrintable(t->detectedLabel()->text()));
+        settle();
+        QVERIFY(shown() < drilled - 5.0); // the M6 thread cut into the wall
+        // Plain: a 5 mm hole is already the M6 tap drill; nothing changes.
+        t->modeBox()->setCurrentIndex(2);
+        settle();
+        QVERIFY(std::fabs(shown() - drilled) < 1e-6);
+        t->modeBox()->setCurrentIndex(0);
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::ThreadFeature>(doc().features().back());
+        QVERIFY(f && f->faces.size() == 1 && f->mode == cad::ThreadMode::Auto);
+        QVERIFY(doc().statusOf(f->id).isOk());
+        m_window->editFeature(f->id);
+        t = command<ThreadCommand>();
+        QVERIFY(t && t->faceCount() == 1);
+        panel()->cancelButton()->click();
+        settle();
+
+        // A tapped M5 hole from the Hole dialog.
+        const double before = shown();
+        trigger("hole");
+        auto *hole = command<HoleCommand>();
+        QVERIFY(hole);
+        hole->typeBox()->setCurrentIndex(3);
+        hole->threadSizeBox()->setCurrentText(QStringLiteral("M5"));
+        hole->extentBox()->setCurrentIndex(1);
+        click(at(4, 4, 10));
+        settle();
+        QVERIFY2(hole->threadInfo()->text().contains(QStringLiteral("M5")), qPrintable(hole->threadInfo()->text()));
+        QVERIFY(!field<QWidget>("holeDiameter")->isVisibleTo(panel()));
+        // Less than the 4.2 mm tap drill alone would remove? More: the thread cuts further.
+        QVERIFY(shown() < before - M_PI * 2.1 * 2.1 * 10);
+        panel()->okButton()->click();
+        settle();
+        const auto th = std::dynamic_pointer_cast<const cad::HoleFeature>(doc().features().back());
+        QVERIFY(th && th->holeType == cad::HoleType::Tapped && th->thread == "M5");
     }
 
     void markingMenuAndShortcutsReachTheNewCommands() {

@@ -39,6 +39,7 @@ IconId iconFor(cad::FeatureType t) {
     case cad::FeatureType::Split: return IconId::Split;
     case cad::FeatureType::Draft: return IconId::Draft;
     case cad::FeatureType::Pattern: return IconId::PatternRect;
+    case cad::FeatureType::Thread: return IconId::Thread;
     }
     return IconId::Body;
 }

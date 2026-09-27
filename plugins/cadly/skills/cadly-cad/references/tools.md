@@ -106,7 +106,7 @@ Bevels edges (from list_edges): equal distance, two distances, or distance and a
 
 ## `hole`
 
-Drills holes into a planar face at world points on it (or at the points of a sketch): simple, counterbore (for socket head screws) or countersink (for flat head screws); to a depth or through all.
+Drills holes into a planar face at world points on it (or at the points of a sketch): simple, counterbore (for socket head screws), countersink (for flat head screws) or tapped (a threaded hole: set thread, e.g. "M5"; M5 and up are modelled, smaller ones left at the tap drill unless thread_mode is "modeled"); to a depth or through all.
 
 | Argument | Type | Description |
 |---|---|---|
@@ -120,9 +120,12 @@ Drills holes into a planar face at world points on it (or at the points of a ske
 | `flat_tip` | boolean | flat bottom instead of a drill point |
 | `points` | array of [x, y, z] | hole centres (world coordinates, mm) |
 | `sketch` | integer | instead of face + points: every point entity of this sketch (holes go along its normal) |
+| `thread` | string | tapped: the thread size, e.g. "M3", "M5", "M8x1", "1/4-20 UNC" (see the thread tool) |
+| `thread_clearance` | number or string | tapped: radial print clearance, mm (default 0.15) |
+| `thread_mode` | `auto` / `modeled` / `tap_drill` | tapped: auto (default) models M5 / #10 and up |
 | `through_all` | boolean | go through everything |
 | `tip_angle` | number or string | drill point angle, default 118 |
-| `type` | `simple` / `counterbore` / `countersink` | default simple |
+| `type` | `simple` / `counterbore` / `countersink` / `tapped` | default simple |
 
 ## `mirror`
 
@@ -156,6 +159,19 @@ Repeats bodies, or holes / extrudes, in rows (rectangular: count and spacing alo
 | `spacing2` | number or string | mm along direction2 |
 | `symmetric` | boolean | circular: spread both ways from the original |
 | `type` **(required)** | `rectangular` / `circular` | rectangular (rows along directions) or circular (around an axis) |
+
+## `thread`
+
+Threads round faces: a hole's wall (internal thread, to take a screw) or a boss (external, a bolt). The size comes from the diameter (a hole drilled at a tap drill or minor diameter, a boss at the major diameter) unless given. Small threads print poorly, so by default M4 / #8 and smaller are only opened to the tap drill (tap them after printing, or use self-tapping screws or heat-set inserts); mode "modeled" forces real threads. clearance (radial) makes printed threads fit. Sizes: ISO M2-M24 coarse, M8x1..M24x2 fine, UNC and UNF #4 to 1".
+
+| Argument | Type | Description |
+|---|---|---|
+| `clearance` | number or string | radial print clearance, mm (default 0.15) |
+| `faces` **(required)** | array of objects | round faces (list_faces with type cylinder) |
+| `left_hand` | boolean | left-handed thread |
+| `length` | number or string | thread length from the open end, mm (default the whole face) |
+| `mode` | `auto` / `modeled` / `tap_drill` | default auto |
+| `size` | string | e.g. "M6", "M8x1", "1/4-20 UNC"; default: from the diameter |
 
 ## `draft`
 

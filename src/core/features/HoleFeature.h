@@ -2,11 +2,12 @@
 
 #include "doc/Feature.h"
 #include "features/ExtrudeFeature.h"
+#include "features/ThreadFeature.h"
 #include "topo/Refs.h"
 
 namespace cad {
 
-enum class HoleType { Simple, Counterbore, Countersink };
+enum class HoleType { Simple, Counterbore, Countersink, Tapped };
 
 // Drilled holes placed on a planar face (at points in the face's plane
 // coordinates) or at sketch points. The drill tip is flat or conical.
@@ -28,6 +29,11 @@ public:
     ParamSlot csinkAngle;
     ParamSlot tipAngle;             // drill point angle (e.g. 118 deg)
     bool flatTip = false;
+    // Tapped: the drill is the thread's tap drill (the diameter is not used),
+    // and the thread is modelled into the bore (see ThreadFeature).
+    std::string thread;             // e.g. "M5", "1/4-20 UNC"
+    ThreadMode threadMode = ThreadMode::Auto;
+    ParamSlot threadClearance;      // radial, mm (default 0.15)
 
     FeatureType type() const override { return FeatureType::Hole; }
     std::shared_ptr<Feature> clone() const override { return std::make_shared<HoleFeature>(*this); }

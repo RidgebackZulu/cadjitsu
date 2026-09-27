@@ -19,7 +19,7 @@ enum class IconId {
     Sketch, FinishSketch, Line, Rectangle, CenterRectangle, Circle, Arc, Point, Dimension, Construction, LookAt,
     Coincident, Horizontal, Vertical, HorizontalVertical, Parallel, Perpendicular, Tangent, Equal, Midpoint,
     Concentric, Fix, Symmetric,
-    Extrude, Fillet, Chamfer, Hole, Combine, Plane, Section, Measure, Overhang, Split, Move, Draft, Mirror, PatternRect, PatternCircular,
+    Extrude, Fillet, Chamfer, Hole, Combine, Plane, Section, Measure, Overhang, Split, Move, Draft, Mirror, PatternRect, PatternCircular, Thread,
     Undo, Redo, Save, Open, New, ExportStl, ExportStep, Print3D,
     Eye, EyeOff, Body, SketchNode, PlaneNode, Folder, Warning, Error,
     TimelineFirst, TimelineBack, TimelineForward, TimelineLast, Origin, Flip,

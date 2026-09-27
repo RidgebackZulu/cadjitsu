@@ -20,6 +20,7 @@
 #include "features/PatternFeature.h"
 #include "features/SketchFeature.h"
 #include "features/SplitFeature.h"
+#include "features/ThreadFeature.h"
 #include "geom/OcctUtil.h"
 #include "measure/Measure.h"
 #include "measure/MeasureBetween.h"
@@ -804,11 +805,16 @@ void McpTools::define() {
 
     add("hole",
         "Drills holes into a planar face at world points on it (or at the points of a sketch): simple, counterbore "
-        "(for socket head screws) or countersink (for flat head screws); to a depth or through all.",
+        "(for socket head screws), countersink (for flat head screws) or tapped (a threaded hole: set thread, e.g. "
+        "\"M5\"; M5 and up are modelled, smaller ones left at the tap drill unless thread_mode is \"modeled\"); to a "
+        "depth or through all.",
         {{"face", topoItem("face")},
          {"points", arrayOf(xyz("a point on the face"), "hole centres (world coordinates, mm)")},
          {"sketch", integer("instead of face + points: every point entity of this sketch (holes go along its normal)")},
-         {"type", enumOf({"simple", "counterbore", "countersink"}, "default simple")},
+         {"type", enumOf({"simple", "counterbore", "countersink", "tapped"}, "default simple")},
+         {"thread", str("tapped: the thread size, e.g. \"M3\", \"M5\", \"M8x1\", \"1/4-20 UNC\" (see the thread tool)")},
+         {"thread_mode", enumOf({"auto", "modeled", "tap_drill"}, "tapped: auto (default) models M5 / #10 and up")},
+         {"thread_clearance", numberOrExpr("tapped: radial print clearance, mm (default 0.15)")},
          {"diameter", numberOrExpr("hole diameter, default 5")},
          {"depth", numberOrExpr("depth, default 10 (ignored with through_all)")},
          {"through_all", boolean("go through everything")},
@@ -849,7 +855,18 @@ void McpTools::define() {
             const std::string type = a.value("type", "simple");
             h->holeType = type == "counterbore"   ? cad::HoleType::Counterbore
                           : type == "countersink" ? cad::HoleType::Countersink
+                          : type == "tapped"      ? cad::HoleType::Tapped
                                                   : cad::HoleType::Simple;
+            if(h->holeType == cad::HoleType::Tapped) {
+                h->thread = a.value("thread", "");
+                const cad::ThreadSpec *spec = cad::findThread(h->thread);
+                if(!spec) fail("tapped holes need a known thread size (\"M3\", \"M5\", \"1/4-20 UNC\"...)");
+                h->thread = spec->name;
+                const std::string m = a.value("thread_mode", "auto");
+                h->threadMode = m == "modeled" ? cad::ThreadMode::Modeled : m == "tap_drill" ? cad::ThreadMode::TapDrill : cad::ThreadMode::Auto;
+                h->threadClearance = slot(lengthExpr(a.value("thread_clearance", json(0.15)), "thread_clearance"),
+                                          cad::ValueKind::Length, "thread_clearance");
+            }
             h->extent = a.value("through_all", false) ? cad::ExtentType::ThroughAll : cad::ExtentType::Distance;
             auto len = [&](const char *key, double def) {
                 return slot(lengthExpr(a.value(key, json(def)), key), cad::ValueKind::Length, key);
@@ -960,6 +977,38 @@ void McpTools::define() {
                 }
             }
             return commit(p, "Pattern (MCP)");
+        });
+
+    add("thread",
+        "Threads round faces: a hole's wall (internal thread, to take a screw) or a boss (external, a bolt). The size "
+        "comes from the diameter (a hole drilled at a tap drill or minor diameter, a boss at the major diameter) unless "
+        "given. Small threads print poorly, so by default M4 / #8 and smaller are only opened to the tap drill (tap "
+        "them after printing, or use self-tapping screws or heat-set inserts); mode \"modeled\" forces real threads. "
+        "clearance (radial) makes printed threads fit. Sizes: ISO M2-M24 coarse, M8x1..M24x2 fine, UNC and UNF #4 to "
+        "1\".",
+        {{"faces", arrayOf(topoItem("face"), "round faces (list_faces with type cylinder)")},
+         {"size", str("e.g. \"M6\", \"M8x1\", \"1/4-20 UNC\"; default: from the diameter")},
+         {"mode", enumOf({"auto", "modeled", "tap_drill"}, "default auto")},
+         {"clearance", numberOrExpr("radial print clearance, mm (default 0.15)")},
+         {"length", numberOrExpr("thread length from the open end, mm (default the whole face)")},
+         {"left_hand", boolean("left-handed thread")}},
+        {"faces"}, [begin, settle, topo, commit, slot](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            auto t = std::make_shared<cad::ThreadFeature>();
+            for(const json &f : a.at("faces")) t->faces.push_back(topo(st, f, cad::TopoKind::Face));
+            if(t->faces.empty()) fail("give at least one face");
+            if(a.contains("size")) {
+                const cad::ThreadSpec *spec = cad::findThread(a["size"].get<std::string>());
+                if(!spec) fail("unknown thread size " + a["size"].get<std::string>());
+                t->size = spec->name;
+            }
+            const std::string m = a.value("mode", "auto");
+            t->mode = m == "modeled" ? cad::ThreadMode::Modeled : m == "tap_drill" ? cad::ThreadMode::TapDrill : cad::ThreadMode::Auto;
+            t->clearance = slot(lengthExpr(a.value("clearance", json(0.15)), "clearance"), cad::ValueKind::Length, "clearance");
+            if(a.contains("length")) t->length = slot(lengthExpr(a["length"], "length"), cad::ValueKind::Length, "length");
+            t->leftHand = a.value("left_hand", false);
+            return commit(t, "Thread (MCP)");
         });
 
     add("draft",

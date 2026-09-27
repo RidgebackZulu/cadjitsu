@@ -16,6 +16,7 @@
 #include "ui/AngleDial.h"
 #include "command/SectionCommand.h"
 #include "command/SplitCommand.h"
+#include "command/ThreadCommand.h"
 #include "model/ModelView.h"
 #include "selftest/DemoModels.h"
 #include "selftest/TestUtil.h"
@@ -1141,6 +1142,63 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
               .arg(pat ? QString::fromStdString(pat->name) : QString())
               .arg(pat && !pat->features.empty() ? pat->features.front() : -1)
               .arg(holeId));
+
+    // Thread: an M8 thread in a 6.8 mm hole (its tap drill), found from the
+    // diameter, then seen cut open by a section through it.
+    auto nutSketch = std::make_shared<cad::SketchFeature>();
+    nutSketch->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+    nutSketch->sketch.addRectangle({-60, -65}, {-30, -35});
+    const cad::FeatureId nsid = doc.addFeature(nutSketch);
+    auto nut = std::make_shared<cad::ExtrudeFeature>();
+    for(const auto &p : doc.stateAt(doc.marker())->sketches.at(nsid)->profiles) nut->profiles.push_back({nsid, p.key, p.sample});
+    nut->distance = doc.makeSlot("14 mm");
+    nut->operation = cad::BodyOperation::NewBody;
+    doc.addFeature(nut);
+    w.refresh();
+    settle();
+    const cad::Body *nutBody = nullptr;
+    for(const auto &kv : doc.displayedState()->bodies)
+        if(kv.second->createdBy == doc.features().back()->id) nutBody = kv.second.get();
+    if(!nutBody) return false;
+    auto bore = std::make_shared<cad::HoleFeature>();
+    for(int i = 1; i <= nutBody->shape.faceCount(); ++i) {
+        gp_Pln pl;
+        if(cad::planeOfFace(nutBody->shape.face(i), pl) && pl.Axis().Direction().Z() > 0.9)
+            bore->face = cad::makeTopoRef(*nutBody, cad::TopoKind::Face, i);
+    }
+    bore->points = {{-45, -50}};
+    bore->extent = cad::ExtentType::ThroughAll;
+    bore->diameter = doc.makeSlot("6.8 mm");
+    doc.addFeature(bore);
+    w.refresh();
+    settle();
+    Camera &cam = vp->camera();
+    cam.setOrientation(QVector3D(-0.55f, 0.7f, -0.45f).normalized(), QVector3D(0, 0, 1));
+    cam.target = QVector3D(-45, -50, 7);
+    cam.distance = 110;
+    waitForFrames(vp, 2);
+    w.action(QStringLiteral("thread"))->trigger();
+    auto *thr = qobject_cast<ThreadCommand *>(w.commands()->command());
+    if(!thr) return false;
+    const QPointF mouth = at(-45, -50, 14);
+    for(int r = 0; r <= 10 && thr->faceCount() == 0; r += 2)
+        for(int k = 0; k < 8 && thr->faceCount() == 0; ++k)
+            clickAt(vp, mouth + QPointF(r * std::cos(k * M_PI / 4), r * std::sin(k * M_PI / 4)));
+    settle();
+    check(thr->faceCount() == 1 && thr->detectedLabel()->text().contains(QStringLiteral("M8")),
+          QStringLiteral("Thread: the 6.8 mm hole is an M8 ('%1')").arg(thr->detectedLabel()->text()));
+    shot("features_15_thread.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(lastOk(), QStringLiteral("Thread committed"));
+    // Cut open to see the thread.
+    cad::SectionAnalysis cutOpen;
+    cutOpen.plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XZ);
+    cutOpen.offset = 50;
+    doc.addSection(cutOpen);
+    w.refresh();
+    settle();
+    shot("features_16_thread_section.png");
     return ok;
 }
 

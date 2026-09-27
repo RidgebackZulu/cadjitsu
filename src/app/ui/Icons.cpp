@@ -66,6 +66,7 @@ constexpr std::array kIcons = {
     Entry{IconId::Mirror, "mirror"},
     Entry{IconId::PatternRect, "pattern-rect"},
     Entry{IconId::PatternCircular, "pattern-circ"},
+    Entry{IconId::Thread, "thread"},
     Entry{IconId::Undo, "undo"},
     Entry{IconId::Redo, "redo"},
     Entry{IconId::Save, "save"},

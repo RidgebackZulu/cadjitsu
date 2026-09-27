@@ -360,6 +360,33 @@ private slots:
         QVERIFY(tool("pattern", {{"type", "rectangular"}, {"bodies", {"Body1"}}}).first); // no spacing
     }
 
+    void threadsAndTappedHoles() {
+        initialize();
+        QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {30, 20}}}}}})
+                     .first);
+        QVERIFY(!tool("extrude", {{"sketch", 1}, {"distance", 10}}).first);
+        const json top = tool("list_faces", {{"body", "Body1"}, {"normal", "+z"}}).second;
+        const int topIndex = top["faces"][0]["index"];
+        auto [e1, h1] = tool("hole", {{"face", {{"body", "Body1"}, {"index", topIndex}}}, {"points", {{8, 10, 10}}},
+                                      {"type", "tapped"}, {"thread", "M6"}, {"through_all", true}});
+        QVERIFY2(!e1, h1.dump().c_str());
+        const double v1 = h1["bodies"][0]["volume_mm3"];
+        QVERIFY(v1 < 6000 - M_PI * 2.5 * 2.5 * 10); // more than the tap drill came out
+        // A plain 5 mm hole, then threaded by the thread tool (its size found from the diameter).
+        const json top2 = tool("list_faces", {{"body", "Body1"}, {"normal", "+z"}}).second;
+        QVERIFY(!tool("hole", {{"face", {{"body", "Body1"}, {"index", top2["faces"][0]["index"]}}},
+                               {"points", {{22, 10, 10}}}, {"diameter", 5}, {"through_all", true}})
+                     .first);
+        const json cyl = tool("list_faces", {{"body", "Body1"}, {"type", "cylinder"}, {"near", {22, 10, 5}}}).second;
+        const auto [e2, t] = tool("thread", {{"faces", {{{"body", "Body1"}, {"index", cyl["faces"][0]["index"]}}}}});
+        QVERIFY2(!e2, t.dump().c_str());
+        QVERIFY(tool("thread", {{"faces", {{{"body", "Body1"}, {"index", cyl["faces"][0]["index"]}}}}, {"size", "M99"}}).first);
+        QVERIFY(tool("hole", {{"face", {{"body", "Body1"}, {"index", topIndex}}}, {"points", {{15, 3, 10}}},
+                              {"type", "tapped"}})
+                     .first); // no thread size
+    }
+
     void aBatchBuildsAPartInOneCall() {
         initialize();
         const json calls = {

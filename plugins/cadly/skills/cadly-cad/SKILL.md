@@ -101,6 +101,10 @@ stand-alone point entities of a sketch. Printed holes shrink: add ~0.2 mm, or us
 
 Keep at least 2 wall thicknesses (~2.5 mm) between a hole and an outside face.
 
+Threads: `hole` with `type: "tapped"` and `thread: "M5"` (modelled from M5 / #10 up; smaller ones are left at the
+tap drill to tap after printing), or `thread` on an existing hole's or boss's round face (size from its diameter).
+Printed threads need clearance (default 0.15 mm); for M2-M4 prefer heat-set inserts or self-tapping screws.
+
 ## 6. Designing for FDM printing
 
 - **Walls:** at least 1.2 mm (3 perimeters of a 0.4 mm nozzle); 2-3 mm for parts that carry load.

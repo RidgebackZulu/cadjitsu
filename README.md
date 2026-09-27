@@ -159,6 +159,11 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 **Combine**
 - Click the target body, then the tool bodies; Join, Cut or Intersect; **Keep Tools** leaves the tools in the model.
 
+**Thread** (Create) and tapped holes
+- Click the round faces of holes (internal threads) or bosses (external, a bolt). The size is found from the diameter (a hole drilled at a tap drill or minor diameter, a boss at the major diameter), or chosen: ISO metric M2–M24 coarse and fine, UNC and UNF #4 to 1".
+- Real helical threads are modelled for M5 / #10 and up; smaller ones print poorly, so by default the hole is only opened to the tap drill (tap it, or use a self-tapping screw or a heat-set insert). **Thread Type** forces either. **Clearance** (0.15 mm radial by default) opens internal threads and slims external ones so printed parts fit. Full length, or a length from the open end; left-handed on request.
+- **Hole > Hole Type > Tapped** drills the thread's tap drill and threads it in one feature.
+
 **Mirror, Rectangular Pattern, Circular Pattern** (Create)
 - Repeat **bodies** (copies that touch the original are joined to it unless **Join to Original** is off), or **features**: click a face of a hole or an extrude, and its copies cut or join exactly as the original does. A later change to the original (a bigger hole) carries to every copy.
 - **Mirror** across an origin plane, a construction plane or a planar face.

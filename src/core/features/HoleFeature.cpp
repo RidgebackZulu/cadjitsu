@@ -9,6 +9,8 @@
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <Bnd_Box.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <TopExp.hxx>
 #include <TopoDS.hxx>
 
@@ -24,6 +26,7 @@ const char *holeTypeName(HoleType t) {
     case HoleType::Simple: return "simple";
     case HoleType::Counterbore: return "counterbore";
     case HoleType::Countersink: return "countersink";
+    case HoleType::Tapped: return "tapped";
     }
     return "simple";
 }
@@ -31,6 +34,7 @@ const char *holeTypeName(HoleType t) {
 HoleType holeTypeFromName(const std::string &s) {
     if(s == "counterbore") return HoleType::Counterbore;
     if(s == "countersink") return HoleType::Countersink;
+    if(s == "tapped") return HoleType::Tapped;
     return HoleType::Simple;
 }
 
@@ -84,6 +88,7 @@ std::vector<ParamDef> HoleFeature::params() const {
     add(csinkDiameter, ValueKind::Length, "Countersink Diameter");
     add(csinkAngle, ValueKind::Angle, "Countersink Angle");
     add(tipAngle, ValueKind::Angle, "Drill Point Angle");
+    if(holeType == HoleType::Tapped) add(threadClearance, ValueKind::Length, "Thread Clearance");
     return out;
 }
 
@@ -104,6 +109,11 @@ json HoleFeature::dataToJson() const {
            {"tipAngle", tipAngle.toJson()},
            {"flatTip", flatTip}};
     if(!face.empty()) j["face"] = face.toJson();
+    if(holeType == HoleType::Tapped) {
+        j["thread"] = thread;
+        j["threadMode"] = toString(threadMode);
+        j["threadClearance"] = threadClearance.toJson();
+    }
     return j;
 }
 
@@ -114,6 +124,9 @@ void HoleFeature::dataFromJson(const json &j) {
     sketch = jget<int>(j, "sketch", kNoFeature);
     sketchPoints = jget<std::vector<int>>(j, "sketchPoints", {});
     holeType = holeTypeFromName(jget<std::string>(j, "holeType", ""));
+    thread = jget<std::string>(j, "thread", "");
+    threadMode = threadModeFromString(jget<std::string>(j, "threadMode", "auto"));
+    threadClearance = ParamSlot::fromJson(j.value("threadClearance", json()));
     extent = jget<std::string>(j, "extent", "") == "throughAll" ? ExtentType::ThroughAll : ExtentType::Distance;
     diameter = ParamSlot::fromJson(j.value("diameter", json()));
     depth = ParamSlot::fromJson(j.value("depth", json()));
@@ -169,7 +182,14 @@ FeatureResult HoleFeature::compute(const StatePtr &input, const ComputeContext &
         if(centres.empty()) return {input, Status::error("place the hole on a face or at sketch points")};
 
         double dia = 0.0, dep = 0.0, tip = 0.0;
-        if(!ctx.value(diameter, dia, st)) return {input, st};
+        const ThreadSpec *spec = nullptr;
+        if(holeType == HoleType::Tapped) {
+            spec = findThread(thread);
+            if(!spec) return {input, Status::error(thread.empty() ? "choose the thread size" : "unknown thread size " + thread)};
+            dia = spec->tapDrill;
+        } else if(!ctx.value(diameter, dia, st)) {
+            return {input, st};
+        }
         if(dia <= 0.0) return {input, Status::error("the hole diameter must be positive")};
         if(extent == ExtentType::ThroughAll) {
             // Just past the far side of the model.
@@ -201,6 +221,7 @@ FeatureResult HoleFeature::compute(const StatePtr &input, const ComputeContext &
         std::vector<ProfilePt> pts;
         switch(holeType) {
         case HoleType::Simple:
+        case HoleType::Tapped:
             pts = {{0, above, "top"}, {r, above, "bore"}};
             break;
         case HoleType::Counterbore: {
@@ -252,11 +273,44 @@ FeatureResult HoleFeature::compute(const StatePtr &input, const ComputeContext &
 
         auto out = std::make_shared<ModelState>(*input);
         const std::string prefix = "f" + std::to_string(id);
+        // Tapped: the thread down each bore (unless left for a tap).
+        const bool model = spec && (threadMode == ThreadMode::Modeled ||
+                                    (threadMode == ThreadMode::Auto && spec->modelByDefault()));
+        double clear = 0.15;
+        if(model && !threadClearance.empty() && !ctx.value(threadClearance, clear, st)) return {input, st, shown};
         for(const auto &b : targets) {
             BooleanResult br = runBoolean(BoolOp::Cut, {&input->body(b)->shape}, toolPtrs, prefix);
             if(!br.ok) return {input, Status::error(br.error), shown};
             if(!validateResult(br.shape, prefix, st)) return {input, st, shown};
-            replaceBody(*out, b, br.shape);
+            NamedShape result = br.shape;
+            if(model) {
+                const Bnd_Box box = boundingBox(result.shape());
+                double x0, y0, z0, x1, y1, z1;
+                box.Get(x0, y0, z0, x1, y1, z1);
+                for(size_t k = 0; k < centres.size(); ++k) {
+                    // Only the holes in this body, down the bore (not the drill point),
+                    // and no deeper than the body goes.
+                    BRepExtrema_DistShapeShape onBody(BRepBuilderAPI_MakeVertex(centres[k]).Shape(),
+                                                      input->body(b)->shape.shape());
+                    if(onBody.IsDone() && onBody.Value() < 1e-3) {
+                        double reach = 0;
+                        for(double x : {x0, x1})
+                            for(double y : {y0, y1})
+                                for(double z : {z0, z1}) reach = std::max(reach, gp_Vec(centres[k], gp_Pnt(x, y, z)).Dot(-gp_Vec(up)));
+                        const double len = std::min(dep, reach);
+                        if(len <= spec->pitch * 2) continue;
+                        const gp_Ax3 frame(centres[k].Translated(-gp_Vec(up) * len), up, radial);
+                        NamedShape threaded;
+                        std::string why;
+                        if(!threadBody(result, *spec, frame, len, true, clear, false, dia / 2,
+                                       prefix + "/h" + std::to_string(k + 1) + "/thread", threaded, why))
+                            return {input, Status::error(why), shown};
+                        result = threaded;
+                    }
+                }
+                if(!validateResult(result, prefix, st)) return {input, st, shown};
+            }
+            replaceBody(*out, b, result);
         }
         return {out, st, shown};
     });

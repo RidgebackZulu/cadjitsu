@@ -13,6 +13,7 @@
 #include "command/PlaneCommand.h"
 #include "command/SectionCommand.h"
 #include "command/SplitCommand.h"
+#include "command/ThreadCommand.h"
 #include "mcp/McpButton.h"
 #include "mcp/McpDialog.h"
 #include "mcp/McpLog.h"
@@ -315,7 +316,7 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "split", "draft", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
+    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
         action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
@@ -443,6 +444,7 @@ void MainWindow::editFeature(cad::FeatureId id) {
     case cad::FeatureType::ConstructionPlane: m_commands->start(std::make_unique<PlaneCommand>(ctx, id)); return;
     case cad::FeatureType::Split: m_commands->start(std::make_unique<SplitCommand>(ctx, id)); return;
     case cad::FeatureType::Draft: m_commands->start(std::make_unique<DraftCommand>(ctx, id)); return;
+    case cad::FeatureType::Thread: m_commands->start(std::make_unique<ThreadCommand>(ctx, id)); return;
     case cad::FeatureType::Pattern:
         m_commands->start(std::make_unique<PatternCommand>(
             ctx, std::static_pointer_cast<const cad::PatternFeature>(f)->kind, id));
@@ -565,6 +567,8 @@ void MainWindow::buildActions() {
                [this, ctx] { startCommand(QStringLiteral("chamfer"), std::make_unique<ChamferCommand>(ctx)); });
     makeAction("combine", tr("Combine"), IconId::Combine, {},
                [this, ctx] { startCommand(QStringLiteral("combine"), std::make_unique<CombineCommand>(ctx)); });
+    makeAction("thread", tr("Thread"), IconId::Thread, {},
+               [this, ctx] { startCommand(QStringLiteral("thread"), std::make_unique<ThreadCommand>(ctx)); });
     makeAction("mirror", tr("Mirror"), IconId::Mirror, {}, [this, ctx] {
         startCommand(QStringLiteral("mirror"), std::make_unique<PatternCommand>(ctx, cad::PatternKind::Mirror));
     });
@@ -660,6 +664,7 @@ void MainWindow::buildRibbon() {
     create->addAction(action(QStringLiteral("createSketch")));
     create->addAction(action(QStringLiteral("extrude")));
     create->addAction(action(QStringLiteral("hole")));
+    create->addAction(action(QStringLiteral("thread")));
     create->addAction(action(QStringLiteral("patternRect")), false);
     create->addAction(action(QStringLiteral("patternCircular")), false);
     create->addAction(action(QStringLiteral("mirror")), false);

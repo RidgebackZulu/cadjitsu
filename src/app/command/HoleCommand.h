@@ -9,6 +9,7 @@
 #include <vector>
 
 class QComboBox;
+class QLabel;
 
 namespace cadly {
 
@@ -43,7 +44,10 @@ public:
     QComboBox *extentBox() const { return m_extent; }
     QComboBox *tipBox() const { return m_tip; }
     ValueField *diameterField() const { return m_diameterField; }
-    ValueField *canvasValue() const override { return m_diameterField; }
+    ValueField *canvasValue() const override;
+    QComboBox *threadSizeBox() const { return m_threadSize; }
+    QComboBox *threadModeBox() const { return m_threadMode; }
+    QLabel *threadInfo() const { return m_threadInfo; }
     ValueField *depthField() const { return m_depthField; }
     ValueField *xField() const { return m_x; }
     ValueField *yField() const { return m_y; }
@@ -60,9 +64,13 @@ private:
     std::optional<InputRef> m_face;       // placement face
     std::vector<cad::Vec2> m_points;      // on it
     std::vector<InputRef> m_sketchPoints; // or sketch points (of one sketch)
-    cad::ParamSlot m_diameter, m_depth, m_cboreDiameter, m_cboreDepth, m_csinkDiameter, m_csinkAngle, m_tipAngle;
+    cad::ParamSlot m_diameter, m_depth, m_cboreDiameter, m_cboreDepth, m_csinkDiameter, m_csinkAngle, m_tipAngle,
+        m_threadClearance;
 
-    QComboBox *m_placement = nullptr, *m_type = nullptr, *m_extent = nullptr, *m_tip = nullptr;
+    QComboBox *m_placement = nullptr, *m_type = nullptr, *m_extent = nullptr, *m_tip = nullptr, *m_threadSize = nullptr,
+              *m_threadMode = nullptr;
+    ValueField *m_threadClearanceField = nullptr;
+    QLabel *m_threadInfo = nullptr;
     SelectionField *m_position = nullptr;
     ValueField *m_x = nullptr, *m_y = nullptr;
     ValueField *m_diameterField = nullptr, *m_depthField = nullptr, *m_cboreDiameterField = nullptr,
