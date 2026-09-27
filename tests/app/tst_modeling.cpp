@@ -157,11 +157,19 @@ private slots:
         QVERIFY(profiles);
         QCOMPARE(profiles->count(), 1);
         settle();
-        // The default 10 mm preview is on screen, but not in the document yet.
+        // No distance yet: the arrow waits to be dragged, the box to be typed in.
+        QVERIFY(field<ValueField>("extrudeDistance")->text().isEmpty());
+        QVERIFY(field<ValueField>("extrudeDistance")->hasFocus());
+        QVERIFY(extrude()->arrow().visible());
+        QCOMPARE(volume(view()->state()), 0.0);
+        QVERIFY(panel()->message().contains(QStringLiteral("drag the arrow")));
+        QCOMPARE(int(doc().features().size()), 1);
+        // Typing a distance previews it (a number only; the unit is beside it).
+        typeInto(field<ValueField>("extrudeDistance"), QStringLiteral("10"));
+        settle();
         QVERIFY(view()->evaluation()->preview);
         QVERIFY(std::fabs(volume(view()->state()) - 8000.0) < 1e-6);
         QCOMPARE(int(doc().features().size()), 1);
-        // Typing a distance updates the preview.
         typeInto(field<ValueField>("extrudeDistance"), QStringLiteral("25"));
         settle();
         QVERIFY(std::fabs(volume(view()->state()) - 20000.0) < 1e-6);
@@ -175,7 +183,7 @@ private slots:
         QVERIFY(std::fabs(volume(view()->state()) - 20000.0) < 1e-6);
         const auto e = std::dynamic_pointer_cast<const cad::ExtrudeFeature>(doc().features()[1]);
         QVERIFY(e);
-        QCOMPARE(e->distance.expr, std::string("25"));
+        QCOMPARE(e->distance.expr, std::string("25 mm"));
         QCOMPARE(QString::fromStdString(doc().undoLabel()), QStringLiteral("Create Extrude1"));
         // The used sketch is hidden, as in Fusion.
         QVERIFY(!view()->sketchShown(doc().features()[0]->id));
@@ -186,6 +194,7 @@ private slots:
         QVERIFY(waitForFrames(vp(), 1));
         click(at(20, 10, 0));
         m_window->action(QStringLiteral("extrude"))->trigger();
+        typeInto(field<ValueField>("extrudeDistance"), QStringLiteral("10"));
         settle();
         QVERIFY(volume(view()->state()) > 0);
         panel()->cancelButton()->click();
@@ -218,6 +227,7 @@ private slots:
         click(at(20, 10, 10));
         QCOMPARE(view()->selection().count(SelectionItem::Kind::Profile), size_t(1));
         m_window->action(QStringLiteral("extrude"))->trigger();
+        typeInto(field<ValueField>("extrudeDistance"), QStringLiteral("10"));
         settle();
         // Outwards from the face: Join.
         QCOMPARE(extrude()->operation(), cad::BodyOperation::Join);
@@ -315,7 +325,8 @@ private slots:
         doubleClick(tl, item);
         QVERIFY(m_window->commands()->active());
         QVERIFY(extrude()->isEditing());
-        QCOMPARE(field<ValueField>("extrudeDistance")->expression(), QStringLiteral("15"));
+        QCOMPARE(field<ValueField>("extrudeDistance")->text(), QStringLiteral("15"));
+        QCOMPARE(field<ValueField>("extrudeDistance")->expression(), QStringLiteral("15 mm"));
         QCOMPARE(field<SelectionField>("extrudeProfiles")->count(), 1);
         QCOMPARE(extrude()->operation(), cad::BodyOperation::NewBody);
         // The timeline shows the model rolled back to the feature being edited.
@@ -537,7 +548,7 @@ private slots:
         // The reopened extrude edits like the original.
         doubleClick(m_window->timeline(), m_window->timeline()->itemRect(1).center());
         QVERIFY(extrude() && extrude()->isEditing());
-        QCOMPARE(field<ValueField>("extrudeDistance")->expression(), QStringLiteral("12"));
+        QCOMPARE(field<ValueField>("extrudeDistance")->expression(), QStringLiteral("12 mm"));
         panel()->cancelButton()->click();
     }
 
@@ -550,6 +561,7 @@ private slots:
         QVERIFY(!m_window->sketchMode()->active());
         QVERIFY(m_window->commands()->active());
         QCOMPARE(field<SelectionField>("extrudeProfiles")->count(), 1);
+        typeInto(field<ValueField>("extrudeDistance"), QStringLiteral("10"));
         settle();
         QVERIFY(std::fabs(volume(view()->state()) - M_PI * 100 * 10) < 1e-6);
         panel()->okButton()->click();

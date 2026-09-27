@@ -464,6 +464,15 @@ def move_tool():
     return s
 
 
+def select_tool():
+    """The select pointer: an arrow cursor over a dashed selection box."""
+    s = poly([(8, 10), (40, 10), (40, 34), (8, 34)], "#E6EEF9", "#6F84A0", 1.4,
+             'stroke-dasharray="3,2"')
+    arrow = [(24, 18), (24, 54), (32.5, 46), (38, 58), (44, 55.5), (38.5, 44), (50, 44)]
+    s += poly(arrow, "#FFFFFF", INK, 2.2)
+    return s
+
+
 def offset():
     """A rounded sketch outline and its offset copy around it, with the gap's
     distance arrow."""
@@ -1077,7 +1086,7 @@ ICONS = {
     "parallel": g_parallel, "perpendicular": g_perpendicular, "tangent": g_tangent, "equal": g_equal,
     "midpoint": g_midpoint, "concentric": g_concentric, "fix": g_fix, "symmetric": g_symmetric,
     "extrude": extrude, "fillet": fillet, "chamfer": chamfer, "hole": hole, "combine": combine, "plane": plane,
-    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "offset": offset, "draft": draft, "mirror": mirror, "pattern-rect": pattern_rect, "pattern-circ": pattern_circ, "thread": thread,
+    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "offset": offset, "select": select_tool, "draft": draft, "mirror": mirror, "pattern-rect": pattern_rect, "pattern-circ": pattern_circ, "thread": thread,
     "undo": undo, "redo": redo, "save": save, "open": open_, "new": new, "export-stl": export_stl,
     "export-step": export_step, "print-3d": print3d,
     "eye": eye, "eye-off": eye_off, "body": body, "sketch-node": sketch_node, "plane-node": plane_node,

@@ -3,6 +3,7 @@
 #include "sketch/SketchEditor.h"
 #include "ui/AngleDial.h"
 #include "ui/Icons.h"
+#include "ui/Units.h"
 #include "viewport/ViewCube.h"
 
 #include <QCheckBox>
@@ -26,6 +27,13 @@ namespace cadly {
 ValueField::ValueField(cad::ValueKind kind, Evaluator eval, QWidget *parent)
     : QLineEdit(parent), m_kind(kind), m_eval(std::move(eval)) {
     setMinimumWidth(110);
+    m_unit = UnitSuffix::attach(this, kind);
+    if(m_unit)
+        connect(m_unit, &UnitSuffix::unitPicked, this, [this](const QString &u) {
+            revalidate();
+            emit unitChanged(u);
+            emit edited();
+        });
     connect(this, &QLineEdit::textEdited, this, [this] {
         m_selectOnClick = false;
         revalidate();
@@ -34,15 +42,49 @@ ValueField::ValueField(cad::ValueKind kind, Evaluator eval, QWidget *parent)
     revalidate();
 }
 
+QString ValueField::expression() const { return units::toExpression(text(), unit(), m_kind); }
+
+QString ValueField::unit() const { return m_unit ? m_unit->unit() : QString(); }
+
+void ValueField::setUnit(const QString &u) {
+    if(!m_unit || u == m_unit->unit()) return;
+    m_unit->setUnit(u);
+    revalidate();
+    emit unitChanged(u);
+    emit edited();
+}
+
 void ValueField::setExpression(const QString &expr) {
-    setText(expr);
+    if(m_unit) {
+        m_unit->resetToDefault();
+        emit unitChanged(m_unit->unit());
+    }
+    setText(units::displayText(expr, m_kind));
     m_selectOnClick = true;
     revalidate();
 }
 
 void ValueField::enterExpression(const QString &expr) {
-    if(text() == expr) return;
-    setText(expr);
+    const QString shown = units::displayText(expr, m_kind);
+    const bool sameUnit = !m_unit || m_unit->unit() == units::defaultUnit(m_kind);
+    if(text() == shown && sameUnit) return;
+    if(m_unit && !sameUnit) {
+        m_unit->resetToDefault();
+        emit unitChanged(m_unit->unit());
+    }
+    setText(shown);
+    revalidate();
+    emit edited();
+}
+
+void ValueField::enterInput(const QString &t, const QString &u) {
+    if(text() == t && unit() == u) return;
+    if(m_unit && !u.isEmpty() && u != m_unit->unit()) {
+        m_unit->setUnit(u);
+        emit unitChanged(u);
+    }
+    setText(t);
+    m_selectOnClick = false;
     revalidate();
     emit edited();
 }
@@ -72,8 +114,10 @@ void ValueField::revalidate() {
         else tip = QString::fromStdString(r.error);
     }
     setToolTip(tip);
-    // Styled by the panel (red when the value does not evaluate).
-    const bool invalid = !m_value;
+    if(m_unit) m_unit->setActive(units::isNumber(text()) || text().trimmed().isEmpty());
+    // Styled by the panel (red when the value does not evaluate; not while
+    // still empty, waiting for a value).
+    const bool invalid = !m_value && !text().trimmed().isEmpty();
     if(property("invalid").toBool() != invalid) {
         setProperty("invalid", invalid);
         style()->unpolish(this);

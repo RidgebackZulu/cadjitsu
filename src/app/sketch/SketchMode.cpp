@@ -428,9 +428,10 @@ void SketchMode::editDimension(int constraintId) {
                                                                                      SketchEditor::kindOf(c->type)))
                              : QString::fromStdString(c->expr);
     SketchEditor *ed = m_editor.get();
-    m_dimensionEdit = new InlineValueEditor(m_viewport, text, center, [ed, constraintId](const QString &t, QString *err) {
-        return ed->setDimensionExpression(constraintId, t, err);
-    });
+    m_dimensionEdit = new InlineValueEditor(m_viewport, text, SketchEditor::kindOf(c->type), center,
+                                            [ed, constraintId](const QString &t, QString *err) {
+                                                return ed->setDimensionExpression(constraintId, t, err);
+                                            });
 }
 
 bool SketchMode::editSize(int entityId) {

@@ -519,8 +519,18 @@ bool plateScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     check(!mode->active() && ex && ex->profileCount() == 1,
           QStringLiteral("E finishes the sketch and extrudes its profile"));
     if(!ex) return false;
-    settle(QStringLiteral("default preview"));
+    settle(QStringLiteral("waiting for a distance"));
     check(w.focusWidget() == ex->distanceField(), QStringLiteral("the distance box has the keyboard"));
+    check(ex->distanceField()->text().isEmpty() && ex->arrow().visible() && shown() == 0.0,
+          QStringLiteral("no distance until one is typed or dragged: the arrow and the empty box wait"));
+    {
+        // Seen from the side, to show the arrow.
+        const QQuaternion was = vp->camera().rotation;
+        vp->setStandardView(StandardView::Home, false);
+        shot("plate_2a_extrude_start.png");
+        vp->camera().rotation = was;
+        vp->update();
+    }
     typeText(w, QStringLiteral("20"));
     settle(QStringLiteral("20 mm preview"));
     check(w.modelView()->evaluation()->preview && near(shown(), plate) && doc.features().size() == 1,
@@ -936,7 +946,7 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     w.editFeature(doc.features()[2]->id);
     fillet = qobject_cast<FilletCommand *>(w.commands()->command());
     check(fillet && fillet->isEditing() && fillet->edgeCount() == 3 &&
-              fillet->radiusField()->expression() == QStringLiteral("6"),
+              fillet->radiusField()->expression() == QStringLiteral("6 mm"),
           QStringLiteral("Edit Feature reopens the fillet with its edges and radius"));
     shot("features_6_edit_fillet.png");
     w.commandPanel()->cancelButton()->click();
@@ -1578,7 +1588,7 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     const cad::FeatureId first = doc.features()[1]->id;
     w.editFeature(first);
     ex = extrudeCommand();
-    check(ex && ex->isEditing() && ex->distanceField()->expression() == QStringLiteral("8"),
+    check(ex && ex->isEditing() && ex->distanceField()->expression() == QStringLiteral("8 mm"),
           QStringLiteral("Edit Feature reopens Extrude1 at 8 mm"));
     if(!ex) return false;
     type(ex->distanceField(), QStringLiteral("10"));

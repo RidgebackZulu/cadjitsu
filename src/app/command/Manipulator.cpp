@@ -30,11 +30,11 @@ void DistanceManipulator::setAxis(const QVector3D &origin, const QVector3D &dire
     m_dir = direction.normalized();
 }
 
-// A zero distance still shows a short arrow to grab.
+// A zero distance (nothing entered yet) still shows a good length of arrow to grab.
 double DistanceManipulator::displayLength() const {
     if(std::fabs(m_distance) > 1e-9) return m_distance;
     const Camera c = cameraOf(m_viewport);
-    return c.unitsPerPixel(std::max(c.depthOf(m_origin), 1e-3f)) * 30.0;
+    return c.unitsPerPixel(std::max(c.depthOf(m_origin), 1e-3f)) * 70.0;
 }
 
 QPointF DistanceManipulator::headOnScreen() const { return cameraOf(m_viewport).project(head()); }
@@ -116,18 +116,18 @@ void DistanceManipulator::contribute(RenderScene &scene) {
     const QVector3D along = m_dir * dirSign;
     LineBatch shaft;
     shaft.color = color;
-    shaft.width = 2.4f;
+    shaft.width = 3.2f;
     shaft.depthTest = false;
     shaft.ignoreClip = true;
-    shaft.segments = {m_origin, tip - along * (upp * 14.0f)};
+    shaft.segments = {m_origin, tip - along * (upp * 17.0f)};
     scene.lines.push_back(shaft);
     // A cone for the head.
     QVector3D side = QVector3D::crossProduct(along, QVector3D(0, 0, 1));
     if(side.lengthSquared() < 1e-6f) side = QVector3D::crossProduct(along, QVector3D(1, 0, 0));
     side.normalize();
     const QVector3D side2 = QVector3D::crossProduct(along, side).normalized();
-    const QVector3D base = tip - along * (upp * 16.0f);
-    const float r = upp * 6.0f;
+    const QVector3D base = tip - along * (upp * 19.0f);
+    const float r = upp * 7.5f;
     TriangleBatch cone;
     cone.color = color;
     cone.depthTest = false;

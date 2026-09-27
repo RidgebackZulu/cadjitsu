@@ -2,6 +2,7 @@
 
 #include "sketch/ProfileMesh.h"
 #include "ui/Icons.h"
+#include "ui/Units.h"
 #include "viewport/OverlayPaint.h"
 #include "viewport/Viewport.h"
 
@@ -742,7 +743,7 @@ double SketchEditor::dimensionValue(const SkConstraint &c) const {
 QString SketchEditor::dimensionText(const SkConstraint &c) const {
     const double v = dimensionValue(c);
     QString text = c.type == SkCon::Angle ? QString::number(v * 180.0 / cad::kPi, 'f', 1) + QChar(0x00B0)
-                                          : QString::number(v, 'f', 2);
+                                          : units::formatInDefault(v, cad::ValueKind::Length, 2);
     if(c.type == SkCon::Radius) text.prepend(QLatin1Char('R'));
     if(c.type == SkCon::Diameter) text.prepend(QChar(0x2300));
     std::set<std::string> names;

@@ -67,6 +67,8 @@ void CommandController::start(std::unique_ptr<Command> cmd) {
     m_ctx.view->setCommandInput(true);
     m_cmd->setup();
     connect(m_cmd.get(), &Command::inputsChanged, this, [this] {
+        // OK takes a click straight away (commit() checks the inputs again).
+        m_ctx.panel->setOkEnabled(true);
         // Coalesce bursts of changes (typing, dragging) into one preview.
         if(m_previewPending) return;
         m_previewPending = true;
@@ -175,7 +177,12 @@ void CommandController::onEvaluation(const EvaluationPtr &e) {
 }
 
 bool CommandController::commit() {
-    if(!m_cmd || !m_ctx.panel->okButton()->isEnabled()) return false; // not ready, or its preview failed
+    if(!m_cmd) return false;
+    // A value typed and Enter pressed straight away: the preview for it has not
+    // been asked for yet, so bring OK up to date with the inputs first. (Once
+    // a preview has failed, OK stays off until the inputs change.)
+    if(m_previewPending && !m_ctx.panel->okButton()->isEnabled()) preview();
+    if(!m_ctx.panel->okButton()->isEnabled()) return false; // not ready, or its preview failed
     if(!m_cmd->makesFeature()) {
         QString why;
         if(!m_cmd->ready(why)) return false;

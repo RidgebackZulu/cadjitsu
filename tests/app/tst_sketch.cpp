@@ -186,7 +186,7 @@ private slots:
         for(const auto &c : sk().constraints)
             if(c.type == SkCon::Distance) exprs.push_back(c.expr);
         std::sort(exprs.begin(), exprs.end());
-        QCOMPARE(exprs, (std::vector<std::string>{"25", "40"}));
+        QCOMPARE(exprs, (std::vector<std::string>{"25 mm", "40 mm"}));
         QCOMPARE(int(ed()->profiles().size()), 1);
         QVERIFY(std::fabs(std::fabs(ed()->profiles()[0].area) - 1000.0) < 1e-6);
         QCOMPARE(ed()->solveResult().dof, 0);
@@ -236,7 +236,7 @@ private slots:
         QVERIFY(std::fabs(lineLength(sk(), *line) - 32.5) < 1e-6);
         const cad::SkConstraint *d = findCon(sk(), SkCon::Distance);
         QVERIFY(d);
-        QCOMPARE(d->expr, std::string("32.5"));
+        QCOMPARE(d->expr, std::string("32.5 mm"));
         QCOMPARE(countCon(sk(), SkCon::Horizontal), 1);
     }
 
@@ -254,7 +254,7 @@ private slots:
         QVERIFY(std::fabs(c->r - 6.0) < 1e-6);
         const cad::SkConstraint *d = findCon(sk(), SkCon::Diameter);
         QVERIFY(d);
-        QCOMPARE(d->expr, std::string("12"));
+        QCOMPARE(d->expr, std::string("12 mm"));
         QCOMPARE(int(ed()->profiles().size()), 1);
     }
 
@@ -275,7 +275,7 @@ private slots:
         processEventsFor(20);
         const cad::SkConstraint *d = findCon(sk(), SkCon::Distance);
         QVERIFY(d);
-        QCOMPARE(d->expr, std::string("50"));
+        QCOMPARE(d->expr, std::string("50 mm"));
         const int dimId = d->id;
         for(const auto &e : sk().entities)
             if(e.type == SkType::Line) QVERIFY(std::fabs(lineLength(sk(), e) - 50.0) < 1e-6);

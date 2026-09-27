@@ -26,6 +26,7 @@
 #include "ui/ExportDialog.h"
 #include "ui/Icons.h"
 #include "ui/SettingsDialog.h"
+#include "ui/Units.h"
 #include "ui/MarkingMenu.h"
 #include "ui/Ribbon.h"
 #include "ui/TimelineWidget.h"
@@ -492,6 +493,8 @@ SettingsDialog *MainWindow::openSettings() {
         m_viewport->setMouseBindings(b);
         ExtrudeCommand::setAutoOperation(dlg->autoOperation());
         setLiveSketchBodies(dlg->liveSketchBodies());
+        units::setDefaultLengthUnit(dlg->lengthUnit());
+        m_viewport->refreshOverlay(); // dimension labels
     });
     dlg->open();
     return dlg;
@@ -596,6 +599,7 @@ void MainWindow::buildActions() {
     m_toolGroup = new QActionGroup(this);
     m_toolGroup->setExclusionPolicy(QActionGroup::ExclusionPolicy::ExclusiveOptional);
     const std::tuple<const char *, SketchToolKind, IconId, QKeySequence> tools[] = {
+        {"sketchSelect", SketchToolKind::Select, IconId::Select, {}},
         {"sketchLine", SketchToolKind::Line, IconId::Line, QKeySequence(Qt::Key_L)},
         {"sketchRectangle", SketchToolKind::Rectangle, IconId::Rectangle, QKeySequence(Qt::Key_R)},
         {"sketchCenterRectangle", SketchToolKind::CenterRectangle, IconId::CenterRectangle, {}},
@@ -624,6 +628,9 @@ void MainWindow::buildActions() {
         m_toolActions[k] = a;
         m_sketchOnly.push_back(a);
     }
+    m_actions[QStringLiteral("sketchSelect")]->setToolTip(
+        tr("<b>Select (Esc)</b><p>Puts down the drawing tool, so you can pick sketch geometry and dimensions: drag "
+           "points and curves, double-click a line, circle or dimension to change its size.</p>"));
     m_actions[QStringLiteral("sketchOffset")]->setToolTip(
         tr("<b>Offset (O)</b><p>Copies the selected sketch curves a specified distance from the original curves.</p>"
            "<p>Select the curves to offset then specify the offset distance.</p>"));
@@ -689,6 +696,8 @@ void MainWindow::buildRibbon() {
     m_solidTab->addStretch();
 
     m_sketchTab = m_ribbon->addTab(tr("SKETCH"));
+    RibbonGroup *select = m_sketchTab->addGroup(tr("SELECT"));
+    select->addAction(action(QStringLiteral("sketchSelect")));
     RibbonGroup *draw = m_sketchTab->addGroup(tr("CREATE"));
     for(const char *name : {"sketchLine", "sketchRectangle", "sketchCircle", "sketchArc", "sketchDimension"})
         draw->addAction(action(QString::fromLatin1(name)));

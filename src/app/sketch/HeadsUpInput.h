@@ -15,6 +15,8 @@
 
 namespace cadly {
 
+class UnitSuffix;
+
 // Fusion 360-style heads-up value boxes that follow the cursor while drawing
 // (length and angle of a line, width and height of a rectangle, a circle's
 // diameter). They show live values until the user types: a typed value or
@@ -46,7 +48,7 @@ public:
     void place(int i, QPointF px);
     bool locked(int i) const;
     std::optional<double> value(int i) const; // the typed value, if locked and valid
-    QString expression(int i) const;          // the typed text
+    QString expression(int i) const;          // what was typed (a number with its unit, or a formula)
     void unlockAll();
     // Starts typing into the active box (a key typed on the canvas).
     void beginTyping(const QString &text);
@@ -68,6 +70,7 @@ private:
     struct Entry {
         Field def;
         QPointer<QLineEdit> edit; // a child of the host, which may be deleted first
+        QPointer<UnitSuffix> unit;
         bool locked = false;
         std::optional<double> value;
     };
@@ -90,7 +93,9 @@ class InlineValueEditor : public QLineEdit {
 public:
     using Apply = std::function<bool(const QString &text, QString *error)>;
 
-    InlineValueEditor(QWidget *host, const QString &text, QPointF center, Apply apply);
+    // Shows `expr` as a number in the default unit (with a unit drop-down);
+    // `apply` gets the expression it stands for.
+    InlineValueEditor(QWidget *host, const QString &expr, cad::ValueKind kind, QPointF center, Apply apply);
     // Closes without applying.
     void dismiss() { finish(false); }
 
@@ -105,6 +110,8 @@ private:
     void finish(bool applied);
 
     Apply m_apply;
+    cad::ValueKind m_kind;
+    QPointer<UnitSuffix> m_unit;
     bool m_done = false;
 };
 

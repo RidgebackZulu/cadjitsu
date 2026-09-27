@@ -110,7 +110,8 @@ void ExtrudeCommand::setup() {
                 if(r && (r->kind == SelectionItem::Kind::Profile || planarFace)) m_refs[Profiles].push_back(*r);
             }
     }
-    m_distanceField->setExpression(QString::fromStdString(m_distance.expr));
+    // A new extrude waits for its distance (typed, or dragged with the arrow).
+    m_distanceField->setExpression(m_original ? QString::fromStdString(m_distance.expr) : QString());
     m_taperField->setExpression(QString::fromStdString(m_taper.expr));
     m_distance2Field->setExpression(QString::fromStdString(m_distance2.expr));
     m_taper2Field->setExpression(QString::fromStdString(m_taper2.expr));
@@ -363,6 +364,10 @@ std::shared_ptr<cad::Feature> ExtrudeCommand::build(QString &why) {
     }
     auto bad = [&](ValueField *f, const QString &what) {
         if(f->valid()) return false;
+        if(f->expression().isEmpty()) {
+            why = f == m_distanceField ? tr("Type the distance, or drag the arrow.") : tr("%1: enter a value").arg(what);
+            return true;
+        }
         why = tr("%1: %2").arg(what, f->toolTip().isEmpty() ? tr("enter a value") : f->toolTip());
         return true;
     };

@@ -123,6 +123,7 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 
 ## Editing a sketch
 
+- **Select** (the pointer at the left of the SKETCH ribbon, or Esc) puts down the drawing tool, so you can pick geometry and dimensions to change them.
 - Double-click a line, circle or arc to type its length, diameter or radius (its dimension, or a new one beside it); the sketch re-solves at once. Double-click a dimension to change it. Shift + double-click selects a chain of connected curves.
 - Drag points and curves to move what is not fixed by dimensions. Grab any part of a selection (box-select it first) to move the whole selection; Esc in the middle of a drag puts it back.
 - **Move / Copy (M)**: click the geometry (or select it first), click a base point, then where it goes; the heads-up boxes take an exact ΔX, ΔY and a turn about the base point. Hold Ctrl (Cmd) on the last click to place a copy (its constraints and dimensions come along).
@@ -134,13 +135,14 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 
 **Extrude (E)**
 - Select one or more profiles (shaded sketch regions) or planar faces, then press **E**. Inside a sketch, **E** finishes the sketch and extrudes its profile.
-- The dialog opens at the right of the canvas with the distance box ready for typing. An arrow on the canvas can be dragged instead.
+- The dialog opens at the right of the canvas with the distance box empty and ready for typing; nothing is extruded until you type a distance or drag the arrow on the canvas.
 - **Direction:** One Side, Two Sides (a distance and taper for each) or Symmetric.
 - **Extent:** Distance, To Object (click the face to stop at; faces at an angle work too), or All (through everything; Flip picks the side).
 - **Taper Angle:** positive angles flare the sides outwards, negative angles draw them in.
 - **Operation:** New Body by default, so an extrude never changes other bodies; join or subtract them afterwards with **Combine**. Choose Join, Cut or Intersect in the dialog to do it in one step. (File > Settings > "Choose Join / Cut automatically" restores Fusion's behaviour: out of a body's face joins, into a body cuts.)
-- A value box next to the arrow shows the distance too: just type a number while the command is open (on the canvas or in the dialog) and it replaces the value. Clicking into a value selects it all, so what you type replaces it. A plain number is millimetres.
-- Values take expressions and units (`20`, `d1 / 2`, `0.5 in`). The model previews live; **OK** or Enter adds one timeline step, Esc or **Cancel** leaves the design untouched.
+- A value box next to the arrow shows the distance too: just type a number while the command is open (on the canvas or in the dialog) and it replaces the value. Clicking into a value selects it all, so what you type replaces it.
+- **Units:** value boxes hold just the number. The unit sits in a small drop-down at the box's right end (mm, cm, m, in, ft; deg or rad for angles): pick "in" and type 1, and the value is 25.4 mm. Numbers are shown, and typed ones converted, in the default unit (File > Settings > Units; millimetres unless changed). This holds for the sketch's heads-up boxes and dimensions too.
+- Values also take expressions (`d1 / 2`, `1 in + 2`). The model previews live; **OK** or Enter adds one timeline step, Esc or **Cancel** leaves the design untouched.
 
 **Command inputs**
 - While a command's dialog is open, clicks in the canvas add and remove inputs (no modifier needed); what is picked is highlighted, and the × in an input clears it.

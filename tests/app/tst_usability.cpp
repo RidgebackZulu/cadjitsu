@@ -19,6 +19,7 @@
 #include "ui/BrowserTree.h"
 #include "ui/MarkingMenu.h"
 #include "ui/SettingsDialog.h"
+#include "ui/Units.h"
 #include "viewport/Viewport.h"
 
 #include "features/ExtrudeFeature.h"
@@ -26,6 +27,8 @@
 #include "geom/OcctUtil.h"
 
 #include <QComboBox>
+#include <QMenu>
+#include <QToolButton>
 #include <QPushButton>
 #include <QSettings>
 #include <QtTest>
@@ -109,13 +112,16 @@ private slots:
     void clickingAValueSelectsItSoTypingReplacesIt() {
         QVERIFY(startExtrude());
         ValueField *d = extrude()->distanceField();
+        QCOMPARE(d->expression(), QString()); // a new extrude waits for its distance
+        d->setExpression(QStringLiteral("10 mm")); // as when editing an extrude
+        QCOMPARE(d->text(), QStringLiteral("10")); // just the number: the unit is in the drop-down
         QCOMPARE(d->expression(), QStringLiteral("10 mm"));
         // The value already has the keyboard; a click in the middle of its text
         // (where the cursor would land) still selects it all, then type.
         QTest::mouseClick(d, Qt::LeftButton, Qt::NoModifier, QPoint(d->width() / 3, d->height() / 2));
         QTRY_VERIFY(d->hasSelectedText() && d->selectedText() == d->text());
         QTest::keyClicks(d, QStringLiteral("3"));
-        QCOMPARE(d->expression(), QStringLiteral("3"));
+        QCOMPARE(d->expression(), QStringLiteral("3 mm"));
         QVERIFY(d->value() && std::fabs(*d->value() - 3.0) < 1e-9); // 3 means 3 mm
         QVERIFY(m_window->waitForModel());
         double v = 0;
@@ -123,11 +129,101 @@ private slots:
         QVERIFY2(std::fabs(v - 40 * 20 * 3) < 1e-6, qPrintable(QString::number(v)));
     }
 
+    // Value boxes hold just the number; its unit is a drop-down beside it, and
+    // a number typed in another unit is converted to the default one.
+    void valueBoxesShowNumbersWithAUnitDropDown() {
+        QVERIFY(startExtrude());
+        ValueField *d = extrude()->distanceField();
+        auto *suffix = d->findChild<UnitSuffix *>();
+        QVERIFY(suffix && suffix->isVisible());
+        QCOMPARE(suffix->unit(), QStringLiteral("mm"));
+        QVERIFY(suffix->geometry().left() >= d->width() - suffix->width() - 4); // inside the box's right end
+        QVERIFY(d->textMargins().right() >= suffix->width());                  // text kept clear of it
+        // 1 inch, typed as "1" with "in" picked.
+        QTest::keyClicks(d, QStringLiteral("1"));
+        suffix->menu()->actions().at(3)->trigger(); // mm, cm, m, in, ft
+        QCOMPARE(d->unit(), QStringLiteral("in"));
+        QCOMPARE(d->text(), QStringLiteral("1"));
+        QCOMPARE(d->expression(), QStringLiteral("25.4 mm"));
+        QVERIFY(d->value() && std::fabs(*d->value() - 25.4) < 1e-9);
+        // The canvas box mirrors number and unit.
+        CanvasValueBox *box = m_window->commands()->canvasBox();
+        QTRY_VERIFY(box->isVisible());
+        QCOMPARE(box->text(), QStringLiteral("1"));
+        QCOMPARE(box->findChild<UnitSuffix *>()->unit(), QStringLiteral("in"));
+        // Committed, it is stored (and shown again) in the default unit.
+        m_window->commandPanel()->okButton()->click();
+        QVERIFY(m_window->waitForModel());
+        const auto e = std::dynamic_pointer_cast<const cad::ExtrudeFeature>(doc().features().back());
+        QVERIFY(e);
+        QCOMPARE(QString::fromStdString(e->distance.expr), QStringLiteral("25.4 mm"));
+        m_window->editFeature(e->id);
+        QVERIFY(extrude());
+        QCOMPARE(extrude()->distanceField()->text(), QStringLiteral("25.4"));
+        QCOMPARE(extrude()->distanceField()->unit(), QStringLiteral("mm"));
+        // Formulas are taken as typed.
+        extrude()->distanceField()->enterExpression(QStringLiteral("1 in + 2"));
+        QCOMPARE(extrude()->distanceField()->expression(), QStringLiteral("1 in + 2"));
+        QVERIFY(std::fabs(*extrude()->distanceField()->value() - 27.4) < 1e-9);
+        m_window->commandPanel()->cancelButton()->click();
+    }
+
+    void theDefaultLengthUnitIsASetting() {
+        units::setDefaultLengthUnit(QStringLiteral("cm"));
+        struct Restore {
+            ~Restore() { units::setDefaultLengthUnit(QStringLiteral("mm")); }
+        } restore;
+        QCOMPARE(units::displayText(QStringLiteral("25 mm"), cad::ValueKind::Length), QStringLiteral("2.5"));
+        QCOMPARE(units::toExpression(QStringLiteral("3"), QStringLiteral("cm"), cad::ValueKind::Length),
+                 QStringLiteral("3 cm"));
+        QCOMPARE(units::toExpression(QStringLiteral("1"), QStringLiteral("in"), cad::ValueKind::Length),
+                 QStringLiteral("2.54 cm"));
+        QCOMPARE(units::displayText(QStringLiteral("30 deg"), cad::ValueKind::Angle), QStringLiteral("30"));
+        QCOMPARE(units::displayText(QStringLiteral("d1 * 2"), cad::ValueKind::Length), QStringLiteral("d1 * 2"));
+        // The sketch's heads-up boxes show live values in it, number only.
+        QCOMPARE(HeadsUpInput::formatLive(12.5, cad::ValueKind::Length), QStringLiteral("1.25"));
+        // The Settings dialog offers it.
+        SettingsDialog *dlg = m_window->openSettings();
+        QCOMPARE(dlg->lengthUnit(), QStringLiteral("cm"));
+        dlg->lengthUnitBox()->setCurrentIndex(3);
+        dlg->accept();
+        QCOMPARE(units::defaultUnit(cad::ValueKind::Length), QStringLiteral("in"));
+    }
+
+    // Sketch: a Select button puts down the drawing tool.
+    void theSketchSelectButtonLeavesADrawingTool() {
+        sketch();
+        m_window->editFeature(doc().features().front()->id);
+        SketchMode *mode = m_window->sketchMode();
+        QVERIFY(mode->active());
+        QAction *select = m_window->action(QStringLiteral("sketchSelect"));
+        QVERIFY(select && select->isCheckable());
+        QVERIFY(select->isChecked());
+        m_window->action(QStringLiteral("sketchLine"))->trigger();
+        QCOMPARE(mode->tool(), SketchToolKind::Line);
+        QVERIFY(!select->isChecked());
+        select->trigger();
+        QCOMPARE(mode->tool(), SketchToolKind::Select);
+        QVERIFY(select->isChecked());
+        QVERIFY(!m_window->action(QStringLiteral("sketchLine"))->isChecked());
+    }
+
+    // The navigation bar's menu buttons draw their own chevron beside the icon.
+    void navigationBarMenusHaveTheirOwnChevron() {
+        for(const char *name : {"navDisplay", "navCamera"}) {
+            auto *b = vp()->findChild<QToolButton *>(QString::fromLatin1(name));
+            QVERIFY2(b && b->menu(), name);
+            QVERIFY(b->width() >= b->iconSize().width() + 16); // room for the chevron beside the icon
+        }
+        auto *grid = vp()->findChild<QToolButton *>(QStringLiteral("navGrid"));
+        QVERIFY(grid && !grid->menu() && grid->width() < 36);
+    }
+
     void numbersTypedOnTheCanvasGoToTheValue() {
         QVERIFY(startExtrude());
         CanvasValueBox *box = m_window->commands()->canvasBox();
         QTRY_VERIFY(box->isVisible());
-        QCOMPARE(box->text(), QStringLiteral("10 mm"));
+        QCOMPARE(box->text(), QString());
         // Beside the arrow's head.
         const QPointF head = extrude()->arrow().headOnScreen();
         QVERIFY(QLineF(head, QPointF(box->geometry().left(), box->geometry().center().y())).length() < 40);
@@ -135,12 +231,12 @@ private slots:
         QTest::keyClick(vp(), Qt::Key_2, Qt::NoModifier);
         QCOMPARE(m_window->focusWidget(), static_cast<QWidget *>(box));
         QTest::keyClicks(box, QStringLiteral("5"));
-        QCOMPARE(extrude()->distanceField()->expression(), QStringLiteral("25"));
+        QCOMPARE(extrude()->distanceField()->expression(), QStringLiteral("25 mm"));
         // And back: the panel's value shows in the canvas box.
         extrude()->distanceField()->setFocus();
         extrude()->distanceField()->selectAll();
-        QTest::keyClicks(extrude()->distanceField(), QStringLiteral("7 mm"));
-        QCOMPARE(box->text(), QStringLiteral("7 mm"));
+        QTest::keyClicks(extrude()->distanceField(), QStringLiteral("7"));
+        QCOMPARE(box->text(), QStringLiteral("7"));
         // Enter in the canvas box commits.
         box->setFocus();
         QTest::keyClick(box, Qt::Key_Return);
@@ -300,7 +396,9 @@ private slots:
         QVERIFY(startExtrude()); // the 40 x 20 rectangle
         const cad::FeatureId sid = doc().features().front()->id;
         QTest::keyClicks(extrude()->distanceField(), QStringLiteral("10"));
+        QCOMPARE(extrude()->distanceField()->expression(), QStringLiteral("10 mm"));
         m_window->commandPanel()->okButton()->click();
+        QVERIFY2(!m_window->commands()->active(), qPrintable(m_window->commandPanel()->message()));
         QVERIFY(m_window->waitForModel());
         auto volume = [&] {
             double v = 0;
@@ -327,7 +425,10 @@ private slots:
         m_window->action(QStringLiteral("finishSketch"))->trigger();
         QVERIFY(!mode->active());
         QVERIFY(m_window->waitForModel());
-        QCOMPARE(int(m_window->modelView()->state()->bodies.size()), 1);
+        QString statuses;
+        for(const auto &f : doc().features())
+            statuses += QString::fromStdString(f->name + ": " + doc().statusOf(f->id).message + " / " + f->toJson().dump()) + QStringLiteral("\n");
+        QVERIFY2(int(m_window->modelView()->state()->bodies.size()) == 1, qPrintable(statuses));
         QVERIFY2(std::fabs(volume() - 8000.0) < 1e-6, qPrintable(QString::number(volume())));
         for(const auto &f : doc().features()) QVERIFY(doc().statusOf(f->id).isOk());
     }

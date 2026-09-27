@@ -1,11 +1,14 @@
 #pragma once
 
+#include "expr/Expression.h"
+
 #include <QColor>
 #include <QLineEdit>
 #include <QPointer>
 
 namespace cadly {
 
+class UnitSuffix;
 class ValueField;
 
 // The value box a command shows on the canvas, next to its arrow or the last
@@ -37,7 +40,9 @@ private:
     void restyle();
 
     QPointer<ValueField> m_field;
-    QMetaObject::Connection m_textConn;
+    QPointer<UnitSuffix> m_unit;
+    cad::ValueKind m_unitKind = cad::ValueKind::Length;
+    QMetaObject::Connection m_textConn, m_unitConn;
     QColor m_accent;
 };
 

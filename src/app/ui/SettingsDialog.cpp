@@ -7,6 +7,8 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
+
+#include "ui/Units.h"
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -53,6 +55,24 @@ SettingsDialog::SettingsDialog(const MouseBindings &current, QWidget *parent) : 
     note->setStyleSheet(QStringLiteral("color: #5a6270;"));
     form->addRow(note);
     v->addWidget(mouse);
+
+    auto *unitsBox = new QGroupBox(tr("Units"), this);
+    auto *uf = new QFormLayout(unitsBox);
+    m_lengthUnit = new QComboBox(unitsBox);
+    m_lengthUnit->setObjectName(QStringLiteral("lengthUnit"));
+    const QStringList lengthNames = {tr("Millimetres (mm)"), tr("Centimetres (cm)"), tr("Metres (m)"),
+                                     tr("Inches (in)"), tr("Feet (ft)")};
+    const QStringList lengthUnits = units::choices(cad::ValueKind::Length);
+    for(int i = 0; i < lengthUnits.size(); ++i) m_lengthUnit->addItem(lengthNames.value(i, lengthUnits[i]), lengthUnits[i]);
+    m_lengthUnit->setCurrentIndex(std::max(0, int(lengthUnits.indexOf(units::defaultUnit(cad::ValueKind::Length)))));
+    uf->addRow(tr("Default length unit"), m_lengthUnit);
+    auto *unitNote = new QLabel(tr("Value boxes show numbers in this unit. Pick another unit from a box's drop-down to "
+                                   "type in it; the value is converted."),
+                                unitsBox);
+    unitNote->setWordWrap(true);
+    unitNote->setStyleSheet(QStringLiteral("color: #5a6270;"));
+    uf->addRow(unitNote);
+    v->addWidget(unitsBox);
 
     auto *modeling = new QGroupBox(tr("Extrude"), this);
     auto *mv = new QVBoxLayout(modeling);
@@ -112,6 +132,7 @@ void SettingsDialog::updatePreset() {
 
 bool SettingsDialog::autoOperation() const { return m_autoOperation->isChecked(); }
 bool SettingsDialog::liveSketchBodies() const { return m_liveBodies->isChecked(); }
+QString SettingsDialog::lengthUnit() const { return m_lengthUnit->currentData().toString(); }
 
 MouseBindings SettingsDialog::bindings() const {
     MouseBindings b;

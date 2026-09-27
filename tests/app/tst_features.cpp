@@ -166,14 +166,14 @@ private slots:
         settle();
         QCOMPARE(int(doc().features().size()), 3);
         const auto f = std::dynamic_pointer_cast<const cad::FilletFeature>(doc().features().back());
-        QVERIFY(f && f->edges.size() == 1 && f->radius.expr == "2");
+        QVERIFY(f && f->edges.size() == 1 && f->radius.expr == "2 mm");
         // Edit Feature: same dialog, same values.
         TimelineWidget *tl = m_window->timeline();
         doubleClick(tl, tl->itemRect(2).center());
         fillet = command<FilletCommand>();
         QVERIFY(fillet && fillet->isEditing());
         QCOMPARE(fillet->edgeCount(), 1);
-        QCOMPARE(fillet->radiusField()->expression(), QStringLiteral("2"));
+        QCOMPARE(fillet->radiusField()->expression(), QStringLiteral("2 mm"));
         panel()->cancelButton()->click();
     }
 
@@ -375,13 +375,13 @@ private slots:
         panel()->okButton()->click();
         settle();
         const auto f = std::dynamic_pointer_cast<const cad::ConstructionPlaneFeature>(doc().features().back());
-        QVERIFY(f && f->base.kind == cad::PlaneRef::Kind::Face && f->offset.expr == "15" && f->angle.expr == "30");
+        QVERIFY(f && f->base.kind == cad::PlaneRef::Kind::Face && f->offset.expr == "15 mm" && f->angle.expr == "30 deg");
         // An origin plane works as a base too; Edit Feature reopens with the values.
         m_window->editFeature(f->id);
         plane = command<PlaneCommand>();
         QVERIFY(plane && plane->isEditing() && plane->hasBase());
-        QCOMPARE(plane->offsetField()->expression(), QStringLiteral("15"));
-        QCOMPARE(plane->angleField()->expression(), QStringLiteral("30"));
+        QCOMPARE(plane->offsetField()->expression(), QStringLiteral("15 mm"));
+        QCOMPARE(plane->angleField()->expression(), QStringLiteral("30 deg"));
         panel()->cancelButton()->click();
         settle();
         trigger("offsetPlane");
@@ -463,7 +463,7 @@ private slots:
         vp()->setFocus();
         QTest::keyClick(vp(), Qt::Key_4, Qt::NoModifier);
         QTest::keyClicks(canvasBox, QStringLiteral("5"));
-        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("45"));
+        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("45 deg"));
         // Hovering the arrow puts them back into the distance.
         send(vp(), QEvent::MouseMove, g.arrow().headOnScreen(), Qt::NoButton, Qt::NoButton);
         QCOMPARE(plane->canvasValue(), plane->offsetField());
@@ -498,13 +498,13 @@ private slots:
         const auto f = std::dynamic_pointer_cast<const cad::ConstructionPlaneFeature>(doc().features().back());
         QVERIFY(f && f->axis == cad::PlaneRotationAxis::LocalX && f->pivotAtCenter);
         QCOMPARE(QString::fromStdString(f->angle.expr), QStringLiteral("60 deg"));
-        QCOMPARE(QString::fromStdString(f->angleY.expr), QStringLiteral("-25"));
+        QCOMPARE(QString::fromStdString(f->angleY.expr), QStringLiteral("-25 deg"));
         // Edit Feature reopens both tilts.
         m_window->editFeature(f->id);
         plane = command<PlaneCommand>();
         QVERIFY(plane && plane->isEditing());
         QCOMPARE(plane->angleField()->expression(), QStringLiteral("60 deg"));
-        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("-25"));
+        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("-25 deg"));
         panel()->cancelButton()->click();
         settle();
     }

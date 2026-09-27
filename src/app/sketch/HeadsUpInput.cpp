@@ -1,6 +1,7 @@
 #include "sketch/HeadsUpInput.h"
 
 #include "base/Vec2.h"
+#include "ui/Units.h"
 
 #include <QKeyEvent>
 #include <QTimer>
@@ -29,9 +30,10 @@ HeadsUpInput::~HeadsUpInput() {
 }
 
 QString HeadsUpInput::formatLive(double value, cad::ValueKind kind) {
-    if(kind == cad::ValueKind::Angle) return QString::number(value * 180.0 / cad::kPi, 'f', 1) + QStringLiteral(" deg");
+    if(kind == cad::ValueKind::Angle) return units::formatInDefault(value, kind, 1);
     if(kind == cad::ValueKind::Scalar) return QString::number(value, 'g', 6);
-    return QString::number(value, 'f', 2) + QStringLiteral(" mm");
+    const QString u = units::defaultUnit(kind);
+    return units::formatInDefault(value, kind, u == QLatin1String("in") || u == QLatin1String("ft") ? 3 : 2);
 }
 
 void HeadsUpInput::setFields(const std::vector<Field> &fields) {
@@ -51,12 +53,17 @@ void HeadsUpInput::setFields(const std::vector<Field> &fields) {
         e.edit = new QLineEdit(m_host);
         e.edit->setObjectName(QStringLiteral("hud_") + fields[i].name.toLower());
         e.edit->setToolTip(fields[i].name);
-        e.edit->setFixedWidth(84);
+        e.edit->setFixedWidth(104);
         e.edit->setAlignment(Qt::AlignCenter);
         e.edit->hide();
         e.edit->installEventFilter(this);
         const int idx = int(i);
         connect(e.edit, &QLineEdit::textEdited, this, [this, idx] { onEdited(idx); });
+        e.unit = UnitSuffix::attach(e.edit, fields[i].kind);
+        if(e.unit)
+            connect(e.unit, &UnitSuffix::unitPicked, this, [this, idx] {
+                if(!m_entries[size_t(idx)].edit->text().trimmed().isEmpty()) onEdited(idx);
+            });
         m_entries.push_back(e);
         updateStyle(int(i));
     }
@@ -77,6 +84,7 @@ void HeadsUpInput::setLive(int i, double value) {
     if(i < 0 || i >= count()) return;
     Entry &e = m_entries[size_t(i)];
     if(e.locked || isFocused(e.edit)) return;
+    if(e.unit) e.unit->resetToDefault();
     e.edit->setText(formatLive(value, e.def.kind));
 }
 
@@ -103,7 +111,8 @@ std::optional<double> HeadsUpInput::value(int i) const {
 
 QString HeadsUpInput::expression(int i) const {
     if(i < 0 || i >= count()) return {};
-    return m_entries[size_t(i)].edit->text().trimmed();
+    const Entry &e = m_entries[size_t(i)];
+    return units::toExpression(e.edit->text(), e.unit ? e.unit->unit() : QString(), e.def.kind);
 }
 
 void HeadsUpInput::unlockAll() {
@@ -146,8 +155,9 @@ void HeadsUpInput::onEdited(int i) {
     const QString text = e.edit->text().trimmed();
     e.locked = !text.isEmpty();
     e.value.reset();
+    if(e.unit) e.unit->setActive(text.isEmpty() || units::isNumber(text));
     if(e.locked && m_eval) {
-        const cad::EvalResult r = m_eval(text.toStdString(), e.def.kind);
+        const cad::EvalResult r = m_eval(expression(i).toStdString(), e.def.kind);
         if(r.ok) e.value = r.value;
     }
     m_active = i;
@@ -160,7 +170,7 @@ void HeadsUpInput::updateStyle(int i) {
     const bool invalid = e.locked && !e.value;
     const QString border = invalid ? QStringLiteral("#d23c3c") : e.locked ? QStringLiteral("#1a65c9") : QStringLiteral("#8fb3e3");
     const QString text = invalid ? QStringLiteral("#b02020") : e.locked ? QStringLiteral("#10223c") : QStringLiteral("#3b4552");
-    e.edit->setStyleSheet(QString::fromLatin1(kBoxStyle).arg(border, text));
+    e.edit->setStyleSheet(QString::fromLatin1(kBoxStyle).arg(border, text) + QStringLiteral(" #unitSuffix { border: none; }"));
 }
 
 bool HeadsUpInput::eventFilter(QObject *o, QEvent *ev) {
@@ -191,13 +201,18 @@ bool HeadsUpInput::eventFilter(QObject *o, QEvent *ev) {
 
 // ---------------------------------------------------------------------------
 
-InlineValueEditor::InlineValueEditor(QWidget *host, const QString &text, QPointF center, Apply apply)
-    : QLineEdit(host), m_apply(std::move(apply)) {
+InlineValueEditor::InlineValueEditor(QWidget *host, const QString &expr, cad::ValueKind kind, QPointF center,
+                                     Apply apply)
+    : QLineEdit(host), m_apply(std::move(apply)), m_kind(kind) {
     setObjectName(QStringLiteral("dimensionEdit"));
+    const QString text = units::displayText(expr, kind);
     setText(text);
     setAlignment(Qt::AlignCenter);
-    setStyleSheet(QString::fromLatin1(kBoxStyle).arg(QStringLiteral("#1a65c9"), QStringLiteral("#10223c")));
-    const int w = std::max(90, fontMetrics().horizontalAdvance(text) + 30);
+    setStyleSheet(QString::fromLatin1(kBoxStyle).arg(QStringLiteral("#1a65c9"), QStringLiteral("#10223c")) +
+                  QStringLiteral(" #unitSuffix { border: none; }"));
+    m_unit = UnitSuffix::attach(this, kind);
+    const int suffix = m_unit ? m_unit->sizeHint().width() + 2 : 0;
+    const int w = std::max(90 + suffix, fontMetrics().horizontalAdvance(text) + 30 + suffix);
     resize(w, sizeHint().height());
     QPoint tl(int(center.x() - w / 2.0), int(center.y() - height() / 2.0));
     tl.setX(std::clamp(tl.x(), 2, std::max(2, host->width() - w - 2)));
@@ -214,10 +229,12 @@ void InlineValueEditor::keyPressEvent(QKeyEvent *e) {
     case Qt::Key_Return:
     case Qt::Key_Enter: {
         QString error;
-        if(m_apply && m_apply(text(), &error)) {
+        const QString expr = units::toExpression(text(), m_unit ? m_unit->unit() : QString(), m_kind);
+        if(m_apply && m_apply(expr, &error)) {
             finish(true);
         } else {
-            setStyleSheet(QString::fromLatin1(kBoxStyle).arg(QStringLiteral("#d23c3c"), QStringLiteral("#b02020")));
+            setStyleSheet(QString::fromLatin1(kBoxStyle).arg(QStringLiteral("#d23c3c"), QStringLiteral("#b02020")) +
+                          QStringLiteral(" #unitSuffix { border: none; }"));
             setToolTip(error);
             QToolTip::showText(mapToGlobal(QPoint(0, height())), error, this);
         }
@@ -236,6 +253,7 @@ void InlineValueEditor::keyPressEvent(QKeyEvent *e) {
 
 void InlineValueEditor::focusOutEvent(QFocusEvent *e) {
     QLineEdit::focusOutEvent(e);
+    if(e->reason() == Qt::PopupFocusReason) return; // the unit drop-down
     // Let a click on the canvas land before closing.
     QTimer::singleShot(0, this, [this] { finish(false); });
 }

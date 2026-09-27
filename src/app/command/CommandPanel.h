@@ -22,9 +22,11 @@ namespace cadly {
 
 enum class IconId;
 class AngleDial;
+class UnitSuffix;
 
-// A value box that takes numbers with units or expressions ("20", "d1 * 2",
-// "1 in") and shows whether they evaluate.
+// A value box that shows just a number, with its unit in a drop-down at its
+// right end (see units::), and also takes expressions ("d1 * 2", "1 in + 2");
+// it shows whether they evaluate.
 class ValueField : public QLineEdit {
     Q_OBJECT
 
@@ -32,10 +34,19 @@ public:
     using Evaluator = std::function<cad::EvalResult(const std::string &expr, cad::ValueKind kind)>;
 
     ValueField(cad::ValueKind kind, Evaluator eval, QWidget *parent = nullptr);
-    void setExpression(const QString &expr); // without emitting edited()
+    // Shows a stored expression (a quantity as a number in the default unit),
+    // without emitting edited().
+    void setExpression(const QString &expr);
     // As if the user had typed `expr` (emits edited()).
     void enterExpression(const QString &expr);
-    QString expression() const { return text().trimmed(); }
+    // As if the user had typed `text` with `unit` chosen (the canvas box).
+    void enterInput(const QString &text, const QString &unit);
+    // What the box means: a typed number with its unit (converted to the
+    // default unit), or the expression as typed.
+    QString expression() const;
+    // The unit a typed number is in ("" for plain numbers).
+    QString unit() const;
+    void setUnit(const QString &unit); // as if picked (emits edited())
     std::optional<double> value() const { return m_value; }
     bool valid() const { return m_value.has_value(); }
     cad::ValueKind kind() const { return m_kind; }
@@ -44,6 +55,7 @@ signals:
     void edited();
     // The value was worked out again (after any change of text).
     void revalidated();
+    void unitChanged(const QString &unit);
 
 protected:
     // Focusing a value, or the first click into one the user has not typed
@@ -56,6 +68,7 @@ private:
 
     cad::ValueKind m_kind;
     Evaluator m_eval;
+    UnitSuffix *m_unit = nullptr;
     std::optional<double> m_value;
     bool m_selectOnClick = true;
 };
