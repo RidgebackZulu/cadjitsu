@@ -688,6 +688,8 @@ bool plateScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     if(!width) return false;
     const int widthId = width->id;
     waitForFrames(vp, 1);
+    // Counted from here: the bodies follow the sketch live, before Finish.
+    const size_t before = w.recompute()->computedFeatures();
     const std::optional<QRectF> label = ed->dimensionRect(widthId);
     if(label) doubleClickAt(vp, label->center());
     check(mode->dimensionEditor() != nullptr, QStringLiteral("double-clicking it opens its value box"));
@@ -698,7 +700,6 @@ bool plateScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     }
     processEventsFor(30);
     check(std::fabs(std::fabs(ed->profiles().front().area) - 3200.0) < 1e-6, QStringLiteral("the rectangle is 80 wide"));
-    const size_t before = w.recompute()->computedFeatures();
     w.action(QStringLiteral("finishSketch"))->trigger();
     settle(QStringLiteral("recompute after the dimension edit"));
     check(w.recompute()->computedFeatures() - before == 7, QStringLiteral("all seven features were recomputed"));

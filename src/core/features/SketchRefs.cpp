@@ -24,7 +24,9 @@ int refreshProfileRefs(Document &doc, FeatureId sketch) {
         for(ProfileRef &r : copy->profiles) {
             if(r.sketch != sketch) continue;
             const Profile *p = sk->second->profileByKey(r.key);
-            if(!p) continue;
+            // Only when the region has left its stored inside point: otherwise
+            // the reference still works as it is, and the model is not recomputed.
+            if(!p || p->contains(r.sample)) continue;
             const ProfileRef before = r;
             r.sample = p->sample;
             captureProfileOutline(*st, r);
