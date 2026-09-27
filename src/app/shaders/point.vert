@@ -29,6 +29,8 @@ void main() {
     vec3 toEye = eyePos.w > 0.5 ? -eyeDir.xyz * length(eyePos.xyz - w.xyz) : eyePos.xyz - w.xyz;
     vec4 c = viewProj * vec4(w.xyz + toEye * params.y, 1.0);
     c.xy += corner * params.x * 0.5 / (viewport.xy * 0.5) * c.w;
+    if(params.y > 0.0)
+        c.z -= misc.y * c.w; // a fixed number of depth-buffer steps (see mesh.vert)
     vCorner = corner;
     vWorldPos = w.xyz;
     gl_Position = c;

@@ -6,6 +6,8 @@
 #include <QSize>
 #include <QVector3D>
 
+#include <vector>
+
 namespace cadly {
 
 struct Box3 {
@@ -71,8 +73,15 @@ public:
     void setOrientation(const QVector3D &viewDir, const QVector3D &upHint);
     // Frames the box without changing the orientation.
     void fit(const Box3 &box, float margin = 1.15f);
-    // Keeps near/far planes around the given scene bounds.
-    void updateClipPlanes(const Box3 &scene);
+    // Sets the near plane just in front of `solid` (the model and what is drawn
+    // with it) and of the part of the `grid` square in view, and the far plane
+    // behind both. The near plane is what sets the depth precision, so only
+    // the visible part of the grid (much bigger than the model, and reaching
+    // under the camera) counts.
+    void updateClipPlanes(const Box3 &solid, const std::vector<QVector3D> &grid = {});
+    // The nearest depth of the part of a flat convex polygon (such as the grid)
+    // in view, or +infinity if none of it is. Perspective only.
+    float nearestVisibleDepth(const std::vector<QVector3D> &polygon) const;
 
     static QQuaternion orientationFor(StandardView v);
 };

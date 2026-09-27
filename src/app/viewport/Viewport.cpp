@@ -99,8 +99,9 @@ void Viewport::render(QRhiCommandBuffer *cb) {
     scene.triangles.insert(scene.triangles.end(), m_triHi.begin(), m_triHi.end());
     if(ViewportTool *t = activeTool()) t->contribute(scene);
 
-    // Near / far planes around everything drawn, including tool geometry and
-    // the grid wherever it is placed (the sketch plane while sketching).
+    // Near / far planes around everything drawn: the model, tool geometry,
+    // and the part in view of the grid wherever it is placed (the sketch plane
+    // while sketching), or of the rendered style's ground.
     Box3 bounds = contentBounds();
     for(const auto &l : scene.lines)
         for(const auto &p : l.segments) bounds.add(p);
@@ -108,12 +109,22 @@ void Viewport::render(QRhiCommandBuffer *cb) {
         for(const auto &p : pb.points) bounds.add(p);
     for(const auto &t : scene.triangles)
         for(const auto &p : t.triangles) bounds.add(p);
+    std::vector<QVector3D> grid;
     if(scene.grid) {
         const float e = scene.gridExtent;
         for(const QVector3D &c : {QVector3D(-e, -e, 0), QVector3D(e, -e, 0), QVector3D(e, e, 0), QVector3D(-e, e, 0)})
-            bounds.add(scene.gridFrame.map(c));
+            grid.push_back(scene.gridFrame.map(c));
     }
-    m_camera.updateClipPlanes(bounds);
+    if(scene.style == DisplayStyle::Rendered && !bounds.isEmpty()) {
+        // The ground square around the model (as Renderer draws it, a little bigger).
+        const QVector3D size = bounds.max - bounds.min;
+        const float half = std::max(size.x(), size.y()) * 0.9f + size.length() * 0.1f + 1.0f;
+        const QVector3D c = (bounds.min + bounds.max) * 0.5f;
+        grid.clear();
+        for(const QVector3D &d : {QVector3D(-1, -1, 0), QVector3D(1, -1, 0), QVector3D(1, 1, 0), QVector3D(-1, 1, 0)})
+            grid.push_back(QVector3D(c.x() + d.x() * half, c.y() + d.y() * half, bounds.min.z()));
+    }
+    m_camera.updateClipPlanes(bounds, grid);
 
     m_renderer.render(cb, renderTarget(), scene, m_camera, float(devicePixelRatioF()));
     ++m_frames;

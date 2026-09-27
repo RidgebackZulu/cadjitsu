@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace cadly {
 
@@ -128,16 +129,60 @@ void Camera::fit(const Box3 &box, float margin) {
     distance = std::max(fitH, fitW);
 }
 
-void Camera::updateClipPlanes(const Box3 &scene) {
-    const QVector3D c = scene.isEmpty() ? target : scene.center();
-    const float r = std::max(scene.isEmpty() ? 100.0f : scene.radius(), 10.0f);
-    const float d = QVector3D::dotProduct(c - eye(), forward());
-    farPlane = std::max(d + r * 1.5f, distance * 2.0f);
-    // As far as possible for depth precision, but never cutting into the scene.
-    const float sceneNear = d - r * 1.5f;
-    nearPlane = std::max({farPlane / 100000.0f, sceneNear * 0.8f, 1e-3f});
+float Camera::nearestVisibleDepth(const std::vector<QVector3D> &polygon) const {
+    const QVector3D e = eye(), f = forward();
+    // Keeps the part of `poly` where dot(n, p - e) >= offset.
+    auto clip = [&](std::vector<QVector3D> poly, const QVector3D &n, float offset) {
+        std::vector<QVector3D> out;
+        for(size_t i = 0; i < poly.size(); ++i) {
+            const QVector3D &a = poly[i], &b = poly[(i + 1) % poly.size()];
+            const float da = QVector3D::dotProduct(n, a - e) - offset, db = QVector3D::dotProduct(n, b - e) - offset;
+            if(da >= 0) out.push_back(a);
+            if((da >= 0) != (db >= 0)) out.push_back(a + (b - a) * (da / (da - db)));
+        }
+        return out;
+    };
+    std::vector<QVector3D> poly = clip(polygon, f, distance * 1e-4f);
+    // The four sides of the view: planes through the eye and two corner rays.
+    const float w = float(std::max(1, viewport.width())), h = float(std::max(1, viewport.height()));
+    QVector3D rays[4], o;
+    const QPointF corners[4] = {{0, 0}, {w, 0}, {w, h}, {0, h}};
+    for(int k = 0; k < 4; ++k) ray(corners[k], o, rays[k]);
+    for(int k = 0; k < 4 && !poly.empty(); ++k) {
+        QVector3D n = QVector3D::crossProduct(rays[k], rays[(k + 1) % 4]);
+        if(QVector3D::dotProduct(n, f) < 0) n = -n;
+        poly = clip(poly, n, 0.0f);
+    }
+    float nearest = std::numeric_limits<float>::infinity();
+    for(const QVector3D &p : poly) nearest = std::min(nearest, QVector3D::dotProduct(p - e, f));
+    return nearest;
+}
+
+void Camera::updateClipPlanes(const Box3 &solid, const std::vector<QVector3D> &grid) {
+    const QVector3D e = eye(), f = forward();
+    float nearest = distance, farthest = distance;
+    auto add = [&](const QVector3D &p) {
+        const float d = QVector3D::dotProduct(p - e, f);
+        nearest = std::min(nearest, d);
+        farthest = std::max(farthest, d);
+    };
+    if(!solid.isEmpty())
+        for(int k = 0; k < 8; ++k)
+            add(QVector3D((k & 1) ? solid.max.x() : solid.min.x(), (k & 2) ? solid.max.y() : solid.min.y(),
+                          (k & 4) ? solid.max.z() : solid.min.z()));
+    for(const QVector3D &p : grid) farthest = std::max(farthest, QVector3D::dotProduct(p - e, f));
+    farPlane = std::max(farthest * 1.05f + 1.0f, distance * 2.0f);
+    if(orthographic) {
+        nearPlane = -farPlane;
+        return;
+    }
+    if(grid.size() >= 3) nearest = std::min(nearest, nearestVisibleDepth(grid));
+    // As far out as possible for depth precision: just in front of what is in
+    // view, but never beyond half-way to the orbit target, and not so close
+    // that the far / near ratio (the precision) gets out of hand when zoomed
+    // right in.
+    nearPlane = std::max({nearest * 0.9f, distance * 0.01f, farPlane / 100000.0f, 1e-3f});
     nearPlane = std::min(nearPlane, std::max(distance * 0.5f, farPlane / 100000.0f));
-    if(orthographic) nearPlane = -farPlane;
 }
 
 } // namespace cadly

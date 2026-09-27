@@ -56,7 +56,9 @@ void setColor(float out[4], const QColor &c, float alpha = -1.0f) {
 
 enum Blend { NoBlend, AlphaBlend, Premultiplied };
 
-// Fractions of the eye distance by which edges / overlays move towards the camera.
+// Fractions of the eye distance by which edges / overlays move towards the
+// camera (along the view ray, so it holds at grazing angles too); the shaders
+// add a fixed number of depth-buffer steps on top (FrameUniforms::misc[1]).
 constexpr float kEdgeBias = 0.0012f;
 constexpr float kOverlayBias = 0.0004f;
 
@@ -249,7 +251,10 @@ void Renderer::createPipelines() {
         }
         if(depthWrite && QString::fromLatin1(vs) == QLatin1String("mesh.vert")) {
             // Push opaque faces back slightly so coplanar edges and overlays draw on top.
-            pl->setDepthBias(2);
+            // The constant part does next to nothing on Apple GPUs (a float depth
+            // buffer), so nothing may rely on it; CADLY_NO_CONSTANT_DEPTH_BIAS
+            // leaves it out to check that on other GPUs.
+            if(!qEnvironmentVariableIsSet("CADLY_NO_CONSTANT_DEPTH_BIAS")) pl->setDepthBias(2);
             pl->setSlopeScaledDepthBias(1.5f);
         }
         pl->setSampleCount(m_sampleCount);
@@ -442,6 +447,10 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
     setVec(fu.lightDir, light, 0.0f);
     setVec(fu.viewport, float(fb.width()), float(fb.height()), 1.0f / std::max(1, fb.width()),
            1.0f / std::max(1, fb.height()));
+    // Overlays, edges and points move this far towards the camera in clip-space
+    // z (per w): 16 steps of a 24-bit depth buffer, which is also about what a
+    // float one resolves near the far end of its range.
+    fu.misc[1] = 16.0f / float(1 << 24) * (m_rhi->isClipDepthZeroToOne() ? 1.0f : 2.0f);
     if(scene.clipPlane) {
         setVec(fu.clipPlane, scene.clipPlane->x(), scene.clipPlane->y(), scene.clipPlane->z(), scene.clipPlane->w());
         fu.misc[0] = 1.0f;

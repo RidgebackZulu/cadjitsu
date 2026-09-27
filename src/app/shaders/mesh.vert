@@ -13,7 +13,7 @@ layout(std140, binding = 0) uniform Frame {
     vec4 lightDir;   // xyz = key light direction (towards the light)
     vec4 viewport;   // framebuffer width, height, 1/width, 1/height
     vec4 clipPlane;  // n.xyz, d: fragments with dot(n, p) + d > 0 are cut away
-    vec4 misc;       // x = clip enabled
+    vec4 misc;       // x = clip enabled, y = overlay depth offset (clip-space z per w)
 };
 
 layout(std140, binding = 1) uniform Draw {
@@ -30,4 +30,8 @@ void main() {
     // Overlays (highlights) are nudged towards the camera to win against the face.
     vec3 toEye = eyePos.w > 0.5 ? -eyeDir.xyz * length(eyePos.xyz - wp.xyz) : eyePos.xyz - wp.xyz;
     gl_Position = viewProj * vec4(wp.xyz + toEye * params.y, 1.0);
+    // And a fixed number of depth-buffer steps, whatever the GPU does with
+    // the faces' own depth bias.
+    if(params.y > 0.0)
+        gl_Position.z -= misc.y * gl_Position.w;
 }

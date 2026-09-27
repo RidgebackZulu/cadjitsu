@@ -52,6 +52,9 @@ void main() {
     vec4 c = corner.x < 0.5 ? c0 : c1;
     vec2 offset = nrm * corner.y * halfWidth + dir * (corner.x < 0.5 ? -halfWidth : halfWidth) * 0.5;
     c.xy += offset / halfVp * c.w;
+    // And a fixed number of depth-buffer steps (see mesh.vert).
+    if(params.y > 0.0)
+        c.z -= misc.y * c.w;
     vWorldPos = corner.x < 0.5 ? w0.xyz : w1.xyz;
     gl_Position = c;
 }
