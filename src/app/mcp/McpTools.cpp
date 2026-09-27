@@ -18,10 +18,13 @@
 #include "features/HoleFeature.h"
 #include "features/SketchFeature.h"
 #include "geom/OcctUtil.h"
+#include "measure/Measure.h"
+#include "measure/MeasureBetween.h"
 #include "topo/Resolver.h"
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepGProp.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
@@ -123,6 +126,17 @@ json topoItem(const std::string &what) {
     return {{"type", "object"},
             {"properties", {{"body", str("body id (\"b2\") or name (\"Body1\")")}, {"index", integer(what + " index from list_" + what + "s")}}},
             {"required", {"body", "index"}}};
+}
+json measureItem(const std::string &d) {
+    return {{"type", "object"},
+            {"description", d + ": {\"body\": \"Body1\"} (the whole body), {\"body\": ..., \"face\": i} / \"edge\" / "
+                                "\"vertex\" (indexes from list_faces / list_edges), or {\"point\": [x, y, z]}"},
+            {"properties",
+             {{"body", str("body id or name")},
+              {"face", integer("face index")},
+              {"edge", integer("edge index")},
+              {"vertex", integer("vertex index")},
+              {"point", xyz("a point in mm")}}}};
 }
 json planeSpec() {
     return {{"description",
@@ -1124,6 +1138,68 @@ void McpTools::define() {
             if(!styles.count(s)) fail("unknown style " + s);
             m_w.viewport()->setDisplayStyle(styles.at(s));
             return json{{"style", s}};
+        });
+
+    add("measure",
+        "Measures between two things, like Inspect > Measure: the minimum distance and its closest points, the X/Y/Z "
+        "components, the distance between centres (holes, circles, cylinder axes) and the angle between flat faces "
+        "or straight edges. With only `a`, gives its own size (area, length, radius, volume). Changes nothing.",
+        {{"a", measureItem("the first thing")}, {"b", measureItem("the second thing (optional)")}},
+        {"a"}, [bodyOf, settle, begin](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            auto shapeOf = [&](const json &v) -> TopoDS_Shape {
+                if(!v.is_object()) fail("a and b must be objects");
+                if(v.contains("point")) {
+                    const json &p = v["point"];
+                    if(!p.is_array() || p.size() != 3) fail("point must be [x, y, z]");
+                    return BRepBuilderAPI_MakeVertex(gp_Pnt(p[0].get<double>(), p[1].get<double>(), p[2].get<double>())).Shape();
+                }
+                const cad::Body *b = bodyOf(st, v.value("body", json()));
+                for(const auto &[key, kind] : {std::pair{"face", cad::TopoKind::Face}, std::pair{"edge", cad::TopoKind::Edge},
+                                               std::pair{"vertex", cad::TopoKind::Vertex}})
+                    if(v.contains(key)) {
+                        const int i = v[key].get<int>();
+                        if(i < 1 || i > b->shape.count(kind))
+                            fail(std::string(key) + " index " + std::to_string(i) + " is not in 1.." +
+                                 std::to_string(b->shape.count(kind)) + " for " + b->id);
+                        return b->shape.shapeOf(kind, i);
+                    }
+                return b->shape.shape();
+            };
+            const cad::KernelLock lock(cad::kernelMutex());
+            const TopoDS_Shape s1 = shapeOf(a.at("a"));
+            json out;
+            if(!a.contains("b") || a["b"].is_null()) {
+                std::vector<cad::Measurement> m;
+                switch(s1.ShapeType()) {
+                case TopAbs_FACE: m = cad::measureFace(TopoDS::Face(s1)); break;
+                case TopAbs_EDGE: m = cad::measureEdge(TopoDS::Edge(s1)); break;
+                case TopAbs_VERTEX: m = cad::measureVertex(TopoDS::Vertex(s1)); break;
+                default: m = cad::measureBody(s1); break;
+                }
+                json props = json::object();
+                for(const cad::Measurement &x : m) {
+                    if(x.unit == cad::MeasureUnit::Text) props[x.label.empty() ? "type" : x.label] = x.text;
+                    else props[x.label] = r3(x.unit == cad::MeasureUnit::Angle ? x.value * 180.0 / M_PI : x.value);
+                }
+                out["properties"] = props;
+                out["units"] = "mm, mm2, mm3, degrees";
+                return out;
+            }
+            const cad::MeasureResult r = cad::measureBetween(s1, shapeOf(a["b"]));
+            if(!r.ok) fail(r.error);
+            const gp_Vec d(r.p1, r.p2);
+            out["distance"] = r3(r.distance);
+            out["closest_points"] = json::array({pt(r.p1), pt(r.p2)});
+            out["delta"] = json::array({r3(d.X()), r3(d.Y()), r3(d.Z())});
+            if(r.centreDistance) {
+                out["centre_distance"] = r3(*r.centreDistance);
+                out["centres"] = json::array({pt(r.c1), pt(r.c2)});
+            }
+            if(r.angle) out["angle"] = r3(*r.angle * 180.0 / M_PI);
+            out["units"] = "mm, degrees";
+            return out;
         });
 
     add("section",

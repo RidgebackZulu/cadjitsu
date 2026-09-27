@@ -109,6 +109,9 @@ public:
     ValueField *addAngle(const QString &label, ValueField::Evaluator eval, const char *name, const QColor &accent);
     AngleDial *angleDial(ValueField *field) const;
     QCheckBox *addCheck(const QString &label, const char *name);
+    // A read-only value (selectable text) and a push button in the value column.
+    QLabel *addInfo(const QString &label, const char *name);
+    QPushButton *addButton(const QString &label, const QString &text, const char *name);
     QLabel *addSection(const QString &title);
     void setRowVisible(QWidget *field, bool visible);
     void setRowLabel(QWidget *field, const QString &label);

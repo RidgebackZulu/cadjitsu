@@ -9,6 +9,7 @@
 #include "command/CommandPanel.h"
 #include "command/EdgeCommands.h"
 #include "command/HoleCommand.h"
+#include "command/MeasureCommand.h"
 #include "command/PlaneCommand.h"
 #include "ui/AngleDial.h"
 #include "model/ModelView.h"
@@ -526,6 +527,47 @@ private slots:
         const auto f = std::dynamic_pointer_cast<const cad::ConstructionPlaneFeature>(doc().feature(id));
         QVERIFY(f && f->axis == cad::PlaneRotationAxis::LocalX && !f->pivotAtCenter);
         check();
+    }
+
+    void measureBetweenFacesPointsAndBodies() {
+        box(0, 0, 40, 20, 10);
+        box(60, 0, 80, 20, 10);
+        showHome();
+        QCOMPARE(m_window->action(QStringLiteral("measure"))->shortcut(), QKeySequence(Qt::Key_I));
+        trigger("measure");
+        auto *m = command<MeasureCommand>();
+        QVERIFY(m);
+        // The two top faces: 20 mm apart, parallel.
+        click(at(20, 10, 10));
+        QCOMPARE(m->targetCount(), 1);
+        QVERIFY(panel()->findChild<QLabel *>(QStringLiteral("measureProperties"))->text().contains(QStringLiteral("Area")));
+        click(at(70, 10, 10));
+        QCOMPARE(m->targetCount(), 2);
+        QVERIFY(m->result() && m->result()->ok);
+        QVERIFY(std::fabs(m->result()->distance - 20.0) < 1e-6);
+        QCOMPARE(m->distanceLabel()->text(), QStringLiteral("20.000 mm"));
+        QVERIFY(m->result()->angle && std::fabs(*m->result()->angle) < 1e-9);
+        QVERIFY(m->resultText().contains(QStringLiteral("Distance: 20.000 mm")));
+        // Inches.
+        m->unitsBox()->setCurrentIndex(1);
+        QCOMPARE(m->distanceLabel()->text(), QStringLiteral("0.7874 in"));
+        m->unitsBox()->setCurrentIndex(0);
+        // Empty space starts again.
+        click(QPointF(vp()->width() - 30, vp()->height() - 30));
+        QCOMPARE(m->targetCount(), 0);
+        // Points on surfaces: a ruler between two clicked points.
+        m->modeBox()->setCurrentIndex(2);
+        click(at(10, 10, 10));
+        click(at(70, 10, 10));
+        QVERIFY(m->result() && m->result()->ok);
+        QVERIFY2(std::fabs(m->result()->distance - 60.0) < 0.5, qPrintable(QString::number(m->result()->distance)));
+        // Whole bodies.
+        m->modeBox()->setCurrentIndex(1);
+        click(at(20, 10, 10));
+        click(at(70, 10, 10));
+        QVERIFY(m->result() && std::fabs(m->result()->distance - 20.0) < 1e-6);
+        panel()->cancelButton()->click();
+        QVERIFY(!command<MeasureCommand>());
     }
 
     void markingMenuAndShortcutsReachTheNewCommands() {

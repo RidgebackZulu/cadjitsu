@@ -2,6 +2,7 @@
 
 #include "sketch/ProfileMesh.h"
 #include "ui/Icons.h"
+#include "viewport/OverlayPaint.h"
 #include "viewport/Viewport.h"
 
 #include "measure/Measure.h"
@@ -91,20 +92,6 @@ std::string trimNumber(double v, int decimals) {
     }
     if(s == "-0") s = "0";
     return s;
-}
-
-void drawArrow(QPainter &p, QPointF tip, QPointF dir, const QColor &color) {
-    const double l = std::hypot(dir.x(), dir.y());
-    if(l < 1e-6) return;
-    const QPointF u = dir / l, n(-u.y(), u.x());
-    const QPointF base = tip - u * 8.0;
-    QPolygonF tri;
-    tri << tip << base + n * 2.8 << base - n * 2.8;
-    p.save();
-    p.setPen(Qt::NoPen);
-    p.setBrush(color);
-    p.drawPolygon(tri);
-    p.restore();
 }
 
 IconId glyphIcon(SkCon t) {

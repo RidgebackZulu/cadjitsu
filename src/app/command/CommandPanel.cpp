@@ -294,6 +294,25 @@ QCheckBox *CommandPanel::addCheck(const QString &label, const char *name) {
     return c;
 }
 
+QLabel *CommandPanel::addInfo(const QString &label, const char *name) {
+    auto *l = new QLabel(m_body);
+    l->setObjectName(QString::fromLatin1(name));
+    l->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    l->setWordWrap(true);
+    l->setMinimumWidth(150);
+    l->setStyleSheet(QStringLiteral("color: #16202c; font-weight: 600;"));
+    addRow(label, l);
+    return l;
+}
+
+QPushButton *CommandPanel::addButton(const QString &label, const QString &text, const char *name) {
+    auto *b = new QPushButton(text, m_body);
+    b->setObjectName(QString::fromLatin1(name));
+    b->setFocusPolicy(Qt::NoFocus);
+    addRow(label, b);
+    return b;
+}
+
 QLabel *CommandPanel::addSection(const QString &title) {
     auto *l = new QLabel(title.toUpper(), m_body);
     l->setObjectName(QStringLiteral("commandSection"));

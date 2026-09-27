@@ -258,6 +258,31 @@ private slots:
         QVERIFY(f && f->angle.expr == "30 deg" && f->angleY.expr == "15 deg");
     }
 
+    void measureBetweenBodiesFacesAndPoints() {
+        initialize();
+        for(double x : {0.0, 30.0}) {
+            QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                            {"entities", {{{"type", "rectangle"}, {"corner1", {x, 0}}, {"corner2", {x + 10, 10}}}}}})
+                         .first);
+        }
+        const auto [e0, ex] = tool("batch", {{"calls", {{{"tool", "extrude"}, {"arguments", {{"sketch", 1}, {"distance", 5}}}},
+                                                       {{"tool", "extrude"}, {"arguments", {{"sketch", 2}, {"distance", 5}}}}}}});
+        QVERIFY2(!e0, ex.dump().c_str());
+        const json d = tool("get_design").second;
+        const std::string b1 = d["bodies"][0]["name"], b2 = d["bodies"][1]["name"];
+        const auto [e1, r] = tool("measure", {{"a", {{"body", b1}}}, {"b", {{"body", b2}}}});
+        QVERIFY2(!e1, r.dump().c_str());
+        QCOMPARE(r["distance"].get<double>(), 20.0);
+        const auto [e2, pp] = tool("measure", {{"a", {{"point", {0, 0, 0}}}}, {"b", {{"point", {3, 4, 0}}}}});
+        QVERIFY2(!e2, pp.dump().c_str());
+        QCOMPARE(pp["distance"].get<double>(), 5.0);
+        QCOMPARE(pp["delta"][1].get<double>(), 4.0);
+        const auto [e3, one] = tool("measure", {{"a", {{"body", b1}}}});
+        QVERIFY2(!e3, one.dump().c_str());
+        QCOMPARE(one["properties"]["Volume"].get<double>(), 500.0);
+        QVERIFY(tool("measure", {{"a", {{"body", b1}, {"face", 999}}}}).first);
+    }
+
     void aBatchBuildsAPartInOneCall() {
         initialize();
         const json calls = {

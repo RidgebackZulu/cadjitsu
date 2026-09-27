@@ -7,6 +7,7 @@
 #include "command/EdgeCommands.h"
 #include "command/ExtrudeCommand.h"
 #include "command/HoleCommand.h"
+#include "command/MeasureCommand.h"
 #include "command/Manipulator.h"
 #include "command/PlaneCommand.h"
 #include "ui/AngleDial.h"
@@ -924,6 +925,25 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     vp->setStandardView(StandardView::Home, false);
     vp->fitAll(false);
     shot("features_7_done.png");
+
+    // Measure between the two counterbores' rims: 24 mm centre to centre.
+    doc.setFolderVisible("construction", false);
+    w.refresh();
+    vp->fitAll(false);
+    waitForFrames(vp, 2);
+    w.action(QStringLiteral("measure"))->trigger();
+    auto *measure = qobject_cast<MeasureCommand *>(w.commands()->command());
+    if(!measure) return false;
+    // Off the rims' seam vertices (at +X).
+    clickAt(vp, at(18 - 4.5 * 0.5, 20 - 4.5 * 0.866, 20));
+    clickAt(vp, at(42 + 4.5 * 0.5, 20 - 4.5 * 0.866, 20));
+    waitForFrames(vp, 1);
+    check(measure->result() && measure->result()->centreDistance &&
+              std::fabs(*measure->result()->centreDistance - 24.0) < 1e-6,
+          QStringLiteral("Measure: the counterbores are 24 mm apart centre to centre (%1)")
+              .arg(measure->resultText().replace(QLatin1Char('\n'), QStringLiteral("; "))));
+    shot("features_8_measure.png");
+    w.commandPanel()->cancelButton()->click();
     return ok;
 }
 

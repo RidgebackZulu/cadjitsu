@@ -237,6 +237,15 @@ Display style of the canvas: shaded_edges, shaded, wireframe or rendered.
 |---|---|---|
 | `style` **(required)** | `shaded_edges` / `shaded` / `wireframe` / `rendered` |  |
 
+## `measure`
+
+Measures between two things, like Inspect > Measure: the minimum distance and its closest points, the X/Y/Z components, the distance between centres (holes, circles, cylinder axes) and the angle between flat faces or straight edges. With only `a`, gives its own size (area, length, radius, volume). Changes nothing.
+
+| Argument | Type | Description |
+|---|---|---|
+| `a` **(required)** | object | the first thing: {"body": "Body1"} (the whole body), {"body": ..., "face": i} / "edge" / "vertex" (indexes from list_faces / list_edges), or {"point": [x, y, z]} |
+| `b` | object | the second thing (optional): {"body": "Body1"} (the whole body), {"body": ..., "face": i} / "edge" / "vertex" (indexes from list_faces / list_edges), or {"point": [x, y, z]} |
+
 ## `section`
 
 Section analysis: cuts the view (not the model) by a plane moved along its normal, to look inside. hide: true turns sections off.
