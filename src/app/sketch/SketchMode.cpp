@@ -10,6 +10,7 @@
 #include "viewport/ViewportTool.h"
 
 #include "features/SketchFeature.h"
+#include "features/SketchRefs.h"
 #include "geom/OcctUtil.h"
 #include "topo/Resolver.h"
 
@@ -337,7 +338,10 @@ bool SketchMode::enter(cad::FeatureId id, bool isNew, bool animate) {
     m_editor = std::make_unique<SketchEditor>(m_viewport, *base, frame, provider, [doc] { return doc->allocateParamName(); });
     m_editor->setOptions(m_palette->options());
     m_isNew = isNew;
-    connect(m_editor.get(), &SketchEditor::changed, this, [this] { emit statsChanged(m_editor->selectionStats()); });
+    connect(m_editor.get(), &SketchEditor::changed, this, [this] {
+        emit statsChanged(m_editor->selectionStats());
+        emit geometryChanged();
+    });
     connect(m_editor.get(), &SketchEditor::message, this, &SketchMode::message);
 
     m_modelView->clearSelection();
@@ -363,7 +367,11 @@ void SketchMode::finish() {
     const bool changed = !old || old->sketch.toJson() != f->sketch.toJson();
     const bool isNew = m_isNew;
     leave();
-    if(changed) m_doc.replaceFeature(f, "Edit " + f->name, !isNew);
+    if(changed) {
+        m_doc.replaceFeature(f, "Edit " + f->name, !isNew);
+        // Regions used by extrudes are looked for where they are now.
+        cad::refreshProfileRefs(m_doc, id);
+    }
     m_modelView->refresh();
     emit finished(id);
 }

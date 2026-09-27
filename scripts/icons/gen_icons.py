@@ -445,6 +445,25 @@ def split():
     return s
 
 
+def move_tool():
+    """A sketch rectangle and its moved copy, with a four-way move arrow."""
+    s = sheet(6, 10, 52, 44, fold=9)
+    s += poly([(12, 34), (30, 34), (30, 48), (12, 48)], "none", "#9DB0C8", 1.6, 'stroke-dasharray="3,2"')
+    s += poly([(30, 18), (48, 18), (48, 32), (30, 32)], "none", ACCENT_AXIS, 2.4)
+    for pnt in ((30, 18), (48, 18), (48, 32), (30, 32)):
+        s += sketch_point(pnt, 2.4)
+    # Four-way arrow at the moved shape's corner.
+    cx, cy, r, h = 22, 26, 9, 4.2
+    s += line((cx - r + 2, cy), (cx + r - 2, cy), "#1B5DC4", 2.2)
+    s += line((cx, cy - r + 2), (cx, cy + r - 2), "#1B5DC4", 2.2)
+    for (dx, dy) in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        tip = (cx + dx * r, cy + dy * r)
+        base = (cx + dx * (r - h * 1.3), cy + dy * (r - h * 1.3))
+        side = (-dy * h, dx * h)
+        s += arrow_poly([tip, (base[0] + side[0], base[1] + side[1]), (base[0] - side[0], base[1] - side[1])])
+    return s
+
+
 def flip():
     iso = Iso(32, 44, 1.0)
     s = iso.floor_shadow(-13, -13, 26, 26)
@@ -946,7 +965,7 @@ ICONS = {
     "parallel": g_parallel, "perpendicular": g_perpendicular, "tangent": g_tangent, "equal": g_equal,
     "midpoint": g_midpoint, "concentric": g_concentric, "fix": g_fix, "symmetric": g_symmetric,
     "extrude": extrude, "fillet": fillet, "chamfer": chamfer, "hole": hole, "combine": combine, "plane": plane,
-    "section": section, "measure": measure, "overhang": overhang, "split": split,
+    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool,
     "undo": undo, "redo": redo, "save": save, "open": open_, "new": new, "export-stl": export_stl,
     "export-step": export_step, "print-3d": print3d,
     "eye": eye, "eye-off": eye_off, "body": body, "sketch-node": sketch_node, "plane-node": plane_node,

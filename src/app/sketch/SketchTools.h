@@ -37,6 +37,7 @@ enum class SketchToolKind {
     Concentric,
     Fix,
     Symmetric,
+    Move,
 };
 
 QString sketchToolName(SketchToolKind kind);

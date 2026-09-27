@@ -124,7 +124,9 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 ## Editing a sketch
 
 - Double-click a line, circle or arc to type its length, diameter or radius (its dimension, or a new one beside it); the sketch re-solves at once. Double-click a dimension to change it. Shift + double-click selects a chain of connected curves.
-- Drag points and curves to move what is not fixed by dimensions.
+- Drag points and curves to move what is not fixed by dimensions. Grab any part of a selection (box-select it first) to move the whole selection; Esc in the middle of a drag puts it back.
+- **Move / Copy (M)**: click the geometry (or select it first), click a base point, then where it goes; the heads-up boxes take an exact ΔX, ΔY and a turn about the base point. Hold Ctrl (Cmd) on the last click to place a copy (its constraints and dimensions come along).
+- Bodies made from the sketch follow its edits live, before Finish Sketch (Settings > Update bodies while sketching). On heavy models they update when you let go of the mouse. Extrudes keep finding their regions after a move.
 - Double-click a sketch in the canvas (or in the browser, or its timeline icon) to edit it again.
 
 ## Modeling

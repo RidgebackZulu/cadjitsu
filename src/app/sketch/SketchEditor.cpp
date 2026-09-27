@@ -247,7 +247,8 @@ cad::SolveOutcome solveWith(cad::Sketch &s, const std::shared_ptr<cad::ParamTabl
 } // namespace
 
 void SketchEditor::solve(const std::vector<int> &dragged, bool analyse) {
-    m_params = paramsFor(m_paramProvider, *m_feature, sketch());
+    // The model's parameters cannot change during a drag: work them out once.
+    if(!(m_drag.active && m_drag.moved && m_params)) m_params = paramsFor(m_paramProvider, *m_feature, sketch());
     cad::SolveOptions o;
     o.dragged = dragged;
     o.computeFreeEntities = analyse;
@@ -332,6 +333,146 @@ bool SketchEditor::commit(const QString &label, cad::Sketch work, const std::vec
     pruneSelection();
     emitChanged();
     return true;
+}
+
+namespace {
+
+// The point entities that carry an entity's geometry.
+std::vector<int> definingPoints(const cad::Sketch &s, int id) {
+    std::vector<int> pts;
+    const cad::SkEntity *e = s.find(id);
+    if(!e || id <= 0) return pts;
+    if(e->type == cad::SkType::Point) pts.push_back(id);
+    else if(e->type == cad::SkType::Circle) pts.push_back(e->a);
+    else
+        for(int p : {e->a, e->b, e->c})
+            if(p) pts.push_back(p);
+    return pts;
+}
+
+Vec2 moved(Vec2 p, Vec2 pivot, Vec2 delta, double angle) {
+    const double c = std::cos(angle), s = std::sin(angle);
+    const Vec2 d = p - pivot;
+    return pivot + Vec2(d.x * c - d.y * s, d.x * s + d.y * c) + delta;
+}
+
+} // namespace
+
+std::vector<std::pair<Vec2, Vec2>> SketchEditor::movedOutline(const std::set<int> &ids, Vec2 pivot, Vec2 delta,
+                                                               double angle) const {
+    std::vector<std::pair<Vec2, Vec2>> out;
+    const cad::Sketch &s = sketch();
+    auto at = [&](int p) { return moved(s.pointPos(p), pivot, delta, angle); };
+    for(int id : ids) {
+        const SkEntity *e = s.find(id);
+        if(!e || id <= 0) continue;
+        if(e->type == SkType::Line) out.push_back({at(e->a), at(e->b)});
+        else if(e->type == SkType::Circle || e->type == SkType::Arc) {
+            const Vec2 c = at(e->a);
+            double a0 = 0, a1 = 2 * cad::kPi, r = e->r;
+            if(e->type == SkType::Arc) {
+                const Vec2 p0 = at(e->b), p1 = at(e->c);
+                r = (p0 - c).length();
+                a0 = std::atan2(p0.y - c.y, p0.x - c.x);
+                a1 = std::atan2(p1.y - c.y, p1.x - c.x);
+                while(a1 <= a0) a1 += 2 * cad::kPi;
+            }
+            const int n = std::max(8, int(64 * (a1 - a0) / (2 * cad::kPi)));
+            for(int i = 0; i < n; ++i) {
+                const double t0 = a0 + (a1 - a0) * i / n, t1 = a0 + (a1 - a0) * (i + 1) / n;
+                out.push_back({c + Vec2(std::cos(t0), std::sin(t0)) * r, c + Vec2(std::cos(t1), std::sin(t1)) * r});
+            }
+        }
+    }
+    return out;
+}
+
+bool SketchEditor::moveEntities(const std::set<int> &ids, Vec2 pivot, Vec2 delta, double angle, bool copy) {
+    const cad::Sketch &s = sketch();
+    std::set<int> pts, curves;
+    for(int id : ids) {
+        const SkEntity *e = s.find(id);
+        if(!e || id <= 0) continue;
+        if(e->type != SkType::Point) curves.insert(id);
+        for(int p : definingPoints(s, id)) pts.insert(p);
+    }
+    if(pts.empty()) return false;
+    // A quarter turn swaps horizontal and vertical; other angles drop them.
+    const double quarter = angle / (cad::kPi / 2);
+    const bool square = std::fabs(quarter - std::round(quarter)) < 1e-9;
+    const bool swapHV = square && (long(std::llround(quarter)) % 2 != 0);
+    cad::Sketch work = s;
+    std::vector<PendingConstraint> dims;
+    std::map<int, int> map; // old id -> copy id
+    auto mapped = [&](int id) { return copy ? (map.count(id) ? map[id] : 0) : id; };
+    if(copy) {
+        for(int p : pts) {
+            const Vec2 q = moved(s.pointPos(p), pivot, delta, angle);
+            map[p] = work.addPoint(q.x, q.y, s.find(p)->construction);
+        }
+        for(int c : curves) {
+            const SkEntity &e = *s.find(c);
+            if(e.type == SkType::Line) map[c] = work.addLine(map[e.a], map[e.b], e.construction);
+            else if(e.type == SkType::Circle) map[c] = work.addCircle(map[e.a], e.r, e.construction);
+            else map[c] = work.addArc(map[e.a], map[e.b], map[e.c], e.construction);
+        }
+        // Constraints among the copied geometry come along.
+        auto inside = [&](int id) { return id == 0 || map.count(id); };
+        for(const SkConstraint &c : s.constraints) {
+            if(!inside(c.e1) || !inside(c.e2) || !inside(c.e3) || c.e1 == 0) continue;
+            SkCon type = c.type;
+            if(type == SkCon::Horizontal || type == SkCon::Vertical) {
+                if(!square) continue;
+                if(swapHV) type = type == SkCon::Horizontal ? SkCon::Vertical : SkCon::Horizontal;
+            }
+            if(type == SkCon::Fix) continue;
+            if(cad::isDimension(type)) {
+                if(c.driven) continue;
+                PendingConstraint pc(type, mapped(c.e1), mapped(c.e2), mapped(c.e3));
+                pc.expr = c.expr;
+                pc.label = c.label;
+                pc.supplementary = c.supplementary;
+                dims.push_back(pc);
+            } else {
+                work.addConstraint(type, mapped(c.e1), mapped(c.e2), mapped(c.e3));
+            }
+        }
+    } else {
+        for(int p : pts) {
+            SkEntity *e = work.find(p);
+            const Vec2 q = moved(Vec2(e->x, e->y), pivot, delta, angle);
+            e->x = q.x;
+            e->y = q.y;
+        }
+        // Constraints the move breaks: pins on moved points, and H/V on turned lines.
+        std::vector<int> drop;
+        for(SkConstraint &c : work.constraints) {
+            const bool movedLine = curves.count(c.e1) || (pts.count(c.e1) && pts.count(c.e2));
+            if(c.type == SkCon::Fix && pts.count(c.e1)) drop.push_back(c.id);
+            else if((c.type == SkCon::Horizontal || c.type == SkCon::Vertical) && movedLine) {
+                if(!square) drop.push_back(c.id);
+                else if(swapHV) c.type = c.type == SkCon::Horizontal ? SkCon::Vertical : SkCon::Horizontal;
+            }
+        }
+        for(int id : drop) work.removeConstraint(id);
+    }
+    // Solve holding the moved geometry where it was put, so what is attached
+    // to it stretches; if that cannot work, let the constraints decide.
+    std::vector<int> held;
+    for(int p : pts) held.push_back(mapped(p));
+    {
+        cad::Sketch probe = work;
+        cad::SolveOptions o;
+        o.computeFreeEntities = false;
+        o.dragged = held;
+        if(solveWith(probe, paramsFor(m_paramProvider, *m_feature, probe), o).ok) work = std::move(probe);
+    }
+    const Vec2 before = s.pointPos(*pts.begin());
+    const bool ok = commit(copy ? tr("Copy") : tr("Move"), std::move(work), dims);
+    if(ok && !copy && std::abs(angle) < 1e-12 && delta.length() > 1e-9 &&
+       (sketch().pointPos(*pts.begin()) - before).length() < 1e-9)
+        emit message(tr("The geometry is held in place by its dimensions or constraints."));
+    return ok;
 }
 
 void SketchEditor::setSketch(const cad::Sketch &s) {
@@ -1015,6 +1156,30 @@ bool SketchEditor::beginDrag(const SketchHit &hit, QPointF px) {
     d.start = *q;
     d.before = s;
     d.lastGood = s;
+    // Grabbing one of several selected entities moves them all together.
+    auto pointsOf = [&](int id) {
+        std::vector<int> pts;
+        const SkEntity *e = s.find(id);
+        if(!e) return pts;
+        if(e->type == SkType::Point) pts.push_back(id);
+        else if(e->type == SkType::Circle) pts.push_back(e->a);
+        else
+            for(int p : {e->a, e->b, e->c})
+                if(p) pts.push_back(p);
+        return pts;
+    };
+    const bool group = (hit.kind == Kind::Point || hit.kind == Kind::Curve) && hit.id > 0 &&
+                       selectedEntities.count(hit.id) && selectedEntities.size() > 1;
+    if(group) {
+        for(int id : selectedEntities)
+            if(id > 0)
+                for(int p : pointsOf(id)) d.origin[p] = s.pointPos(p);
+        d.rigid = true;
+        d.active = !d.origin.empty();
+        if(!d.active) return false;
+        m_drag = std::move(d);
+        return true;
+    }
     switch(hit.kind) {
     case Kind::Point:
         if(!s.find(hit.id)) return false;
@@ -1062,7 +1227,7 @@ void SketchEditor::dragTo(QPointF px) {
             dragged.push_back(id);
         }
     }
-    if(m_drag.hit.kind == Kind::Curve) {
+    if(m_drag.hit.kind == Kind::Curve && !m_drag.rigid) {
         SkEntity *e = s.find(m_drag.hit.id);
         if(e && e->type == SkType::Circle) e->r = std::max(distance(s.pointPos(e->a), *q), 1e-3);
     }
@@ -1073,6 +1238,14 @@ void SketchEditor::dragTo(QPointF px) {
     } else {
         m_drag.lastGood = sketch();
     }
+    emitChanged();
+}
+
+void SketchEditor::cancelDrag() {
+    if(!m_drag.active) return;
+    sketch() = std::move(m_drag.before);
+    m_drag = Drag();
+    solve();
     emitChanged();
 }
 

@@ -42,6 +42,7 @@
 #include <QMessageBox>
 #include <QSplitter>
 #include <QStatusBar>
+#include <QSettings>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -112,6 +113,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
     connect(m_sketch, &SketchMode::statsChanged, this, &MainWindow::updateStats);
     connect(m_sketch, &SketchMode::message, this, [this](const QString &text) { statusBar()->showMessage(text, 8000); });
     connect(m_sketch, &SketchMode::activeChanged, this, &MainWindow::onSketchActive);
+    connect(m_sketch, &SketchMode::geometryChanged, this, &MainWindow::requestLiveSketch);
     connect(m_sketch, &SketchMode::toolChanged, this, &MainWindow::onSketchTool);
     connect(m_viewport, &Viewport::contextMenuRequested, this, [this](const QPoint &globalPos, const PickHit &) {
         if(m_sketch->pickingPlane()) return;
@@ -241,7 +243,52 @@ void MainWindow::updateSectionArrow() {
     m_viewport->refreshOverlay();
 }
 
+bool MainWindow::liveSketchBodies() {
+    return QSettings().value(QStringLiteral("sketch/liveBodies"), true).toBool();
+}
+
+void MainWindow::setLiveSketchBodies(bool on) { QSettings().setValue(QStringLiteral("sketch/liveBodies"), on); }
+
+void MainWindow::requestLiveSketch() {
+    SketchEditor *ed = m_sketch->editor();
+    if(!ed || !liveSketchBodies() || m_commands->active()) return;
+    // Heavy models update when the mouse is let go, not on every move.
+    if(m_liveSlow && ed->dragging()) return;
+    const std::shared_ptr<const cad::SketchFeature> f = ed->feature();
+    std::string json = f->sketch.toJson().dump();
+    if(json == m_liveSketchJson) return;
+    // Only worth it if a feature in the model uses this sketch.
+    bool used = false;
+    const std::vector<cad::FeaturePtr> &all = m_document->features();
+    const int shown = m_document->marker();
+    for(int i = 0; i < shown && i < int(all.size()); ++i)
+        for(cad::FeatureId dep : all[size_t(i)]->dependencies()) used |= dep == f->id;
+    if(!used) return;
+    if(m_liveInFlight) {
+        m_livePending = true;
+        return;
+    }
+    m_liveSketchJson = std::move(json);
+    std::vector<cad::FeaturePtr> features = all;
+    for(auto &p : features)
+        if(p->id == f->id) p = std::make_shared<cad::SketchFeature>(*f);
+    m_liveInFlight = true;
+    m_livePending = false;
+    m_liveClock.start();
+    m_liveRequest = m_recompute->request(std::move(features), nullptr, shown, true, true);
+}
+
 void MainWindow::onEvaluation(const EvaluationPtr &e) {
+    if(e->live) {
+        if(e->id < m_liveRequest) return;
+        m_liveInFlight = false;
+        if(!m_sketch->active()) return;
+        m_liveSlow = m_liveClock.elapsed() > 250;
+        m_liveShown = true;
+        m_modelView->setEvaluation(e);
+        if(m_livePending) requestLiveSketch();
+        return;
+    }
     if(!m_commands->accepts(e)) return;
     m_modelView->setEvaluation(e);
     m_commands->onEvaluation(e);
@@ -435,6 +482,7 @@ SettingsDialog *MainWindow::openSettings() {
         b.save();
         m_viewport->setMouseBindings(b);
         ExtrudeCommand::setAutoOperation(dlg->autoOperation());
+        setLiveSketchBodies(dlg->liveSketchBodies());
     });
     dlg->open();
     return dlg;
@@ -533,6 +581,7 @@ void MainWindow::buildActions() {
         {"sketchArc", SketchToolKind::Arc, IconId::Arc, {}},
         {"sketchPoint", SketchToolKind::Point, IconId::Point, {}},
         {"sketchDimension", SketchToolKind::Dimension, IconId::Dimension, QKeySequence(Qt::Key_D)},
+        {"sketchMove", SketchToolKind::Move, IconId::Move, QKeySequence(Qt::Key_M)},
         {"constraintCoincident", SketchToolKind::Coincident, IconId::Coincident, {}},
         {"constraintHorizontalVertical", SketchToolKind::HorizontalVertical, IconId::HorizontalVertical, {}},
         {"constraintParallel", SketchToolKind::Parallel, IconId::Parallel, {}},
@@ -616,6 +665,8 @@ void MainWindow::buildRibbon() {
     draw->addAction(action(QStringLiteral("sketchPoint")), false);
     draw->addSeparator();
     draw->addAction(action(QStringLiteral("sketchConstruction")), false);
+    RibbonGroup *modifySketch = m_sketchTab->addGroup(tr("MODIFY"));
+    modifySketch->addAction(action(QStringLiteral("sketchMove")));
     RibbonGroup *constraints = m_sketchTab->addGroup(tr("CONSTRAINTS"));
     for(const char *name : {"constraintCoincident", "constraintHorizontalVertical", "constraintParallel",
                             "constraintPerpendicular", "constraintTangent", "constraintEqual", "constraintMidpoint",
@@ -684,7 +735,12 @@ void MainWindow::onSketchActive(bool active) {
     if(!active) {
         onSketchTool(SketchToolKind::Select);
         statusBar()->clearMessage(); // the last tool's prompt
+        // Back to the document's own model (unless the finished sketch replaces it anyway).
+        if(m_liveShown) m_recompute->requestDocument(*m_document);
+    } else if(m_sketch->editor()) {
+        m_liveSketchJson = m_sketch->editor()->feature()->sketch.toJson().dump();
     }
+    m_liveShown = m_liveInFlight = m_livePending = m_liveSlow = false;
     updateStats();
     updateActions();
 }

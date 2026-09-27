@@ -1010,6 +1010,42 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     w.refresh();
     settle();
     shot("features_11_split_done.png");
+
+    // Edit the lying cylinder's sketch and drag its circle up: the cylinder
+    // follows live, before Finish Sketch.
+    SketchMode *mode = w.sketchMode();
+    if(!mode->editSketch(cid, false)) return false;
+    vp->setStandardView(StandardView::Home, false); // three-quarters, to see the cylinder follow
+    vp->fitAll(false);
+    waitForFrames(vp, 2);
+    SketchEditor *ed = mode->editor();
+    int centre = 0;
+    for(const auto &e : ed->sketch().entities)
+        if(e.type == cad::SkType::Circle) centre = e.a;
+    const cad::Vec2 c0 = ed->sketch().pointPos(centre);
+    const QPointF from = ed->toScreen(c0), to = ed->toScreen(c0 + cad::Vec2(0, 14));
+    sendMouse(vp, QEvent::MouseMove, from, Qt::NoButton, Qt::NoButton);
+    sendMouse(vp, QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+    for(int i = 1; i <= 10; ++i) sendMouse(vp, QEvent::MouseMove, from + (to - from) * (i / 10.0), Qt::NoButton, Qt::LeftButton);
+    auto cylinderTop = [&] {
+        double top = -1e9;
+        for(const auto &kv : w.modelView()->state()->bodies) {
+            double x0, y0, z0, x1, y1, z1;
+            cad::boundingBox(kv.second->shape.shape()).Get(x0, y0, z0, x1, y1, z1);
+            if(x0 > 70) top = z1;
+        }
+        return top;
+    };
+    QElapsedTimer liveWait;
+    liveWait.start();
+    while(std::fabs(cylinderTop() - (18 + 14 + 12)) > 0.1 && liveWait.elapsed() < 10000) processEventsFor(20);
+    check(std::fabs(cylinderTop() - 44.0) < 0.1 && mode->active(),
+          QStringLiteral("Sketch: dragging the circle moves the cylinder live (top at %1 mm)").arg(cylinderTop(), 0, 'f', 2));
+    shot("features_12_sketch_live.png");
+    sendMouse(vp, QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+    mode->finish();
+    settle();
+    check(lastOk(), QStringLiteral("the moved circle's extrude still resolves"));
     return ok;
 }
 

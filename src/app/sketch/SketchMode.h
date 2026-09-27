@@ -76,6 +76,8 @@ signals:
     void statsChanged(const QString &text);
     void message(const QString &text);
     void finished(cad::FeatureId id);
+    // The open sketch's geometry changed (its downstream bodies can follow).
+    void geometryChanged();
 
 private:
     bool enter(cad::FeatureId id, bool isNew, bool animate);

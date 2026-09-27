@@ -74,6 +74,7 @@ QString sketchToolName(SketchToolKind k) {
     case SketchToolKind::Concentric: return SketchTool::tr("Concentric");
     case SketchToolKind::Fix: return SketchTool::tr("Fix/Unfix");
     case SketchToolKind::Symmetric: return SketchTool::tr("Symmetric");
+    case SketchToolKind::Move: return SketchTool::tr("Move / Copy");
     }
     return {};
 }
@@ -246,7 +247,7 @@ public:
     bool keyPress(QKeyEvent *e) override { return commonKey(e); }
     bool cancel() override {
         if(!m_dragging) return false;
-        editor().endDrag();
+        editor().cancelDrag();
         m_dragging = m_pressed = false;
         return true;
     }
@@ -910,6 +911,154 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Move / Copy: pick the geometry (or use the selection), click a base point,
+// then where it goes; the heads-up boxes take an exact shift and a turn about
+// the base point. Hold Ctrl (Cmd) on the last click, or press Enter with Ctrl,
+// to leave the original and place a copy.
+
+class MoveTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Move; }
+    QString prompt() const override {
+        switch(m_phase) {
+        case Phase::Pick: return tr("Click the geometry to move (Enter when done).");
+        case Phase::Base: return tr("Click the base point to move from.");
+        case Phase::Target:
+            return tr("Click where it goes, or type the shift and turn; hold Ctrl (Cmd) to place a copy instead.");
+        }
+        return {};
+    }
+    void activate() override {
+        hud().setFields({{tr("ΔX"), cad::ValueKind::Length}, {tr("ΔY"), cad::ValueKind::Length},
+                         {tr("Turn"), cad::ValueKind::Angle}});
+        hud().hide();
+        m_phase = picked().empty() ? Phase::Pick : Phase::Base;
+        m_mode.showStatus(prompt());
+    }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        SketchEditor &ed = editor();
+        if(m_phase == Phase::Pick) {
+            const SketchHit hit = ed.hitTest(e->position(), HitPoints | HitCurves);
+            if(hit.kind == HitKind::Point || hit.kind == HitKind::Curve) ed.select(hit, true);
+            return true;
+        }
+        update(e->position());
+        if(m_phase == Phase::Base) {
+            m_base = m_snap.pos;
+            m_phase = Phase::Target;
+            hud().unlockAll();
+            update(e->position());
+            m_mode.showStatus(prompt());
+        } else {
+            commit(e->modifiers() & (Qt::ControlModifier | Qt::MetaModifier));
+        }
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        if(m_phase == Phase::Pick) {
+            setHover(e->position(), HitPoints | HitCurves);
+            return true;
+        }
+        update(e->position());
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override {
+        if(e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
+            if(m_phase == Phase::Pick && !picked().empty()) {
+                m_phase = Phase::Base;
+                m_mode.showStatus(prompt());
+            } else if(m_phase == Phase::Target) {
+                commit(e->modifiers() & (Qt::ControlModifier | Qt::MetaModifier));
+            }
+            return true;
+        }
+        return commonKey(e);
+    }
+    bool cancel() override {
+        if(m_phase != Phase::Target) return false;
+        m_phase = Phase::Base;
+        hud().hide();
+        hud().unlockAll();
+        editor().clearPreview();
+        m_mode.showStatus(prompt());
+        return true;
+    }
+    void hudCommit() override { commit(false); }
+    void hudChanged() override { update(m_cursor); }
+
+    // Tests: the same as clicking with typed values.
+    void setBase(cad::Vec2 p) {
+        m_base = p;
+        m_phase = Phase::Target;
+    }
+
+protected:
+    void paintToolOverlay(QPainter &p) override {
+        if(m_phase != Phase::Pick)
+            if(auto id = snapHint(m_snap)) paintHint(p, m_cursor, *id);
+    }
+
+private:
+    enum class Phase { Pick, Base, Target };
+
+    std::set<int> picked() const {
+        std::set<int> out;
+        for(int id : editor().selectedEntities)
+            if(id > 0) out.insert(id);
+        return out;
+    }
+
+    // The shift and turn: typed values win over the mouse.
+    std::pair<Vec2, double> motion() const {
+        Vec2 d = m_snap.pos - m_base;
+        if(const auto x = hud().value(0)) d.x = *x;
+        if(const auto y = hud().value(1)) d.y = *y;
+        return {d, hud().value(2).value_or(0.0)};
+    }
+
+    void update(QPointF px) {
+        m_cursor = px;
+        SketchEditor &ed = editor();
+        m_snap = ed.snap(px);
+        ed.previewLines.clear();
+        ed.previewSnap = m_snap;
+        if(m_phase == Phase::Target) {
+            const auto [d, turn] = motion();
+            ed.previewLines = ed.movedOutline(picked(), m_base, d, turn);
+            ed.previewLines.push_back({m_base, m_base + d});
+            hud().setLive(0, d.x);
+            hud().setLive(1, d.y);
+            hud().setLive(2, turn);
+            const QPointF at = ed.toScreen(m_base + d);
+            hud().place(0, at + QPointF(0, 34));
+            hud().place(1, at + QPointF(0, 60));
+            hud().place(2, at + QPointF(0, 86));
+        }
+        ed.refreshView();
+    }
+
+    void commit(bool copy) {
+        if(m_phase != Phase::Target) return;
+        const auto [d, turn] = motion();
+        SketchEditor &ed = editor();
+        const std::set<int> ids = picked();
+        ed.clearPreview();
+        hud().hide();
+        hud().unlockAll();
+        if(ed.moveEntities(ids, m_base, d, turn, copy)) m_mode.showStatus(copy ? tr("Copied.") : tr("Moved."));
+        m_phase = Phase::Base;
+    }
+
+    Phase m_phase = Phase::Pick;
+    Vec2 m_base;
+    SketchSnap m_snap;
+    QPointF m_cursor;
+};
+
+// ---------------------------------------------------------------------------
 // Sketch Dimension: pick one or two entities, then click to place the label;
 // the value box opens right away, as in Fusion 360.
 
@@ -1328,6 +1477,7 @@ std::unique_ptr<SketchTool> createSketchTool(SketchMode &mode, SketchToolKind ki
     case SketchToolKind::Arc: return std::make_unique<ArcTool>(mode);
     case SketchToolKind::Point: return std::make_unique<PointTool>(mode);
     case SketchToolKind::Dimension: return std::make_unique<DimensionTool>(mode);
+    case SketchToolKind::Move: return std::make_unique<MoveTool>(mode);
     default: return std::make_unique<ConstraintTool>(mode, kind);
     }
 }

@@ -6,6 +6,7 @@
 
 #include "doc/Document.h"
 
+#include <QElapsedTimer>
 #include <QMainWindow>
 #include <QPointer>
 
@@ -44,6 +45,12 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
+    // Bodies follow the open sketch while it is edited (a setting; default on).
+    static bool liveSketchBodies();
+    static void setLiveSketchBodies(bool on);
+    // The last live update was slow, so updates wait for the mouse to be released.
+    bool liveSketchSlow() const { return m_liveSlow; }
+
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow() override;
 
@@ -110,6 +117,9 @@ private:
     void onDocumentChanged();
     void onEvaluation(const EvaluationPtr &e);
     void updateSectionArrow();
+    // Bodies built from the open sketch follow its edits (a background what-if
+    // evaluation with the edited sketch in the timeline).
+    void requestLiveSketch();
 
     std::unique_ptr<cad::Document> m_document;
     Viewport *m_viewport = nullptr;
@@ -138,6 +148,11 @@ private:
     std::map<SketchToolKind, QAction *> m_toolActions;
     QActionGroup *m_toolGroup = nullptr;
     std::vector<QAction *> m_sketchOnly;
+    // Live sketch updates.
+    uint64_t m_liveRequest = 0;
+    bool m_liveInFlight = false, m_livePending = false, m_liveShown = false, m_liveSlow = false;
+    std::string m_liveSketchJson;
+    QElapsedTimer m_liveClock;
 };
 
 } // namespace cadly

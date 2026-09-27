@@ -23,6 +23,9 @@ struct Evaluation {
     cad::StatePtr state;                   // the model after `marker` features
     std::vector<cad::Status> statuses;     // one per applied feature
     bool preview = false;
+    // The open sketch's edits shown on the model while sketching (a preview
+    // that no command owns).
+    bool live = false;
     // Previews: what the last applied feature cuts away (drawn translucent).
     std::shared_ptr<const cad::Body> tool;
 };
@@ -42,7 +45,7 @@ public:
     ~RecomputeService() override;
 
     uint64_t request(std::vector<cad::FeaturePtr> features, std::shared_ptr<const cad::ParamTable> params, int marker,
-                     bool preview = false);
+                     bool preview = false, bool live = false);
     // Evaluates the document as it is now.
     uint64_t requestDocument(cad::Document &doc);
     bool busy() const { return m_busy; }
@@ -66,6 +69,7 @@ private:
         std::shared_ptr<const cad::ParamTable> params;
         int marker = 0;
         bool preview = false;
+        bool live = false;
         std::atomic<bool> cancel{false};
     };
 

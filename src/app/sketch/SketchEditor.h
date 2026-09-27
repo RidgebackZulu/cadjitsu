@@ -132,6 +132,15 @@ public:
     bool commit(const QString &label, cad::Sketch work, const std::vector<PendingConstraint> &extra,
                 std::vector<int> *added = nullptr);
     void setSketch(const cad::Sketch &s); // no undo step
+    // Move / Copy: entities (points, lines, arcs, circles) turned by `angle`
+    // (radians) about `pivot`, then shifted by `delta`, as one undo step. A
+    // copy keeps the originals and copies the constraints and dimensions
+    // among the copied geometry. False (nothing changed) if the sketch cannot
+    // be solved that way.
+    bool moveEntities(const std::set<int> &ids, cad::Vec2 pivot, cad::Vec2 delta, double angle, bool copy);
+    // Where those entities would be drawn after such a move (preview segments).
+    std::vector<std::pair<cad::Vec2, cad::Vec2>> movedOutline(const std::set<int> &ids, cad::Vec2 pivot, cad::Vec2 delta,
+                                                              double angle) const;
     // Adds a driving dimension with the current measured value; falls back to a
     // driven (reference) dimension if it would over-constrain the sketch.
     int addDimension(cad::SkCon type, int e1, int e2, cad::Vec2 label, bool supplementary = false,
@@ -193,6 +202,8 @@ public:
     bool beginDrag(const SketchHit &hit, QPointF px);
     void dragTo(QPointF px);
     void endDrag();
+    // Esc: puts everything back where it was before the drag.
+    void cancelDrag();
     bool dragging() const { return m_drag.active; }
 
     // --- drawing -----------------------------------------------------------------------
@@ -257,6 +268,7 @@ private:
         std::map<int, cad::Vec2> origin; // point id -> start position
         cad::Vec2 labelStart;
         bool moved = false;
+        bool rigid = false; // a selection moved as a whole (circles keep their size)
     } m_drag;
 
     // Screen rectangles of dimension labels and constraint glyphs (last paint).

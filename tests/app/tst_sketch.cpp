@@ -13,7 +13,9 @@
 #include "ui/Ribbon.h"
 #include "viewport/Viewport.h"
 
+#include "features/ExtrudeFeature.h"
 #include "features/SketchFeature.h"
+#include "geom/OcctUtil.h"
 
 #include <QAction>
 #include <QLabel>
@@ -468,6 +470,70 @@ private slots:
         QCOMPARE(ed()->selectedEntities, std::set<int>{line});
         key(Qt::Key_Delete);
         QCOMPARE(countType(sk(), SkType::Line), 0);
+    }
+
+    void draggingASelectionMovesItAndTheBodyFollowsLive() {
+        cad::Document &doc = m_window->document();
+        MainWindow::setLiveSketchBodies(true);
+        // A rectangle extruded into a body.
+        auto s = std::make_shared<cad::SketchFeature>();
+        s->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        const std::vector<int> lines = s->sketch.addRectangle({0, 0}, {20, 10});
+        const cad::FeatureId sid = doc.addFeature(s);
+        auto e = std::make_shared<cad::ExtrudeFeature>();
+        for(const auto &p : doc.stateAt(1)->sketches.at(sid)->profiles) e->profiles.push_back({sid, p.key, p.sample});
+        e->distance = doc.makeSlot("5 mm");
+        doc.addFeature(e);
+        m_window->refresh();
+        QVERIFY(m_window->waitForModel());
+        auto bodyMinX = [&] {
+            const cad::StatePtr st = m_window->modelView()->state();
+            if(!st || st->bodies.empty()) return -1e9;
+            double x0, y0, z0, x1, y1, z1;
+            cad::boundingBox(st->bodies.begin()->second->shape.shape()).Get(x0, y0, z0, x1, y1, z1);
+            return x0;
+        };
+        QVERIFY(std::fabs(bodyMinX()) < 1e-6);
+        QVERIFY(mode()->editSketch(sid, false));
+        QVERIFY(waitForFrames(vp(), 1));
+
+        // Select the whole rectangle and drag one side: all of it moves.
+        ed()->selectEntities({lines.begin(), lines.end()}, false);
+        dragLeft(at(0, 5), at(12, 5));
+        for(const auto &en : sk().entities)
+            if(en.type == SkType::Point && en.id > 0) QVERIFY2(en.x > 11.9, qPrintable(QString::number(en.x)));
+        // The body followed before Finish Sketch.
+        QTRY_VERIFY_WITH_TIMEOUT(std::fabs(bodyMinX() - 12.0) < 0.05, 5000);
+        QVERIFY(mode()->active());
+
+        // Esc in the middle of a drag puts it back.
+        const cad::Sketch before = sk();
+        move(at(12, 5));
+        send(vp(), QEvent::MouseButtonPress, at(12, 5), Qt::LeftButton, Qt::LeftButton);
+        for(int i = 1; i <= 4; ++i) send(vp(), QEvent::MouseMove, at(12 + 2 * i, 5), Qt::NoButton, Qt::LeftButton);
+        QTest::keyClick(vp(), Qt::Key_Escape);
+        send(vp(), QEvent::MouseButtonRelease, at(20, 5), Qt::LeftButton, Qt::NoButton);
+        QCOMPARE(sk().toJson(), before.toJson());
+
+        // Move / Copy: a typed shift, then a copy placed with Ctrl.
+        trigger("sketchMove");
+        click(at(12, 0)); // the base point: a corner
+        type(QStringLiteral("5"));
+        key(Qt::Key_Return);
+        for(const auto &en : sk().entities)
+            if(en.type == SkType::Point && en.id > 0) QVERIFY2(en.x > 16.9, qPrintable(QString::number(en.x)));
+        click(at(17, 0));
+        click(at(17, 30), Qt::ControlModifier);
+        QCOMPARE(countType(sk(), SkType::Line), 8);
+        QCOMPARE(int(ed()->profiles().size()), 2);
+        // The copy keeps the rectangle's horizontal and vertical constraints.
+        QCOMPARE(countCon(sk(), SkCon::Horizontal) + countCon(sk(), SkCon::Vertical), 8);
+
+        trigger("finishSketch");
+        QVERIFY(m_window->waitForModel());
+        // The extrude still finds its (moved) rectangle.
+        QVERIFY(std::fabs(bodyMinX() - 17.0) < 0.05);
+        QVERIFY(doc.statusOf(e->id).severity != cad::Severity::Error);
     }
 
     void constructionToggleAndProfiles() {

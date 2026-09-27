@@ -32,13 +32,14 @@ RecomputeService::~RecomputeService() {
 }
 
 uint64_t RecomputeService::request(std::vector<cad::FeaturePtr> features, std::shared_ptr<const cad::ParamTable> params,
-                                   int marker, bool preview) {
+                                   int marker, bool preview, bool live) {
     auto job = std::make_shared<Job>();
     job->id = ++m_requested;
     job->features = std::move(features);
     job->params = params ? std::move(params) : cad::buildParamTable(job->features);
     job->marker = std::clamp(marker, 0, int(job->features.size()));
-    job->preview = preview;
+    job->preview = preview || live;
+    job->live = live;
     {
         std::lock_guard<std::mutex> lk(m_mutex);
         if(m_current) m_current->cancel = true;
@@ -75,7 +76,8 @@ void RecomputeService::run() {
         result->state = job->marker > 0 ? eval.states[size_t(job->marker) - 1] : std::make_shared<const cad::ModelState>();
         result->statuses = eval.statuses;
         result->preview = job->preview;
-        if(job->preview && job->marker > 0) result->tool = eval.tools[size_t(job->marker) - 1];
+        result->live = job->live;
+        if(job->preview && !job->live && job->marker > 0) result->tool = eval.tools[size_t(job->marker) - 1];
         // Tessellate what will be drawn, so the UI thread never waits for it.
         for(const auto &kv : result->state->bodies) {
             if(job->cancel) break;

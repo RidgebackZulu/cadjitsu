@@ -1,5 +1,6 @@
 #include "ui/SettingsDialog.h"
 
+#include "MainWindow.h"
 #include "command/ExtrudeCommand.h"
 
 #include <QCheckBox>
@@ -65,6 +66,20 @@ SettingsDialog::SettingsDialog(const MouseBindings &current, QWidget *parent) : 
     opNote->setStyleSheet(QStringLiteral("color: #5a6270;"));
     mv->addWidget(opNote);
     v->addWidget(modeling);
+
+    auto *sketching = new QGroupBox(tr("Sketching"), this);
+    auto *sv = new QVBoxLayout(sketching);
+    m_liveBodies = new QCheckBox(tr("Update bodies while sketching"), sketching);
+    m_liveBodies->setObjectName(QStringLiteral("liveSketchBodies"));
+    m_liveBodies->setChecked(MainWindow::liveSketchBodies());
+    sv->addWidget(m_liveBodies);
+    auto *liveNote = new QLabel(tr("Bodies made from the open sketch reshape as you drag or move its geometry. On "
+                                   "heavy models they wait until you let go of the mouse."),
+                                sketching);
+    liveNote->setWordWrap(true);
+    liveNote->setStyleSheet(QStringLiteral("color: #5a6270;"));
+    sv->addWidget(liveNote);
+    v->addWidget(sketching);
     connect(m_preset, &QComboBox::activated, this, [this](int i) {
         if(i < int(MouseBindings::Preset::Custom)) showBindings(MouseBindings::preset(MouseBindings::Preset(i)));
     });
@@ -96,6 +111,7 @@ void SettingsDialog::updatePreset() {
 }
 
 bool SettingsDialog::autoOperation() const { return m_autoOperation->isChecked(); }
+bool SettingsDialog::liveSketchBodies() const { return m_liveBodies->isChecked(); }
 
 MouseBindings SettingsDialog::bindings() const {
     MouseBindings b;
