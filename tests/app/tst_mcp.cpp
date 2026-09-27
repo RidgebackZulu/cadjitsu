@@ -233,6 +233,38 @@ private slots:
         QVERIFY(m_window->document().folderVisible("construction"));
     }
 
+    void offsetSketchShellsAnOutline() {
+        initialize();
+        QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {20, 10}}}}}})
+                     .first);
+        // Too big inwards: refused, nothing changes.
+        const auto [e0, r0] = tool("offset_sketch", {{"sketch", 1}, {"near", {{20, 5}}}, {"distance", -6}});
+        QVERIFY(e0);
+        QVERIFY2(r0.dump().find("too big") != std::string::npos, r0.dump().c_str());
+        // One point on the outline takes all of it; 2 mm inwards.
+        const auto [e1, r1] = tool("offset_sketch", {{"sketch", 1}, {"near", {{20, 5}}}, {"distance", -2}});
+        QVERIFY2(!e1, r1.dump().c_str());
+        QCOMPARE(int(r1["offset_curves"].size()), 4);
+        QCOMPARE(int(r1["profiles"].size()), 2);
+        const std::string param = r1["parameter"]["name"];
+        // The ring between them, extruded 5 mm.
+        const auto [e2, ex] = tool("extrude", {{"sketch", 1}, {"profile_points", {{1, 1}}}, {"distance", 5}});
+        QVERIFY2(!e2, ex.dump().c_str());
+        QVERIFY(std::fabs(ex["bodies"][0]["volume_mm3"].get<double>() - (200.0 - 16.0 * 6.0) * 5.0) < 1e-2);
+        // The wall is a parameter.
+        const auto [e3, r3] = tool("set_parameter", {{"name", param}, {"expression", 3}});
+        QVERIFY2(!e3, r3.dump().c_str());
+        const json d = tool("get_design").second;
+        QVERIFY2(std::fabs(d["bodies"][0]["volume_mm3"].get<double>() - (200.0 - 14.0 * 4.0) * 5.0) < 1e-2, d.dump().c_str());
+        // A side point picks the side for an open line.
+        QVERIFY(!tool("add_to_sketch", {{"sketch", 1}, {"entities", {{{"type", "line"}, {"from", {0, 30}}, {"to", {20, 30}}}}}})
+                     .first);
+        const auto [e4, r4] = tool("offset_sketch", {{"sketch", 1}, {"near", {{10, 30}}}, {"distance", 4}, {"side_point", {10, 20}}});
+        QVERIFY2(!e4, r4.dump().c_str());
+        QCOMPARE(int(r4["offset_curves"].size()), 1);
+    }
+
     void offsetPlaneTiltsOnBothAxes() {
         initialize();
         auto normalOf = [&](int i) {

@@ -25,6 +25,7 @@
 #include "measure/Measure.h"
 #include "measure/MeasureBetween.h"
 #include "measure/Overhang.h"
+#include "sketch/SketchOffset.h"
 #include "topo/Resolver.h"
 
 #include <BRepAdaptor_Curve.hxx>
@@ -695,6 +696,84 @@ void McpTools::define() {
             r["sketch"] = f->id;
             r["entities"] = created;
             r["parameters"] = params;
+            return r;
+        });
+
+    add("offset_sketch",
+        "Offset (like Fusion's sketch Offset): copies sketch curves a distance to one side, joined up at the corners, "
+        "held there by ONE new offset dimension (a parameter you can change later). Pick curves by entity id "
+        "(`curves`, e.g. from add_to_sketch) or by points on or near them (`near`, sketch coordinates); with `chain` "
+        "(default) each picks everything joined to it end to end, so one point on a rectangle takes the whole outline. "
+        "Shell a part: offset its outline inwards by the wall thickness, then extrude the ring between the two. "
+        "Clearances for lids and fits work the same way (e.g. 0.2 mm).",
+        {{"sketch", integer("sketch feature id")},
+         {"curves", arrayOf(integer("entity id"), "the curves to offset")},
+         {"near", arrayOf(xy("a point on or near the curve"), "the curves nearest these points")},
+         {"distance", {{"type", "number"},
+                       {"description", "mm. Positive: closed outlines grow outwards (open curves go to the side of "
+                                       "`side_point`, else to the left of the first curve's direction); negative: "
+                                       "the other way"}}},
+         {"side_point", xy("optional: a point on the side to offset to (the sign of distance is then ignored)")},
+         {"chain", boolean("pick whole chains of joined curves (default true)")}},
+        {"sketch", "distance"},
+        [&doc, begin, settle, featureOf, sketchResultOf, sketchJson](const json &a) {
+            begin();
+            const cad::FeaturePtr f = featureOf(a.at("sketch"));
+            if(f->type() != cad::FeatureType::Sketch) fail("feature " + f->name + " is not a sketch");
+            auto sf = std::static_pointer_cast<cad::SketchFeature>(f->clone());
+            cad::Sketch &sk = sf->sketch;
+            const bool chain = a.value("chain", true);
+            std::vector<int> ids;
+            auto take = [&](int id) {
+                const std::vector<int> add = chain ? cad::connectedCurves(sk, id) : std::vector<int>{id};
+                for(int c : add)
+                    if(std::find(ids.begin(), ids.end(), c) == ids.end()) ids.push_back(c);
+            };
+            for(const json &c : a.value("curves", json::array())) {
+                const int id = c.get<int>();
+                const cad::SkEntity *e = sk.find(id);
+                if(!e || !e->isCurve()) fail("sketch entity " + std::to_string(id) + " is not a line, arc or circle");
+                take(id);
+            }
+            for(const json &p : a.value("near", json::array())) {
+                const int id = cad::nearestCurve(sk, vec2Arg(p, "near"));
+                if(!id) fail("the sketch has no curves");
+                take(id);
+            }
+            if(ids.empty()) fail("give curves or near points to pick what to offset");
+            std::vector<cad::CurveChain> chains;
+            std::string why;
+            if(!cad::buildChains(sk, ids, chains, why)) fail(why);
+            const double distance = a.at("distance").get<double>();
+            if(std::fabs(distance) < 1e-9) fail("distance cannot be 0");
+            double left;
+            if(a.contains("side_point")) {
+                const double side = cad::sideDistance(sk, chains, vec2Arg(a["side_point"], "side_point"));
+                left = side < 0 ? -std::fabs(distance) : std::fabs(distance);
+            } else {
+                left = distance * cad::outwardSign(sk, chains.front());
+            }
+            const std::string param = doc.allocateParamName();
+            const std::string expr = num(std::fabs(distance)) + " mm";
+            const cad::ParamTable &table = doc.params();
+            const cad::DimensionLookup lookup = [&table](const std::string &name, double &v) {
+                const cad::ParamValue *pv = table.find(name);
+                if(!pv || !pv->ok) return false;
+                v = pv->value;
+                return true;
+            };
+            cad::OffsetApplied applied;
+            if(!cad::applyOffset(sk, chains, left, param, expr, lookup, applied, why)) fail(why);
+            doc.replaceFeature(sf, "Offset in " + f->name + " (MCP)");
+            const cad::StatePtr st = settle();
+            json r = sketchJson(*sketchResultOf(st, f->id));
+            r["sketch"] = f->id;
+            json made = json::array();
+            for(int id : applied.entities)
+                if(const cad::SkEntity *e = sk.find(id); e && e->isCurve()) made.push_back(id);
+            r["offset_curves"] = made;
+            r["source_curves"] = ids;
+            if(applied.dimension) r["parameter"] = {{"name", param}, {"expr", expr}, {"measures", "offset distance"}};
             return r;
         });
 

@@ -62,6 +62,7 @@ constexpr std::array kIcons = {
     Entry{IconId::Overhang, "overhang"},
     Entry{IconId::Split, "split"},
     Entry{IconId::Move, "move"},
+    Entry{IconId::Offset, "offset"},
     Entry{IconId::Draft, "draft"},
     Entry{IconId::Mirror, "mirror"},
     Entry{IconId::PatternRect, "pattern-rect"},

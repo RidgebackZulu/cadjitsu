@@ -216,11 +216,30 @@ private:
     }
 
     bool dimValue(const SkConstraint &c, double &v) {
-        if(!m_lookup || !m_lookup(c.param, v)) {
-            m_warnings.push_back("dimension " + c.param + " has no valid value");
+        const SkConstraint *from = c.valueFrom ? m_sketch.findConstraint(c.valueFrom) : &c;
+        if(!from || from->driven || !m_lookup || !m_lookup(from->param, v)) {
+            m_warnings.push_back("dimension " + (from ? from->param : std::string("?")) + " has no valid value");
             return false;
         }
         return true;
+    }
+
+    // Circle / arc `inner` has the radius of `outer` plus or minus v (on the
+    // side it is on now), measured along a hidden horizontal radius: K on
+    // `inner` level with its centre, H on `outer` on the line from that centre
+    // to K, and |HK| = v.
+    void offsetRadius(int inner, int outer, double v) {
+        const SkEntity &ei = *ent(inner), &eo = *ent(outer);
+        const Vec2 c = centreOf(ei);
+        const double ri = radiusOf(ei), ro = radiusOf(eo);
+        const Slvs_hEntity k = point2d(kSolve, c.x + ri, c.y);
+        const Slvs_hEntity hp = point2d(kSolve, c.x + ro, c.y);
+        con(SLVS_C_PT_ON_CIRCLE, 0, k, 0, h(inner), 0, 0);
+        con(SLVS_C_HORIZONTAL, 0, h(ei.a), k, 0, 0, 0);
+        con(SLVS_C_PT_ON_CIRCLE, 0, hp, 0, h(outer), 0, 0);
+        const Slvs_hEntity radial = addEntity(Slvs_MakeLineSegment(m_nextEntity++, kSolve, m_workplane, h(ei.a), k));
+        con(SLVS_C_PT_ON_LINE, 0, hp, 0, radial, 0, 0);
+        con(SLVS_C_PT_PT_DISTANCE, std::fabs(v), hp, k, 0, 0, 0);
     }
 
     // Tangency between a line / circle / arc without a shared endpoint, via a
@@ -399,6 +418,12 @@ private:
             con(SLVS_C_DIAMETER, c.type == SkCon::Radius ? 2 * std::fabs(v) : std::fabs(v), 0, 0, h(a), 0, 0);
             break;
         }
+        case SkCon::OffsetRadius: {
+            double v;
+            if(!dimValue(c, v) || !isRound(a) || !isRound(b) || !h(a) || !h(b)) break;
+            offsetRadius(a, b, v);
+            break;
+        }
         case SkCon::Angle: {
             double v;
             if(!dimValue(c, v) || !isLine(a) || !isLine(b)) break;
@@ -457,7 +482,11 @@ std::vector<Sketch> connectedParts(const Sketch &s) {
             if(known(p)) unite(e.id, p);
     for(const auto &c : s.constraints) {
         int first = 0;
-        for(int id : {c.e1, c.e2, c.e3}) {
+        std::vector<int> ids{c.e1, c.e2, c.e3};
+        // A dimension that takes its value from another one needs that one too.
+        if(const SkConstraint *from = c.valueFrom ? s.findConstraint(c.valueFrom) : nullptr)
+            ids.insert(ids.end(), {from->e1, from->e2, from->e3});
+        for(int id : ids) {
             if(!known(id)) continue;
             if(first) unite(first, id);
             else first = id;

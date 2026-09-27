@@ -464,6 +464,23 @@ def move_tool():
     return s
 
 
+def offset():
+    """A rounded sketch outline and its offset copy around it, with the gap's
+    distance arrow."""
+    def rounded(x0, y0, x1, y1, r):
+        return (f"M{f(x0 + r)},{f(y0)} L{f(x1 - r)},{f(y0)} A{f(r)},{f(r)} 0 0 1 {f(x1)},{f(y0 + r)} "
+                f"L{f(x1)},{f(y1 - r)} A{f(r)},{f(r)} 0 0 1 {f(x1 - r)},{f(y1)} L{f(x0 + r)},{f(y1)} "
+                f"A{f(r)},{f(r)} 0 0 1 {f(x0)},{f(y1 - r)} L{f(x0)},{f(y0 + r)} A{f(r)},{f(r)} 0 0 1 {f(x0 + r)},{f(y0)} Z")
+    s = sheet(6, 10, 52, 44, fold=9)
+    s += path(rounded(20, 24, 40, 40, 4), "none", "#6F84A0", 1.8)
+    s += path(rounded(12, 16, 48, 48, 9), "none", ACCENT_AXIS, 2.4)
+    # The offset distance, from the inner outline out to the offset one.
+    s += line((40, 32), (48, 32), "#1B5DC4", 1.6)
+    s += arrow_poly([(48, 32), (44.2, 29.6), (44.2, 34.4)])
+    s += arrow_poly([(40, 32), (43.8, 29.6), (43.8, 34.4)])
+    return s
+
+
 def draft():
     """A block whose right wall leans in over a hinge along its foot (orange),
     with the tilt shown by a curved arrow."""
@@ -1060,7 +1077,7 @@ ICONS = {
     "parallel": g_parallel, "perpendicular": g_perpendicular, "tangent": g_tangent, "equal": g_equal,
     "midpoint": g_midpoint, "concentric": g_concentric, "fix": g_fix, "symmetric": g_symmetric,
     "extrude": extrude, "fillet": fillet, "chamfer": chamfer, "hole": hole, "combine": combine, "plane": plane,
-    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "draft": draft, "mirror": mirror, "pattern-rect": pattern_rect, "pattern-circ": pattern_circ, "thread": thread,
+    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "offset": offset, "draft": draft, "mirror": mirror, "pattern-rect": pattern_rect, "pattern-circ": pattern_circ, "thread": thread,
     "undo": undo, "redo": redo, "save": save, "open": open_, "new": new, "export-stl": export_stl,
     "export-step": export_step, "print-3d": print3d,
     "eye": eye, "eye-off": eye_off, "body": body, "sketch-node": sketch_node, "plane-node": plane_node,

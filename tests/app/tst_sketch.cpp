@@ -536,6 +536,93 @@ private slots:
         QVERIFY(doc.statusOf(e->id).severity != cad::Severity::Error);
     }
 
+    void offsetShellsARectangle() {
+        cad::Document &doc = m_window->document();
+        QVERIFY(m_window->action(QStringLiteral("sketchOffset"))->toolTip().contains(
+            QStringLiteral("Copies the selected sketch curves")));
+        startSketchOnXY();
+        trigger("sketchRectangle");
+        click(at(0, 0));
+        click(at(20, 10));
+        key(Qt::Key_Escape);
+        QCOMPARE(countType(sk(), SkType::Line), 4);
+
+        // One click on an edge takes the whole outline; the preview follows the mouse.
+        trigger("sketchOffset");
+        click(at(20, 5));
+        QCOMPARE(int(ed()->selectedEntities.size()), 4);
+        move(at(17, 5));
+        QCOMPARE(int(ed()->previewLines.size()), 4);
+        // Esc lets go of it.
+        key(Qt::Key_Escape);
+        QVERIFY(ed()->selectedEntities.empty());
+        QVERIFY(ed()->previewLines.empty());
+
+        // Too big: nothing is made.
+        click(at(20, 5));
+        move(at(17, 5));
+        type(QStringLiteral("6"));
+        key(Qt::Key_Return);
+        QCOMPARE(countType(sk(), SkType::Line), 4);
+        key(Qt::Key_Escape);
+
+        // Inside by a typed 2 mm.
+        click(at(0, 5));
+        move(at(3, 5));
+        type(QStringLiteral("2"));
+        key(Qt::Key_Return);
+        QCOMPARE(countType(sk(), SkType::Line), 8);
+        QCOMPARE(int(ed()->profiles().size()), 2);
+        auto innerBox = [&](double &x0, double &y0, double &x1, double &y1) {
+            x0 = y0 = 1e9;
+            x1 = y1 = -1e9;
+            for(const auto &e : sk().entities)
+                if(e.type == SkType::Point && e.x > 0.5 && e.x < 19.5 && e.y > 0.5 && e.y < 9.5) {
+                    x0 = std::min(x0, e.x);
+                    y0 = std::min(y0, e.y);
+                    x1 = std::max(x1, e.x);
+                    y1 = std::max(y1, e.y);
+                }
+        };
+        double x0, y0, x1, y1;
+        innerBox(x0, y0, x1, y1);
+        QVERIFY2(std::fabs(x0 - 2) < 1e-3 && std::fabs(y0 - 2) < 1e-3 && std::fabs(x1 - 18) < 1e-3 && std::fabs(y1 - 8) < 1e-3,
+                 qPrintable(QStringLiteral("%1 %2 %3 %4 %5").arg(x0).arg(y0).arg(x1).arg(y1).arg(QString::fromStdString(sk().toJson().dump()))));
+        // One offset dimension on the canvas, driving all four sides.
+        const cad::SkConstraint *dim = nullptr;
+        for(const auto &c : sk().constraints)
+            if(cad::isDimension(c.type) && !c.valueFrom) dim = &c;
+        QVERIFY(dim);
+        QCOMPARE(QString::fromStdString(dim->expr), QStringLiteral("2 mm"));
+        const int dimId = dim->id;
+        QVERIFY(ed()->dimensionRect(dimId).has_value() || waitForFrames(vp(), 1));
+        QVERIFY(ed()->dimensionRect(dimId).has_value());
+        // Changing it moves the copy, not the original.
+        QVERIFY(ed()->setDimensionExpression(dimId, QStringLiteral("3")));
+        innerBox(x0, y0, x1, y1);
+        QVERIFY2(std::fabs(x0 - 3) < 1e-3 && std::fabs(y1 - 7) < 1e-3, qPrintable(QStringLiteral("%1 %2 %3").arg(x0).arg(y1).arg(QString::fromStdString(sk().toJson()["entities"].dump()))));
+        for(const auto &e : sk().entities)
+            if(e.type == SkType::Point && (e.x < 0.5 || e.x > 19.5))
+                QVERIFY(std::fabs(e.x) < 1e-3 || std::fabs(e.x - 20) < 1e-3);
+
+        // Finished and extruded, the ring between the outlines is a 3 mm wall.
+        trigger("finishSketch");
+        QVERIFY(m_window->waitForModel());
+        const cad::FeatureId sid = doc.features().back()->id;
+        const auto &profiles = doc.stateAt(doc.marker())->sketches.at(sid)->profiles;
+        auto e = std::make_shared<cad::ExtrudeFeature>();
+        for(const auto &p : profiles)
+            if(!p.holes.empty()) e->profiles.push_back({sid, p.key, p.sample});
+        QCOMPARE(int(e->profiles.size()), 1);
+        e->distance = doc.makeSlot("5 mm");
+        doc.addFeature(e);
+        m_window->refresh();
+        QVERIFY(m_window->waitForModel());
+        const cad::StatePtr st = m_window->modelView()->state();
+        QCOMPARE(int(st->bodies.size()), 1);
+        QVERIFY(std::fabs(cad::volumeOf(st->bodies.begin()->second->shape.shape()) - (200.0 - 14.0 * 4.0) * 5.0) < 1e-3);
+    }
+
     void constructionToggleAndProfiles() {
         startSketchOnXY();
         trigger("sketchRectangle");

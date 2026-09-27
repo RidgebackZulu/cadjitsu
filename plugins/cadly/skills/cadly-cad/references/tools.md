@@ -63,6 +63,19 @@ Adds geometry to an existing sketch (one undo step). Bodies already made from th
 | `entities` **(required)** | array of objects | Sketch geometry in the sketch's own 2D coordinates (mm). On XY these are world X, Y; on XZ, world X and Z; on YZ, world Y and Z; on a face or construction plane, see the frame this tool returns. |
 | `sketch` **(required)** | integer | sketch feature id |
 
+## `offset_sketch`
+
+Offset (like Fusion's sketch Offset): copies sketch curves a distance to one side, joined up at the corners, held there by ONE new offset dimension (a parameter you can change later). Pick curves by entity id (`curves`, e.g. from add_to_sketch) or by points on or near them (`near`, sketch coordinates); with `chain` (default) each picks everything joined to it end to end, so one point on a rectangle takes the whole outline. Shell a part: offset its outline inwards by the wall thickness, then extrude the ring between the two. Clearances for lids and fits work the same way (e.g. 0.2 mm).
+
+| Argument | Type | Description |
+|---|---|---|
+| `chain` | boolean | pick whole chains of joined curves (default true) |
+| `curves` | array of integer | the curves to offset |
+| `distance` **(required)** | number | mm. Positive: closed outlines grow outwards (open curves go to the side of `side_point`, else to the left of the first curve's direction); negative: the other way |
+| `near` | array of [x, y] | the curves nearest these points |
+| `side_point` | [x, y] | optional: a point on the side to offset to (the sign of distance is then ignored) |
+| `sketch` **(required)** | integer | sketch feature id |
+
 ## `extrude`
 
 Extrudes sketch profiles (regions) or planar faces into a solid. By default it makes a NEW BODY (combine bodies afterwards with combine). Profiles are picked by points inside them (sketch coordinates); without points every profile of the sketch is used.

@@ -604,6 +604,7 @@ void MainWindow::buildActions() {
         {"sketchPoint", SketchToolKind::Point, IconId::Point, {}},
         {"sketchDimension", SketchToolKind::Dimension, IconId::Dimension, QKeySequence(Qt::Key_D)},
         {"sketchMove", SketchToolKind::Move, IconId::Move, QKeySequence(Qt::Key_M)},
+        {"sketchOffset", SketchToolKind::Offset, IconId::Offset, QKeySequence(Qt::Key_O)},
         {"constraintCoincident", SketchToolKind::Coincident, IconId::Coincident, {}},
         {"constraintHorizontalVertical", SketchToolKind::HorizontalVertical, IconId::HorizontalVertical, {}},
         {"constraintParallel", SketchToolKind::Parallel, IconId::Parallel, {}},
@@ -623,6 +624,9 @@ void MainWindow::buildActions() {
         m_toolActions[k] = a;
         m_sketchOnly.push_back(a);
     }
+    m_actions[QStringLiteral("sketchOffset")]->setToolTip(
+        tr("<b>Offset (O)</b><p>Copies the selected sketch curves a specified distance from the original curves.</p>"
+           "<p>Select the curves to offset then specify the offset distance.</p>"));
     m_sketchOnly.push_back(makeAction("sketchConstruction", tr("Normal / Construction"), IconId::Construction,
                                       QKeySequence(Qt::Key_X), [this] { m_sketch->toggleConstruction(); }));
     QAction *del = makeAction("sketchDelete", tr("Delete"), IconId::Delete, QKeySequence::Delete,
@@ -694,6 +698,7 @@ void MainWindow::buildRibbon() {
     draw->addAction(action(QStringLiteral("sketchConstruction")), false);
     RibbonGroup *modifySketch = m_sketchTab->addGroup(tr("MODIFY"));
     modifySketch->addAction(action(QStringLiteral("sketchMove")));
+    modifySketch->addAction(action(QStringLiteral("sketchOffset")));
     RibbonGroup *constraints = m_sketchTab->addGroup(tr("CONSTRAINTS"));
     for(const char *name : {"constraintCoincident", "constraintHorizontalVertical", "constraintParallel",
                             "constraintPerpendicular", "constraintTangent", "constraintEqual", "constraintMidpoint",

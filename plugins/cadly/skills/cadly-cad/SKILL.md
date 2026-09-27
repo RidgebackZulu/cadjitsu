@@ -115,6 +115,10 @@ Printed threads need clearance (default 0.15 mm); for M2-M4 prefer heat-set inse
 - **Bridges:** keep unsupported horizontal spans under ~20 mm. Horizontal holes print better as teardrops or
   small (<8 mm).
 - **Fits:** 0.2-0.3 mm clearance per side between mating printed parts; 0.1-0.15 mm for press fits.
+  `offset_sketch` draws these gaps: offset the mating outline by the clearance.
+- **Walls and shells:** `offset_sketch` an outline inwards by the wall thickness (`distance` negative), then
+  extrude the ring between the two (a `profile_points` point inside the ring). The offset is one parameter
+  (`set_parameter` changes the wall later).
 - **Strength:** layers are weakest in Z; lay parts so loads run along the layers. Inside corners carrying
   load get fillets (R >= wall thickness).
 - **Orientation:** the largest flat face goes on XY; avoid tiny first-layer contact.

@@ -122,10 +122,12 @@ public:
     cad::Vec2 posOf(int pointId) const;
 
     // --- editing --------------------------------------------------------------------
-    // Applies an edit as one undo step and re-solves. Returns false (restoring
-    // the previous state) if the result cannot be solved, or is newly
-    // over-constrained when `rejectIfOverConstrained`.
-    bool edit(const QString &label, const std::function<void(cad::Sketch &)> &fn, bool rejectIfOverConstrained = true);
+    // Applies an edit as one undo step and re-solves (keeping the `hold`
+    // points where they are if it can). Returns false (restoring the previous
+    // state) if the result cannot be solved, or is newly over-constrained when
+    // `rejectIfOverConstrained`.
+    bool edit(const QString &label, const std::function<void(cad::Sketch &)> &fn, bool rejectIfOverConstrained = true,
+              const std::vector<int> &hold = {});
     // Replaces the sketch with `work` plus whichever `extra` constraints keep it
     // solvable, as one undo step. Returns the ids of the constraints added (0 =
     // dropped) through `added`.
@@ -145,6 +147,11 @@ public:
     // driven (reference) dimension if it would over-constrain the sketch.
     int addDimension(cad::SkCon type, int e1, int e2, cad::Vec2 label, bool supplementary = false,
                      bool *driven = nullptr);
+    // Offset: copies of the curves `leftDistance` to the left of their chains
+    // (negative: to the right), joined at the corners and held there by one
+    // offset dimension, as one undo step. Returns the new curves (empty, with
+    // `error`, if the offset cannot be made).
+    std::vector<int> offsetCurves(const std::vector<int> &curves, double leftDistance, QString *error = nullptr);
     bool setDimensionExpression(int constraintId, const QString &expr, QString *error = nullptr);
     void deleteSelection();
     void toggleConstruction();

@@ -58,6 +58,8 @@ enum class SkCon {
     Radius,         // e1 circle/arc
     Diameter,       // e1 circle/arc
     Angle,          // e1 line, e2 line
+    OffsetRadius,   // e1 circle/arc, e2 circle/arc: e1's radius is e2's plus or minus the value
+                    // (on the side it is on); the Offset tool pairs it with Concentric
 };
 
 bool isDimension(SkCon t);
@@ -72,6 +74,9 @@ struct SkConstraint {
     std::string expr;      // dimensions: the parameter's expression, e.g. "20 mm" or "d1 * 2"
     bool driven = false;   // reference ("driven") dimension: displays, does not constrain
     bool supplementary = false; // Angle: measure the supplementary angle
+    int valueFrom = 0;     // dimensions: take the value of dimension `valueFrom` instead of a
+                           // parameter of its own, and are not drawn (the Offset tool's
+                           // curves all follow its one offset distance)
     Vec2 label;            // dimension label offset from the dimension's anchor (sketch units):
                            // the midpoint of the measured points, a circle's centre, or the
                            // intersection of an angle's lines; labels follow their geometry
@@ -103,7 +108,11 @@ struct Sketch {
 
     // Removes an entity, constraints that reference it, and points no longer used.
     void removeEntity(int id);
+    // Removes a constraint, and the dimensions that take their value from it.
     void removeConstraint(int id);
+
+    // Drops dimensions whose `valueFrom` constraint no longer exists.
+    void dropOrphans();
 
     double arcRadius(const SkEntity &arc) const;
 

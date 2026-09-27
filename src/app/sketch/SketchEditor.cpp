@@ -6,6 +6,7 @@
 #include "viewport/Viewport.h"
 
 #include "measure/Measure.h"
+#include "sketch/SketchOffset.h"
 
 #include <QFontMetricsF>
 #include <QIcon>
@@ -272,11 +273,11 @@ cad::SolveOutcome SketchEditor::trySolve(cad::Sketch &s) const {
 }
 
 bool SketchEditor::edit(const QString &label, const std::function<void(cad::Sketch &)> &fn,
-                        bool rejectIfOverConstrained) {
+                        bool rejectIfOverConstrained, const std::vector<int> &hold) {
     const cad::Sketch before = sketch();
     const bool wasOver = !m_solve.ok || m_solve.redundant;
     fn(sketch());
-    solve();
+    solve(hold);
     if(rejectIfOverConstrained && (!m_solve.ok || (m_solve.redundant && !wasOver))) {
         const QString why = m_solve.ok ? tr("it would over-constrain the sketch") : QString::fromStdString(m_solve.message);
         sketch() = before;
@@ -430,6 +431,9 @@ bool SketchEditor::moveEntities(const std::set<int> &ids, Vec2 pivot, Vec2 delta
                 if(c.driven) continue;
                 PendingConstraint pc(type, mapped(c.e1), mapped(c.e2), mapped(c.e3));
                 pc.expr = c.expr;
+                // An offset's follower dimensions follow the original's offset value.
+                if(c.valueFrom)
+                    if(const SkConstraint *from = s.findConstraint(c.valueFrom)) pc.expr = from->param;
                 pc.label = c.label;
                 pc.supplementary = c.supplementary;
                 dims.push_back(pc);
@@ -507,6 +511,36 @@ int SketchEditor::addDimension(SkCon type, int e1, int e2, Vec2 label, bool supp
     return id;
 }
 
+std::vector<int> SketchEditor::offsetCurves(const std::vector<int> &curves, double d, QString *error) {
+    auto fail = [&](const QString &why) {
+        if(error) *error = why;
+        return std::vector<int>();
+    };
+    std::vector<cad::CurveChain> chains;
+    std::string why;
+    if(!cad::buildChains(sketch(), curves, chains, why)) return fail(QString::fromStdString(why));
+    if(std::fabs(d) < 1e-9) return fail(tr("the offset distance cannot be 0"));
+    const std::string param = m_allocate ? m_allocate() : std::string();
+    if(param.empty()) return fail(tr("no parameter name available"));
+    cad::Sketch work = sketch();
+    const auto table = paramsFor(m_paramProvider, *m_feature, work);
+    const cad::DimensionLookup lookup = [&](const std::string &name, double &v) {
+        const cad::ParamValue *pv = table ? table->find(name) : nullptr;
+        if(!pv || !pv->ok) return false;
+        v = pv->value;
+        return true;
+    };
+    cad::OffsetApplied applied;
+    if(!cad::applyOffset(work, chains, d, param, formatExpression(std::fabs(d), cad::ValueKind::Length), lookup, applied,
+                         why))
+        return fail(QString::fromStdString(why));
+    if(!edit(tr("Offset"), [&](cad::Sketch &s) { s = work; }, false)) return fail(tr("the sketch cannot be solved"));
+    std::vector<int> made;
+    for(int id : applied.entities)
+        if(const SkEntity *e = sketch().find(id); e && e->isCurve()) made.push_back(id);
+    return made;
+}
+
 bool SketchEditor::setDimensionExpression(int constraintId, const QString &text, QString *error) {
     auto fail = [&](const QString &why) {
         if(error) *error = why;
@@ -529,7 +563,28 @@ bool SketchEditor::setDimensionExpression(int constraintId, const QString &text,
                            c->type == SkCon::PointLineDistance || c->type == SkCon::Angle;
     if(pv->value < 0 || (!mayBeZero && pv->value < 1e-9)) return fail(tr("the value must be positive"));
     if(c->type == SkCon::Angle && pv->value > cad::kPi + 1e-9) return fail(tr("angles must be between 0 and 180 deg"));
-    if(!edit(tr("Edit Dimension"), [&](cad::Sketch &s) { s = work; }, true))
+    // An offset moves its copies, not the curves they were offset from.
+    std::vector<int> hold;
+    for(const SkConstraint &k : work.constraints) {
+        if(k.id != constraintId && k.valueFrom != constraintId) continue;
+        if(k.type == SkCon::PointLineDistance) hold.push_back(k.e1);
+        if(k.type == SkCon::OffsetRadius)
+            if(const SkEntity *orig = work.find(k.e2))
+                for(int p : {orig->a, orig->b, orig->c})
+                    if(p) hold.push_back(p);
+    }
+    if(!hold.empty()) {
+        // Pinned outright for this solve if that works (libslvs only prefers
+        // dragged points), then the pins go again.
+        cad::Sketch pinned = work;
+        std::vector<int> pins;
+        for(int pt : hold) pins.push_back(pinned.addConstraint(SkCon::Fix, pt));
+        if(trySolve(pinned).ok) {
+            for(int id : pins) pinned.removeConstraint(id);
+            work = std::move(pinned);
+        }
+    }
+    if(!edit(tr("Edit Dimension"), [&](cad::Sketch &s) { s = work; }, true, hold))
         return fail(tr("the sketch cannot be solved with that value"));
     return true;
 }
@@ -666,6 +721,12 @@ double SketchEditor::measuredValue(const SkConstraint &c) const {
         const double ang = std::acos(std::clamp(d1.dot(d2), -1.0, 1.0));
         return c.supplementary ? cad::kPi - ang : ang;
     }
+    case SkCon::OffsetRadius: {
+        const SkEntity *a = s.find(c.e1), *b = s.find(c.e2);
+        if(!a || !b || !a->isCurve() || !b->isCurve()) return 0.0;
+        auto r = [&](const SkEntity &e) { return e.type == SkType::Circle ? e.r : s.arcRadius(e); };
+        return std::fabs(r(*a) - r(*b));
+    }
     default: return 0.0;
     }
 }
@@ -711,7 +772,8 @@ Vec2 SketchEditor::dimensionAnchor(const SkConstraint &c) const {
         return (p + foot) * 0.5;
     }
     case SkCon::Radius:
-    case SkCon::Diameter: {
+    case SkCon::Diameter:
+    case SkCon::OffsetRadius: {
         const SkEntity *e = sketch().find(c.e1);
         return e ? sketch().pointPos(e->a) : Vec2();
     }
@@ -1432,7 +1494,7 @@ void SketchEditor::paintOverlay(QPainter &p) {
     p.setRenderHint(QPainter::Antialiasing);
     if(m_options.dimensions)
         for(const auto &c : sketch().constraints)
-            if(cad::isDimension(c.type)) paintDimension(p, c);
+            if(cad::isDimension(c.type) && !c.valueFrom) paintDimension(p, c); // followers are not shown
     if(m_options.constraints) paintGlyphs(p);
     p.restore();
 }
@@ -1529,6 +1591,23 @@ void SketchEditor::paintDimension(QPainter &p, const SkConstraint &c) {
             drawArrow(p, sE, sE - sC, col);
             if(outside) p.drawLine(sE, sL);
         }
+        break;
+    }
+    case SkCon::OffsetRadius: {
+        // Between the two circles, along the radius towards the label.
+        const SkEntity *e1 = s.find(c.e1), *e2 = s.find(c.e2);
+        if(!e1 || !e2 || !e1->isCurve() || !e2->isCurve()) break;
+        const Vec2 C = s.pointPos(e1->a);
+        auto radius = [&](const SkEntity &e) { return e.type == SkType::Circle ? e.r : s.arcRadius(e); };
+        Vec2 u = L - C;
+        u = u.length() > 1e-12 ? u.normalized() : Vec2(1, 0);
+        const QPointF sA = S(C + u * radius(*e1)), sB = S(C + u * radius(*e2));
+        p.drawLine(sA, sB);
+        drawArrow(p, sA, sA - sB, col);
+        drawArrow(p, sB, sB - sA, col);
+        const QPointF far = pxDist(sL, sA) > pxDist(sL, sB) ? sB : sA;
+        if(distance(L, C) > std::max(radius(*e1), radius(*e2)) || distance(L, C) < std::min(radius(*e1), radius(*e2)))
+            p.drawLine(far, sL);
         break;
     }
     case SkCon::Angle: {

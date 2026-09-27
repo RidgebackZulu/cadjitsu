@@ -2,6 +2,7 @@
 
 #include "sketch/HeadsUpInput.h"
 #include "sketch/SketchMode.h"
+#include "sketch/SketchOffset.h"
 #include "ui/Icons.h"
 #include "viewport/Viewport.h"
 
@@ -75,6 +76,7 @@ QString sketchToolName(SketchToolKind k) {
     case SketchToolKind::Fix: return SketchTool::tr("Fix/Unfix");
     case SketchToolKind::Symmetric: return SketchTool::tr("Symmetric");
     case SketchToolKind::Move: return SketchTool::tr("Move / Copy");
+    case SketchToolKind::Offset: return SketchTool::tr("Offset");
     }
     return {};
 }
@@ -1059,6 +1061,164 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Offset: click a curve (its whole chain comes along; Alt-click for just that
+// curve), then move to the side to offset to and click, or type the distance
+// (a negative one goes to the other side) and press Enter. Clicking another
+// curve first adds it too.
+
+class OffsetTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Offset; }
+    QString prompt() const override {
+        return m_phase == Phase::Pick
+                   ? tr("Select the curves to offset.")
+                   : tr("Move to the side to offset to and click, or type the distance and press Enter; click "
+                        "another curve to add it.");
+    }
+    void activate() override {
+        hud().setFields({{tr("Offset"), cad::ValueKind::Length}});
+        hud().hide();
+        m_picked.clear();
+        for(int id : editor().selectedEntities)
+            if(const auto *e = editor().sketch().find(id); e && e->isCurve()) m_picked.push_back(id);
+        m_phase = m_picked.empty() ? Phase::Pick : Phase::Distance;
+        if(m_phase == Phase::Distance) startDistance();
+        m_mode.showStatus(prompt());
+    }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        const SketchHit hit = editor().hitTest(e->position(), HitCurves);
+        const bool newCurve = hit.kind == HitKind::Curve &&
+                              std::find(m_picked.begin(), m_picked.end(), hit.id) == m_picked.end();
+        if(newCurve) {
+            pick(hit.id, e->modifiers() & Qt::AltModifier);
+            return true;
+        }
+        if(m_phase == Phase::Distance) {
+            update(e->position());
+            commit();
+        }
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        setHover(e->position(), HitCurves);
+        if(m_phase == Phase::Distance) update(e->position());
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override {
+        if((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && m_phase == Phase::Distance) {
+            commit();
+            return true;
+        }
+        return commonKey(e);
+    }
+    bool cancel() override {
+        if(m_phase == Phase::Pick) return false;
+        reset();
+        return true;
+    }
+    void hudCommit() override { commit(); }
+    void hudChanged() override { update(m_cursor); }
+
+    // Tests: the picked curves, and the offset the preview shows (left of the chains).
+    const std::vector<int> &picked() const { return m_picked; }
+    double leftDistance() const { return m_left; }
+
+protected:
+    void paintToolOverlay(QPainter &) override {}
+
+private:
+    enum class Phase { Pick, Distance };
+
+    void pick(int curve, bool single) {
+        const std::vector<int> add = single ? std::vector<int>{curve} : cad::connectedCurves(editor().sketch(), curve);
+        for(int id : add)
+            if(std::find(m_picked.begin(), m_picked.end(), id) == m_picked.end()) m_picked.push_back(id);
+        editor().selectEntities(m_picked, false);
+        if(m_phase == Phase::Pick) {
+            m_phase = Phase::Distance;
+            startDistance();
+        }
+        update(m_cursor);
+        m_mode.showStatus(prompt());
+    }
+
+    void startDistance() {
+        hud().unlockAll();
+        m_left = 0.0;
+    }
+
+    // The distance to the left of the chains: the mouse picks the side (and,
+    // until a value is typed, the distance); a typed value goes on that side.
+    void update(QPointF px) {
+        m_cursor = px;
+        SketchEditor &ed = editor();
+        ed.previewLines.clear();
+        ed.previewConstruction.clear();
+        if(m_phase != Phase::Distance) {
+            ed.refreshView();
+            return;
+        }
+        std::vector<cad::CurveChain> chains;
+        std::string why;
+        if(!cad::buildChains(ed.sketch(), m_picked, chains, why)) {
+            m_mode.showStatus(QString::fromStdString(why));
+            ed.refreshView();
+            return;
+        }
+        double mouse = 0.0;
+        if(const auto q = ed.toSketch(px)) mouse = cad::sideDistance(ed.sketch(), chains, *q);
+        // Outwards until the mouse is off the curves.
+        const double side = std::fabs(mouse) > 1e-9 ? (mouse < 0 ? -1.0 : 1.0) : cad::outwardSign(ed.sketch(), chains.front());
+        if(const auto typed = hud().value(0)) m_left = side * *typed;
+        else m_left = mouse;
+        hud().setLive(0, std::fabs(m_left));
+        hud().place(0, px + QPointF(18, 22));
+        std::vector<cad::OffsetChain> geometry;
+        const bool ok = std::fabs(m_left) > 1e-9 && cad::offsetGeometry(ed.sketch(), chains, m_left, geometry, why);
+        // Too big: shown as construction (dashed) where it can be worked out.
+        auto &out = ok ? ed.previewLines : ed.previewConstruction;
+        for(const auto &g : geometry)
+            for(const auto &curve : g.curves) {
+                const auto pl = cad::offsetPolyline(curve);
+                for(size_t i = 0; i + 1 < pl.size(); ++i) out.push_back({pl[i], pl[i + 1]});
+            }
+        m_mode.showStatus(ok || std::fabs(m_left) < 1e-9 ? prompt() : QString::fromStdString(why));
+        ed.refreshView();
+    }
+
+    void commit() {
+        if(m_phase != Phase::Distance) return;
+        update(m_cursor);
+        QString why;
+        const auto made = editor().offsetCurves(m_picked, m_left, &why);
+        if(made.empty()) {
+            m_mode.showStatus(tr("Offset not made: %1.").arg(why));
+            return;
+        }
+        reset();
+        m_mode.showStatus(tr("Offset %1 curves by %2 mm.").arg(made.size()).arg(std::fabs(m_left), 0, 'f', 2));
+    }
+
+    void reset() {
+        m_phase = Phase::Pick;
+        m_picked.clear();
+        hud().hide();
+        hud().unlockAll();
+        editor().clearPreview();
+        editor().clearSelection();
+        m_mode.showStatus(prompt());
+    }
+
+    Phase m_phase = Phase::Pick;
+    std::vector<int> m_picked;
+    double m_left = 0.0;
+    QPointF m_cursor;
+};
+
+// ---------------------------------------------------------------------------
 // Sketch Dimension: pick one or two entities, then click to place the label;
 // the value box opens right away, as in Fusion 360.
 
@@ -1478,6 +1638,7 @@ std::unique_ptr<SketchTool> createSketchTool(SketchMode &mode, SketchToolKind ki
     case SketchToolKind::Point: return std::make_unique<PointTool>(mode);
     case SketchToolKind::Dimension: return std::make_unique<DimensionTool>(mode);
     case SketchToolKind::Move: return std::make_unique<MoveTool>(mode);
+    case SketchToolKind::Offset: return std::make_unique<OffsetTool>(mode);
     default: return std::make_unique<ConstraintTool>(mode, kind);
     }
 }

@@ -340,6 +340,28 @@ bool sketchScenario(MainWindow &w, const QDir &out, QTextStream &log) {
           QStringLiteral("selecting a line shows its length"));
     shot("sketch_done.png");
 
+    // Offset: one click takes the whole slot; 2 mm outwards, typed.
+    const size_t curvesBefore = std::count_if(sk.entities.begin(), sk.entities.end(), [](const cad::SkEntity &e) {
+        return e.isCurve();
+    });
+    ed->clearSelection(); // (the Offset tool starts from the curves already selected)
+    w.action(QStringLiteral("sketchOffset"))->trigger();
+    clickAt(vp, at(42, 26.1));
+    sendMouse(vp, QEvent::MouseMove, at(42, 29), Qt::NoButton, Qt::NoButton);
+    typeText(w, QStringLiteral("2"));
+    sendMouse(vp, QEvent::MouseMove, at(42, 29.2), Qt::NoButton, Qt::NoButton);
+    check(ed->previewLines.size() > 4, QStringLiteral("Offset previews the slot's outline"));
+    shot("sketch_offset.png");
+    sendKey(w, Qt::Key_Return);
+    sendKey(w, Qt::Key_Escape);
+    const size_t curvesAfter = std::count_if(sk.entities.begin(), sk.entities.end(), [](const cad::SkEntity &e) {
+        return e.isCurve();
+    });
+    check(curvesAfter == curvesBefore + 4 && ed->profiles().size() == 4,
+          QStringLiteral("Offset copied the slot's 4 curves 2 mm out (%1 curves, %2 profiles)")
+              .arg(curvesAfter - curvesBefore)
+              .arg(ed->profiles().size()));
+
     // Finish: the sketch lands in the timeline with its profiles.
     w.action(QStringLiteral("finishSketch"))->trigger();
     check(!mode->active(), QStringLiteral("Finish Sketch leaves sketch mode"));
@@ -348,7 +370,7 @@ bool sketchScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     check(sf != nullptr, QStringLiteral("the sketch is in the timeline"));
     if(sf) {
         const auto st = w.document().displayedState();
-        check(st->sketches.count(sf->id) && st->sketches.at(sf->id)->profiles.size() == 3,
+        check(st->sketches.count(sf->id) && st->sketches.at(sf->id)->profiles.size() == 4,
               QStringLiteral("the committed sketch has the same profiles"));
     }
     vp->setStandardView(StandardView::Home, false);

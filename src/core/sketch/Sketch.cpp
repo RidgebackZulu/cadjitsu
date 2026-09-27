@@ -32,6 +32,7 @@ const ConName kConNames[] = {
     {SkCon::Radius, "radius"},
     {SkCon::Diameter, "diameter"},
     {SkCon::Angle, "angle"},
+    {SkCon::OffsetRadius, "offsetRadius"},
 };
 
 const char *typeName(SkType t) {
@@ -62,6 +63,7 @@ bool isDimension(SkCon t) {
     case SkCon::Radius:
     case SkCon::Diameter:
     case SkCon::Angle:
+    case SkCon::OffsetRadius:
         return true;
     default:
         return false;
@@ -200,6 +202,18 @@ void Sketch::removeConstraint(int id) {
     constraints.erase(std::remove_if(constraints.begin(), constraints.end(),
                                      [&](const SkConstraint &c) { return c.id == id; }),
                       constraints.end());
+    dropOrphans();
+}
+
+void Sketch::dropOrphans() {
+    // Dimensions whose value came from a constraint that is gone.
+    for(;;) {
+        const auto it = std::find_if(constraints.begin(), constraints.end(), [&](const SkConstraint &c) {
+            return c.valueFrom && !findConstraint(c.valueFrom);
+        });
+        if(it == constraints.end()) return;
+        constraints.erase(it);
+    }
 }
 
 void Sketch::removeEntity(int id) {
@@ -242,6 +256,7 @@ void Sketch::removeEntity(int id) {
                                                 removed.count(c.e3);
                                      }),
                       constraints.end());
+    dropOrphans();
 }
 
 double Sketch::arcRadius(const SkEntity &arc) const {
@@ -283,6 +298,7 @@ json Sketch::toJson() const {
         if(!c.expr.empty()) jc["expr"] = c.expr;
         if(c.driven) jc["driven"] = true;
         if(c.supplementary) jc["supplementary"] = true;
+        if(c.valueFrom) jc["valueFrom"] = c.valueFrom;
         if(isDimension(c.type)) jc["label"] = cad::toJson(c.label);
         cons.push_back(std::move(jc));
     }
@@ -317,6 +333,7 @@ Sketch Sketch::fromJson(const json &j) {
         c.expr = jget<std::string>(jc, "expr", "");
         c.driven = jget<bool>(jc, "driven", false);
         c.supplementary = jget<bool>(jc, "supplementary", false);
+        c.valueFrom = jget<int>(jc, "valueFrom", 0);
         if(jc.contains("label")) c.label = vec2FromJson(jc["label"]);
         s.constraints.push_back(c);
         s.nextId = std::max(s.nextId, c.id + 1);
