@@ -168,6 +168,10 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - Shows the minimum distance (drawn on the canvas with its value), its X / Y / Z parts, the distance between centres for holes, circles and cylinders, and the angle between flat faces or straight edges. One pick shows its own size (area, length, radius, volume).
 - Millimetres or inches (remembered); **Copy results** puts the numbers on the clipboard. Click empty space to start again. Measure adds nothing to the timeline.
 
+**Overhang Analysis** (Inspect)
+- Colours the bodies by how they print upwards: red where a downward face leans further from vertical than the limit (it needs support), amber close to the limit, blue for flat bridges, faint green where it prints fine. Faces resting on the build plate (the lowest body's bottom) are left alone.
+- Set the limit your printer manages (45° by default, remembered) by typing it or turning the dial; the panel sums the areas. Chamfers (not fillets) on downward edges, drafts or turning the part are the usual fixes.
+
 **Section Analysis** (Inspect)
 - Pick an origin plane, a construction plane or a planar face, then type the depth or drag the arrow; **Flip** keeps the other side. Cut faces are closed with hatched caps, as in Fusion.
 - The section is kept in the browser's **Analysis** folder, not the timeline. Its eye turns it off (back to the normal view) and on again; double-click it (or right-click > Edit Section Analysis) to change it; right-click > Delete removes it. One section shows at a time.

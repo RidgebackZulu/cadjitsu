@@ -89,3 +89,37 @@ TEST_CASE("measure: angles between faces and edges") {
     const double deg = *se.angle * 180.0 / M_PI; // the edge may cross that face or lie in it
     CHECK((std::fabs(deg - 90.0) < 1e-9 || std::fabs(deg) < 1e-9));
 }
+
+#include "measure/Overhang.h"
+
+TEST_CASE("overhangs: faces are sorted by how far they lean from vertical") {
+    const OverhangOptions o; // 45 degrees
+    auto lean = [](double deg) { // a downward face leaning `deg` from vertical
+        const double r = deg * M_PI / 180.0;
+        return std::pair{std::cos(r), -std::sin(r)};
+    };
+    auto kind = [&](double deg, bool plate = false) {
+        const auto [x, z] = lean(deg);
+        return classifyOverhang(x, 0, z, plate, o);
+    };
+    CHECK(classifyOverhang(0, 0, 1, false, o) == OverhangKind::Ok);  // a top face
+    CHECK(classifyOverhang(1, 0, 0, false, o) == OverhangKind::Ok);  // a wall
+    CHECK(kind(30) == OverhangKind::Ok);
+    CHECK(kind(40) == OverhangKind::Near);
+    CHECK(kind(50) == OverhangKind::Overhang);
+    CHECK(kind(89) == OverhangKind::Bridge);
+    CHECK(kind(90, true) == OverhangKind::Plate);
+
+    // A downward triangle of area 2 over the plate, and the same on the plate.
+    MeshData m;
+    m.positions = {0, 0, 5, 0, 2, 5, 2, 0, 5, 0, 0, 0, 0, 2, 0, 2, 0, 0};
+    m.normals = {0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1, 0, 0, -1};
+    m.indices = {0, 1, 2, 3, 4, 5};
+    m.triangleFace = {7, 8};
+    const OverhangReport r = analyzeOverhangs(m, o, true);
+    CHECK(r.area[size_t(OverhangKind::Bridge)] == doctest::Approx(2.0));
+    CHECK(r.area[size_t(OverhangKind::Plate)] == doctest::Approx(2.0));
+    CHECK(r.faceOverhangArea.at(7) == doctest::Approx(2.0));
+    CHECK(r.faceOverhangArea.count(8) == 0);
+    CHECK(r.triangles[size_t(OverhangKind::Bridge)].size() == 9);
+}

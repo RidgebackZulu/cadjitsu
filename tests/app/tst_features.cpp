@@ -10,6 +10,7 @@
 #include "command/EdgeCommands.h"
 #include "command/HoleCommand.h"
 #include "command/MeasureCommand.h"
+#include "command/OverhangCommand.h"
 #include "command/PlaneCommand.h"
 #include "ui/AngleDial.h"
 #include "model/ModelView.h"
@@ -568,6 +569,43 @@ private slots:
         QVERIFY(m->result() && std::fabs(m->result()->distance - 20.0) < 1e-6);
         panel()->cancelButton()->click();
         QVERIFY(!command<MeasureCommand>());
+    }
+
+    void overhangAnalysisColoursWhatNeedsSupport() {
+        // A column with a slab resting on top of it: the slab's underside is a flat bridge.
+        box(10, 0, 30, 20, 10);
+        auto p = std::make_shared<cad::ConstructionPlaneFeature>();
+        p->base = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        p->offset = doc().makeSlot("10 mm");
+        const cad::FeatureId pid = doc().addFeature(p);
+        auto s = std::make_shared<cad::SketchFeature>();
+        s->plane = cad::PlaneRef::construction(pid);
+        s->sketch.addRectangle({0, 0}, {40, 20});
+        const cad::FeatureId sid = doc().addFeature(s);
+        auto e = std::make_shared<cad::ExtrudeFeature>();
+        for(const auto &pr : doc().stateAt(doc().marker())->sketches.at(sid)->profiles) e->profiles.push_back({sid, pr.key, pr.sample});
+        e->distance = doc().makeSlot("5 mm");
+        e->operation = cad::BodyOperation::NewBody;
+        doc().addFeature(e);
+        showHome();
+        settle();
+        QVERIFY(!view()->overhangAnalysis());
+        trigger("overhangs");
+        auto *o = command<OverhangCommand>();
+        QVERIFY(o);
+        settle();
+        QVERIFY(view()->overhangAnalysis());
+        const auto &a = view()->overhangAreas();
+        QVERIFY2(std::fabs(a[size_t(cad::OverhangKind::Bridge)] - 800.0) < 1e-3,
+                 qPrintable(QString::number(a[size_t(cad::OverhangKind::Bridge)])));
+        QVERIFY(std::fabs(a[size_t(cad::OverhangKind::Plate)] - 400.0) < 1e-3);
+        QVERIFY(a[size_t(cad::OverhangKind::Overhang)] < 1e-9);
+        QCOMPARE(o->supportLabel()->text(), QStringLiteral("0.0 mm²"));
+        typeInto(o->limitField(), QStringLiteral("30"));
+        settle();
+        QVERIFY(std::fabs(view()->overhangAreas()[size_t(cad::OverhangKind::Bridge)] - 800.0) < 1e-3);
+        panel()->okButton()->click();
+        QVERIFY(!view()->overhangAnalysis());
     }
 
     void markingMenuAndShortcutsReachTheNewCommands() {

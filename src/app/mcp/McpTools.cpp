@@ -20,6 +20,7 @@
 #include "geom/OcctUtil.h"
 #include "measure/Measure.h"
 #include "measure/MeasureBetween.h"
+#include "measure/Overhang.h"
 #include "topo/Resolver.h"
 
 #include <BRepAdaptor_Curve.hxx>
@@ -1200,6 +1201,48 @@ void McpTools::define() {
             if(r.angle) out["angle"] = r3(*r.angle * 180.0 / M_PI);
             out["units"] = "mm, degrees";
             return out;
+        });
+
+    add("overhangs",
+        "Overhang check for printing upwards (+Z): for each body, the area of downward faces leaning further from "
+        "vertical than `threshold` (they need support), flat bridges, and faces near the limit, with the worst faces "
+        "(index for list_faces). The build plate is the lowest body's bottom. Fix with chamfers (45 deg) or by "
+        "reorienting.",
+        {{"threshold", {{"type", "number"}, {"description", "degrees from vertical a face may lean (default 45)"}}}},
+        {}, [&doc, begin, settle](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            cad::OverhangOptions o;
+            o.threshold = a.value("threshold", 45.0);
+            if(o.threshold <= 0 || o.threshold >= 90) fail("threshold must be between 0 and 90 degrees");
+            std::vector<std::pair<const cad::Body *, std::shared_ptr<const cad::MeshData>>> meshes;
+            double lowest = 1e300;
+            for(const cad::Body *b : st->orderedBodies()) {
+                meshes.push_back({b, b->mesh()});
+                if(meshes.back().second) lowest = std::min(lowest, double(meshes.back().second->bboxMin[2]));
+            }
+            o.plateZ = lowest < 1e299 ? lowest : 0.0;
+            json bodies = json::array();
+            double total = 0;
+            for(const auto &[b, m] : meshes) {
+                if(!m) continue;
+                const cad::OverhangReport r = cad::analyzeOverhangs(*m, o, false);
+                std::vector<std::pair<double, int>> worst;
+                for(const auto &[face, area] : r.faceOverhangArea) worst.push_back({area, face});
+                std::sort(worst.rbegin(), worst.rend());
+                json faces = json::array();
+                for(size_t i = 0; i < worst.size() && i < 8; ++i)
+                    faces.push_back({{"index", worst[i].second}, {"area", r3(worst[i].first)}});
+                total += r.area[size_t(cad::OverhangKind::Overhang)] + r.area[size_t(cad::OverhangKind::Bridge)];
+                bodies.push_back({{"body", doc.bodyName(*b)},
+                                  {"needs_support_area", r3(r.area[size_t(cad::OverhangKind::Overhang)])},
+                                  {"bridge_area", r3(r.area[size_t(cad::OverhangKind::Bridge)])},
+                                  {"near_limit_area", r3(r.area[size_t(cad::OverhangKind::Near)])},
+                                  {"on_plate_area", r3(r.area[size_t(cad::OverhangKind::Plate)])},
+                                  {"worst_faces", faces}});
+            }
+            return json{{"threshold", o.threshold}, {"build_plate_z", r3(o.plateZ)}, {"bodies", bodies},
+                        {"prints_without_support", total < 0.05}, {"units", "mm2"}};
         });
 
     add("section",

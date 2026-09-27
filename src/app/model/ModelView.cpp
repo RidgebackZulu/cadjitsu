@@ -146,6 +146,15 @@ std::optional<cad::SectionAnalysis> ModelView::shownSection() const {
     return std::nullopt;
 }
 
+void ModelView::setOverhangAnalysis(std::optional<cad::OverhangOptions> o) {
+    const bool same = o && m_overhang && o->threshold == m_overhang->threshold && o->nearBand == m_overhang->nearBand &&
+                      o->flatBand == m_overhang->flatBand;
+    if(!same) m_overhangCache.clear();
+    if(!o && !m_overhang) return;
+    m_overhang = o;
+    refresh();
+}
+
 void ModelView::setOriginForced(bool on) {
     if(on == m_originForced) return;
     m_originForced = on;
@@ -176,6 +185,40 @@ void ModelView::refresh() {
         rb.color = defaultBodyColor();
         scene.bodies.push_back(rb);
         targets.push_back({b->id, rb.mesh});
+    }
+    // Overhang analysis: printable surfaces faintly green, those close to the
+    // limit amber, overhangs red and flat bridges blue, over the shading.
+    m_overhangAreas = {};
+    if(m_overhang) {
+        cad::OverhangOptions o = *m_overhang;
+        float lowest = std::numeric_limits<float>::max();
+        for(const RenderBody &rb : scene.bodies)
+            if(rb.mesh) lowest = std::min(lowest, rb.mesh->bboxMin[2]);
+        o.plateZ = lowest == std::numeric_limits<float>::max() ? 0.0 : lowest;
+        if(o.plateZ != m_overhang->plateZ) m_overhangCache.clear();
+        m_overhang->plateZ = o.plateZ;
+        const QColor colors[] = {QColor(60, 180, 90, 26), QColor(245, 170, 30, 150), QColor(225, 50, 45, 170),
+                                 QColor(40, 110, 230, 170), QColor(0, 0, 0, 0)};
+        std::map<std::shared_ptr<const cad::MeshData>, cad::OverhangReport> kept;
+        const size_t nBodies = scene.bodies.size();
+        for(size_t i = 0; i < nBodies; ++i) {
+            const auto mesh = scene.bodies[i].mesh;
+            if(!mesh) continue;
+            auto it = m_overhangCache.find(mesh);
+            const cad::OverhangReport &r = it != m_overhangCache.end() ? kept[mesh] = it->second
+                                                                       : kept[mesh] = cad::analyzeOverhangs(*mesh, o, true);
+            for(size_t k = 0; k < r.area.size(); ++k) m_overhangAreas[k] += r.area[k];
+            for(size_t k = 0; k < r.triangles.size(); ++k) {
+                if(r.triangles[k].empty() || colors[k].alpha() == 0) continue;
+                TriangleBatch tb;
+                tb.color = colors[k];
+                tb.triangles.reserve(r.triangles[k].size() / 3);
+                for(size_t j = 0; j + 2 < r.triangles[k].size(); j += 3)
+                    tb.triangles.emplace_back(r.triangles[k][j], r.triangles[k][j + 1], r.triangles[k][j + 2]);
+                scene.triangles.push_back(std::move(tb));
+            }
+        }
+        m_overhangCache = std::move(kept);
     }
     // A previewed cut or hole shows the material it removes, translucent red
     // (not pickable).

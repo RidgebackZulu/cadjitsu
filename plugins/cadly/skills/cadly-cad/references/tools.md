@@ -246,6 +246,14 @@ Measures between two things, like Inspect > Measure: the minimum distance and it
 | `a` **(required)** | object | the first thing: {"body": "Body1"} (the whole body), {"body": ..., "face": i} / "edge" / "vertex" (indexes from list_faces / list_edges), or {"point": [x, y, z]} |
 | `b` | object | the second thing (optional): {"body": "Body1"} (the whole body), {"body": ..., "face": i} / "edge" / "vertex" (indexes from list_faces / list_edges), or {"point": [x, y, z]} |
 
+## `overhangs`
+
+Overhang check for printing upwards (+Z): for each body, the area of downward faces leaning further from vertical than `threshold` (they need support), flat bridges, and faces near the limit, with the worst faces (index for list_faces). The build plate is the lowest body's bottom. Fix with chamfers (45 deg) or by reorienting.
+
+| Argument | Type | Description |
+|---|---|---|
+| `threshold` | number | degrees from vertical a face may lean (default 45) |
+
 ## `section`
 
 Section analysis: cuts the view (not the model) by a plane moved along its normal, to look inside. hide: true turns sections off.

@@ -7,6 +7,7 @@
 #include "command/ExtrudeCommand.h"
 #include "command/HoleCommand.h"
 #include "command/MeasureCommand.h"
+#include "command/OverhangCommand.h"
 #include "command/PlaneCommand.h"
 #include "command/SectionCommand.h"
 #include "mcp/McpButton.h"
@@ -264,7 +265,7 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "offsetPlane", "sectionAnalysis", "measure"})
+    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
         action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
@@ -514,6 +515,8 @@ void MainWindow::buildActions() {
     });
     makeAction("measure", tr("Measure"), IconId::Measure, QKeySequence(Qt::Key_I),
                [this, ctx] { startCommand(QStringLiteral("measure"), std::make_unique<MeasureCommand>(ctx)); });
+    makeAction("overhangs", tr("Overhang Analysis"), IconId::Overhang, {},
+               [this, ctx] { startCommand(QStringLiteral("overhangs"), std::make_unique<OverhangCommand>(ctx)); });
 
     // SKETCH workspace.
     m_toolGroup = new QActionGroup(this);
@@ -595,6 +598,7 @@ void MainWindow::buildRibbon() {
     RibbonGroup *inspect = m_solidTab->addGroup(tr("INSPECT"));
     inspect->addAction(action(QStringLiteral("measure")));
     inspect->addAction(action(QStringLiteral("sectionAnalysis")));
+    inspect->addAction(action(QStringLiteral("overhangs")));
     RibbonGroup *make = m_solidTab->addGroup(tr("MAKE"));
     make->addAction(action(QStringLiteral("print3d")));
     m_solidTab->addStretch();

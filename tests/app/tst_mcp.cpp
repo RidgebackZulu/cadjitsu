@@ -283,6 +283,31 @@ private slots:
         QVERIFY(tool("measure", {{"a", {{"body", b1}, {"face", 999}}}}).first);
     }
 
+    void overhangsReportsWhatNeedsSupport() {
+        initialize();
+        // A cube on the plate: nothing to support.
+        QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {10, 10}}}}}})
+                     .first);
+        QVERIFY(!tool("extrude", {{"sketch", 1}, {"distance", 10}}).first);
+        const auto [e1, r1] = tool("overhangs", json::object());
+        QVERIFY2(!e1, r1.dump().c_str());
+        QVERIFY(r1["prints_without_support"].get<bool>());
+        QCOMPARE(r1["bodies"][0]["on_plate_area"].get<double>(), 100.0);
+        // A floating slab above it: its underside is a 20 x 20 bridge.
+        QVERIFY(!tool("offset_plane", {{"base", "XY"}, {"offset", 20}}).first);
+        QVERIFY(!tool("create_sketch", {{"plane", {{"plane", 3}}},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {20, 20}}}}}})
+                     .first);
+        QVERIFY(!tool("extrude", {{"sketch", 4}, {"distance", 2}}).first);
+        const auto [e2, r2] = tool("overhangs", {{"threshold", 50}});
+        QVERIFY2(!e2, r2.dump().c_str());
+        QVERIFY(!r2["prints_without_support"].get<bool>());
+        QCOMPARE(r2["bodies"][1]["bridge_area"].get<double>(), 400.0);
+        QVERIFY(r2["bodies"][1]["worst_faces"].size() == 1);
+        QVERIFY(tool("overhangs", {{"threshold", 95}}).first);
+    }
+
     void aBatchBuildsAPartInOneCall() {
         initialize();
         const json calls = {

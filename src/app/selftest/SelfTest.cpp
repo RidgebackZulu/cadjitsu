@@ -8,6 +8,7 @@
 #include "command/ExtrudeCommand.h"
 #include "command/HoleCommand.h"
 #include "command/MeasureCommand.h"
+#include "command/OverhangCommand.h"
 #include "command/Manipulator.h"
 #include "command/PlaneCommand.h"
 #include "ui/AngleDial.h"
@@ -944,6 +945,35 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
               .arg(measure->resultText().replace(QLatin1Char('\n'), QStringLiteral("; "))));
     shot("features_8_measure.png");
     w.commandPanel()->cancelButton()->click();
+
+    // Overhang analysis, with a cylinder lying beside the plate: its underside
+    // goes from fine (green) through near the limit (amber) and needing
+    // support (red) to a flat bridge (blue).
+    auto cyl = std::make_shared<cad::SketchFeature>();
+    cyl->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XZ);
+    cyl->sketch.addCircle(cad::Vec2{95, 18}, 12);
+    const cad::FeatureId cid = doc.addFeature(cyl);
+    auto ce = std::make_shared<cad::ExtrudeFeature>();
+    for(const auto &p : doc.stateAt(doc.marker())->sketches.at(cid)->profiles) ce->profiles.push_back({cid, p.key, p.sample});
+    ce->distance = doc.makeSlot("-40 mm");
+    ce->operation = cad::BodyOperation::NewBody;
+    doc.addFeature(ce);
+    w.refresh();
+    settle();
+    // Seen from below the plate, in front and to the left, to show the undersides.
+    vp->camera().setOrientation(QVector3D(0.55f, 0.75f, 0.38f).normalized(), QVector3D(0, 0, 1));
+    vp->fitAll(false);
+    w.action(QStringLiteral("overhangs"))->trigger();
+    auto *over = qobject_cast<OverhangCommand *>(w.commands()->command());
+    if(!over) return false;
+    settle();
+    const auto &areas = w.modelView()->overhangAreas();
+    check(areas[size_t(cad::OverhangKind::Overhang)] > 100.0 && areas[size_t(cad::OverhangKind::Near)] > 10.0,
+          QStringLiteral("Overhangs: the lying cylinder's underside needs support (%1 mm2, %2 mm2 near the limit)")
+              .arg(areas[size_t(cad::OverhangKind::Overhang)], 0, 'f', 1)
+              .arg(areas[size_t(cad::OverhangKind::Near)], 0, 'f', 1));
+    shot("features_9_overhangs.png");
+    w.commandPanel()->okButton()->click();
     return ok;
 }
 

@@ -7,6 +7,7 @@
 #include "viewport/RenderScene.h"
 
 #include "doc/Document.h"
+#include "measure/Overhang.h"
 #include "sketch/SketchResult.h"
 
 #include <QColor>
@@ -15,6 +16,7 @@
 
 #include <gp_Pnt.hxx>
 
+#include <array>
 #include <map>
 #include <memory>
 #include <optional>
@@ -114,6 +116,12 @@ public:
     // Section analysis: the document's shown section cuts the model, unless a
     // command shows another one (or none) while it is open.
     void setSectionOverride(std::optional<std::optional<cad::SectionAnalysis>> s);
+    // Overhang analysis: shown bodies are coloured by how printable their
+    // surfaces are (off: nullopt). The build plate is the lowest body's bottom.
+    void setOverhangAnalysis(std::optional<cad::OverhangOptions> o);
+    bool overhangAnalysis() const { return m_overhang.has_value(); }
+    // Areas per kind over the shown bodies, from the last refresh.
+    const std::array<double, size_t(cad::OverhangKind::Count)> &overhangAreas() const { return m_overhangAreas; }
     // The cutting plane in use, if any: dot(n, p) + d > 0 is cut away.
     std::optional<QVector4D> clipPlane() const { return m_clip; }
     // Where the shown section's plane is (before its offset), for its arrow.
@@ -186,6 +194,9 @@ private:
     bool m_originForced = false;
     std::optional<std::optional<cad::SectionAnalysis>> m_sectionOverride;
     std::optional<QVector4D> m_clip;
+    std::optional<cad::OverhangOptions> m_overhang;
+    std::array<double, size_t(cad::OverhangKind::Count)> m_overhangAreas{};
+    std::map<std::shared_ptr<const cad::MeshData>, cad::OverhangReport> m_overhangCache;
     cad::FeatureId m_hiddenSketch = cad::kNoFeature;
     std::set<cad::FeatureId> m_forcedSketches;
     std::set<cad::FeatureId> m_shownSketches; // drawn in the current scene

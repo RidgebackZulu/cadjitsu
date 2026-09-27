@@ -415,6 +415,23 @@ def measure():
     return s
 
 
+def overhang():
+    """A mushroom block: a wide cap on a narrow stem. The cap's underside
+    overhangs, so red support struts hold it up from the build plate."""
+    iso = Iso(32, 38, 1.0)
+    P = iso.p
+    s = iso.floor_shadow(-15, -15, 30, 30)
+    # Supports under the cap's visible corners (behind the stem where hidden).
+    for (x, y) in ((15, -13), (15, 15), (-13, 15), (15, 1), (1, 15)):
+        s += line(P(x, y, 0), P(x, y, 18), "#D8322A", 1.7, 'stroke-dasharray="2.6,1.8"')
+    s += iso.box(-6, -6, 0, 12, 12, 18)
+    s += iso.box(-15, -15, 18, 30, 30, 7)
+    # The cap's lower edges, where support is needed.
+    s += line(P(-15, 15, 18), P(15, 15, 18), "#D8322A", 2.6)
+    s += line(P(15, 15, 18), P(15, -15, 18), "#D8322A", 2.6)
+    return s
+
+
 def flip():
     iso = Iso(32, 44, 1.0)
     s = iso.floor_shadow(-13, -13, 26, 26)
@@ -916,7 +933,7 @@ ICONS = {
     "parallel": g_parallel, "perpendicular": g_perpendicular, "tangent": g_tangent, "equal": g_equal,
     "midpoint": g_midpoint, "concentric": g_concentric, "fix": g_fix, "symmetric": g_symmetric,
     "extrude": extrude, "fillet": fillet, "chamfer": chamfer, "hole": hole, "combine": combine, "plane": plane,
-    "section": section, "measure": measure,
+    "section": section, "measure": measure, "overhang": overhang,
     "undo": undo, "redo": redo, "save": save, "open": open_, "new": new, "export-stl": export_stl,
     "export-step": export_step, "print-3d": print3d,
     "eye": eye, "eye-off": eye_off, "body": body, "sketch-node": sketch_node, "plane-node": plane_node,
