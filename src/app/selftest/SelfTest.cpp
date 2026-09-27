@@ -6,6 +6,7 @@
 #include "command/CombineCommand.h"
 #include "command/EdgeCommands.h"
 #include "command/ExtrudeCommand.h"
+#include "command/DraftCommand.h"
 #include "command/HoleCommand.h"
 #include "command/MeasureCommand.h"
 #include "command/OverhangCommand.h"
@@ -1046,6 +1047,46 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     mode->finish();
     settle();
     check(lastOk(), QStringLiteral("the moved circle's extrude still resolves"));
+
+    // Draft: a block's wall tilted in about its foot, set with the ring.
+    auto blockSketch = std::make_shared<cad::SketchFeature>();
+    blockSketch->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+    blockSketch->sketch.addRectangle({0, -60}, {40, -35});
+    const cad::FeatureId bsid = doc.addFeature(blockSketch);
+    auto block = std::make_shared<cad::ExtrudeFeature>();
+    for(const auto &p : doc.stateAt(doc.marker())->sketches.at(bsid)->profiles) block->profiles.push_back({bsid, p.key, p.sample});
+    block->distance = doc.makeSlot("20 mm");
+    block->operation = cad::BodyOperation::NewBody;
+    doc.addFeature(block);
+    w.refresh();
+    settle();
+    vp->setStandardView(StandardView::Home, false);
+    vp->fitAll(false);
+    waitForFrames(vp, 1);
+    w.action(QStringLiteral("draft"))->trigger();
+    auto *draft = qobject_cast<DraftCommand *>(w.commands()->command());
+    if(!draft) return false;
+    clickAt(vp, at(40, -47, 10)); // the +X wall
+    clickAt(vp, at(40, -47, 0));  // its foot
+    type(draft->angleField(), QStringLiteral("12"));
+    settle();
+    double blockVolume = 0;
+    for(const auto &kv : w.modelView()->state()->bodies) {
+        double x0, y0, z0, x1, y1, z1;
+        cad::boundingBox(kv.second->shape.shape()).Get(x0, y0, z0, x1, y1, z1);
+        if(y1 < -30) blockVolume = cad::volumeOf(kv.second->shape.shape());
+    }
+    const double wedge = 0.5 * 20 * 20 * std::tan(12 * M_PI / 180.0) * 25;
+    check(draft->faceCount() == 1 && draft->hasHinge() && draft->gizmo().ring(0).visible &&
+              std::fabs(blockVolume - (20000 - wedge)) < 0.01,
+          QStringLiteral("Draft: the block's wall leans in 12 degrees about its foot (%1 mm3, '%2')")
+              .arg(blockVolume, 0, 'f', 2)
+              .arg(w.commandPanel()->message()));
+    sendMouse(vp, QEvent::MouseMove, draft->gizmo().knobOnScreen(0), Qt::NoButton, Qt::NoButton);
+    shot("features_13_draft.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(lastOk(), QStringLiteral("Draft committed"));
     return ok;
 }
 

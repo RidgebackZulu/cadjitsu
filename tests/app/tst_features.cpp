@@ -7,6 +7,7 @@
 #include "command/CombineCommand.h"
 #include "command/Command.h"
 #include "command/CommandPanel.h"
+#include "command/DraftCommand.h"
 #include "command/EdgeCommands.h"
 #include "command/HoleCommand.h"
 #include "command/MeasureCommand.h"
@@ -21,6 +22,7 @@
 
 #include "features/ChamferFeature.h"
 #include "features/CombineFeature.h"
+#include "features/DraftFeature.h"
 #include "features/ConstructionPlaneFeature.h"
 #include "features/ExtrudeFeature.h"
 #include "features/FilletFeature.h"
@@ -664,6 +666,50 @@ private slots:
         m_window->editFeature(f->id);
         sp = command<SplitCommand>();
         QVERIFY(sp && sp->curveCount() == 1 && sp->toolBox()->currentIndex() == 1);
+        panel()->cancelButton()->click();
+        settle();
+    }
+
+    void draftAWallAboutItsFootWithTheRing() {
+        box(0, 0, 40, 20, 10);
+        showHome();
+        trigger("draft");
+        auto *d = command<DraftCommand>();
+        QVERIFY(d);
+        click(at(40, 10, 5)); // the +X wall
+        QCOMPARE(d->faceCount(), 1);
+        QVERIFY(!d->hasHinge());
+        click(at(40, 10, 0)); // its foot
+        QVERIFY(d->hasHinge());
+        settle();
+        auto wedge = [](double deg) { return 0.5 * 10 * 10 * std::tan(deg * M_PI / 180.0) * 20; };
+        QVERIFY2(std::fabs(shown() - (8000 - wedge(5))) < 1e-3, qPrintable(QString::number(shown())));
+        // Turn the ring on the hinge to 10 degrees.
+        PlaneGizmo &g = d->gizmo();
+        QVERIFY(g.ring(0).visible);
+        const QPointF from = g.knobOnScreen(0);
+        send(vp(), QEvent::MouseMove, from, Qt::NoButton, Qt::NoButton);
+        send(vp(), QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+        QPointF p;
+        for(int i = 1; i <= 10; ++i) {
+            p = g.ringPointOnScreen(0, (5.0 + 0.5 * i) * M_PI / 180.0);
+            send(vp(), QEvent::MouseMove, p, Qt::NoButton, Qt::LeftButton);
+        }
+        send(vp(), QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
+        QCOMPARE(d->angleField()->expression(), QStringLiteral("10 deg"));
+        settle();
+        QVERIFY(std::fabs(shown() - (8000 - wedge(10))) < 1e-3);
+        // Leaning out adds the wedge instead.
+        d->flipBox()->setChecked(true);
+        settle();
+        QVERIFY(std::fabs(shown() - (8000 + wedge(10))) < 1e-3);
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::DraftFeature>(doc().features().back());
+        QVERIFY(f && f->flip && f->angle.expr == "10 deg" && f->faces.size() == 1);
+        m_window->editFeature(f->id);
+        d = command<DraftCommand>();
+        QVERIFY(d && d->hasHinge() && d->faceCount() == 1);
         panel()->cancelButton()->click();
         settle();
     }

@@ -464,6 +464,25 @@ def move_tool():
     return s
 
 
+def draft():
+    """A block whose right wall leans in over a hinge along its foot (orange),
+    with the tilt shown by a curved arrow."""
+    iso = Iso(30, 38, 1.0)
+    P = iso.p
+    x0, y0, dy, h = -16, -12, 24, 22
+    xb, xt = 12, 3  # the right wall's foot and top: it leans in
+    s = iso.floor_shadow(x0, y0, xb - x0, dy)
+    s += poly([P(x0, y0 + dy, 0), P(xb, y0 + dy, 0), P(xt, y0 + dy, h), P(x0, y0 + dy, h)], "url(#gLeft)")
+    s += poly([P(xb, y0, 0), P(xb, y0 + dy, 0), P(xt, y0 + dy, h), P(xt, y0, h)], "url(#oSide)")
+    s += poly([P(x0, y0, h), P(xt, y0, h), P(xt, y0 + dy, h), P(x0, y0 + dy, h)], "url(#gTop)")
+    # The hinge.
+    s += line(P(xb, y0, 0), P(xb, y0 + dy, 0), "#C9620A", 2.6)
+    # The upright it leaned from, dashed.
+    s += line(P(xb, y0 + dy, 0), P(xb, y0 + dy, h), "#8CA5C5", 1.2, 'stroke-dasharray="2.5,2"')
+    s += curved_arrow(P(xb, y0 + dy, 0)[0], P(xb, y0 + dy, 0)[1], 17, 245, 272, 4.5, 6.5)
+    return s
+
+
 def flip():
     iso = Iso(32, 44, 1.0)
     s = iso.floor_shadow(-13, -13, 26, 26)
@@ -965,7 +984,7 @@ ICONS = {
     "parallel": g_parallel, "perpendicular": g_perpendicular, "tangent": g_tangent, "equal": g_equal,
     "midpoint": g_midpoint, "concentric": g_concentric, "fix": g_fix, "symmetric": g_symmetric,
     "extrude": extrude, "fillet": fillet, "chamfer": chamfer, "hole": hole, "combine": combine, "plane": plane,
-    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool,
+    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "draft": draft,
     "undo": undo, "redo": redo, "save": save, "open": open_, "new": new, "export-stl": export_stl,
     "export-step": export_step, "print-3d": print3d,
     "eye": eye, "eye-off": eye_off, "body": body, "sketch-node": sketch_node, "plane-node": plane_node,

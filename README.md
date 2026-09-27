@@ -159,6 +159,10 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 **Combine**
 - Click the target body, then the tool bodies; Join, Cut or Intersect; **Keep Tools** leaves the tools in the model.
 
+**Draft** (Modify)
+- Tilt flat faces about a hinge edge: pick the faces, then a straight edge of one of them as the hinge (the first face's edges are offered). The face across the hinge sets the pull direction and stays put.
+- Type the angle, turn the dial, or drag the ring drawn on the hinge (1° steps, 15° with Shift). A positive angle leans the faces in over the body, a taper that prints without support; **Lean Out** tilts them out. Pick all the walls of a box with one bottom edge to taper the whole box.
+
 **Split Body** (Modify)
 - Cut bodies in two (or more) with an origin plane, a construction plane (tilt it for an angled cut) or a planar face, all unbounded, or with sketch curves (lines, arcs, circles) swept through the model. Every piece becomes a body; the biggest keeps the name.
 - **Bodies** is optional: by default every body the tool crosses is split. For plane cuts, **Keep** can drop one side instead (cut a part down to size).

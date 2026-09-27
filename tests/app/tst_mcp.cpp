@@ -326,6 +326,22 @@ private slots:
         QVERIFY(tool("split_body", json::object()).first);
     }
 
+    void draftTapersABox() {
+        initialize();
+        QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {40, 20}}}}}})
+                     .first);
+        QVERIFY(!tool("extrude", {{"sketch", 1}, {"distance", 10}}).first);
+        const json faces = tool("list_faces", {{"body", "Body1"}, {"normal", "+x"}}).second;
+        const json edges = tool("list_edges", {{"body", "Body1"}, {"near", {40, 10, 0}}}).second;
+        const auto [e1, r] = tool("draft", {{"faces", {{{"body", "Body1"}, {"index", faces["faces"][0]["index"]}}}},
+                                            {"hinge", {{"body", "Body1"}, {"index", edges["edges"][0]["index"]}}},
+                                            {"angle", 10}});
+        QVERIFY2(!e1, r.dump().c_str());
+        const double wedge = 0.5 * 10 * 10 * std::tan(10 * M_PI / 180.0) * 20;
+        QVERIFY(std::fabs(r["bodies"][0]["volume_mm3"].get<double>() - (8000 - wedge)) < 0.01);
+    }
+
     void aBatchBuildsAPartInOneCall() {
         initialize();
         const json calls = {

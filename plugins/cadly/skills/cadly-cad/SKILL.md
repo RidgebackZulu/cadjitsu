@@ -103,7 +103,8 @@ Keep at least 2 wall thicknesses (~2.5 mm) between a hole and an outside face.
 
 - **Walls:** at least 1.2 mm (3 perimeters of a 0.4 mm nozzle); 2-3 mm for parts that carry load.
 - **Overhangs:** faces sloping more than 45 degrees from vertical need support; `overhangs` lists them per body
-  (with face indexes) so you can chamfer them or reorient the part. Prefer chamfers (45 degrees) to
+  (with face indexes) so you can chamfer them or reorient the part.
+  `draft` leans walls in about a bottom edge (a taper that needs no support). Prefer chamfers (45 degrees) to
   fillets on edges touching the build plate; fillets are fine on vertical and top edges.
 - **Bridges:** keep unsupported horizontal spans under ~20 mm. Horizontal holes print better as teardrops or
   small (<8 mm).

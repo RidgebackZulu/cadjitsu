@@ -124,6 +124,17 @@ Drills holes into a planar face at world points on it (or at the points of a ske
 | `tip_angle` | number or string | drill point angle, default 118 |
 | `type` | `simple` / `counterbore` / `countersink` | default simple |
 
+## `draft`
+
+Tilts flat faces about a hinge edge (a draft). The hinge is a straight edge of one of the faces (list_edges); the face on its other side sets the pull direction and stays put. A positive angle leans the faces in over the body - a taper that prints without support; lean_out tilts them out instead. Give all the walls of a box with one bottom edge to taper the whole box.
+
+| Argument | Type | Description |
+|---|---|---|
+| `angle` | number or string | degrees (default 5) |
+| `faces` **(required)** | array of objects | flat faces to tilt |
+| `hinge` **(required)** | object |  |
+| `lean_out` | boolean | tilt out over the hinge instead of in (default false) |
+
 ## `split_body`
 
 Splits bodies in two (or more) with a plane - "XY"/"XZ"/"YZ", a construction plane or a planar face, all unbounded - or with the curves of a sketch swept both ways along its normal. Every piece becomes a body (the biggest keeps the name). For parts too big for the printer: keep "both" and set pins to drill matching alignment pin holes into both halves of a plane cut.

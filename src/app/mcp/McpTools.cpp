@@ -12,6 +12,7 @@
 #include "doc/Section.h"
 #include "features/ChamferFeature.h"
 #include "features/CombineFeature.h"
+#include "features/DraftFeature.h"
 #include "features/ConstructionPlaneFeature.h"
 #include "features/ExtrudeFeature.h"
 #include "features/FilletFeature.h"
@@ -864,6 +865,27 @@ void McpTools::define() {
             h->tipAngle = ang("tip_angle", 118);
             h->flatTip = a.value("flat_tip", false);
             return commit(h, "Create Hole (MCP)");
+        });
+
+    add("draft",
+        "Tilts flat faces about a hinge edge (a draft). The hinge is a straight edge of one of the faces (list_edges); "
+        "the face on its other side sets the pull direction and stays put. A positive angle leans the faces in over "
+        "the body - a taper that prints without support; lean_out tilts them out instead. Give all the walls of a "
+        "box with one bottom edge to taper the whole box.",
+        {{"faces", arrayOf(topoItem("face"), "flat faces to tilt")},
+         {"hinge", topoItem("edge")},
+         {"angle", numberOrExpr("degrees (default 5)")},
+         {"lean_out", boolean("tilt out over the hinge instead of in (default false)")}},
+        {"faces", "hinge"}, [begin, settle, topo, commit, slot](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            auto d = std::make_shared<cad::DraftFeature>();
+            for(const json &f : a.at("faces")) d->faces.push_back(topo(st, f, cad::TopoKind::Face));
+            if(d->faces.empty()) fail("give at least one face");
+            d->hinge = topo(st, a.at("hinge"), cad::TopoKind::Edge);
+            d->angle = slot(angleExpr(a.value("angle", json(5.0)), "angle"), cad::ValueKind::Angle, "angle");
+            d->flip = a.value("lean_out", false);
+            return commit(d, "Draft (MCP)");
         });
 
     add("split_body",
