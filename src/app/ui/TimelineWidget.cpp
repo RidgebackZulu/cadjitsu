@@ -1,5 +1,7 @@
 #include "ui/TimelineWidget.h"
 
+#include "features/PatternFeature.h"
+
 #include "ui/Icons.h"
 
 #include <QContextMenuEvent>
@@ -36,8 +38,17 @@ IconId iconFor(cad::FeatureType t) {
     case cad::FeatureType::ConstructionPlane: return IconId::Plane;
     case cad::FeatureType::Split: return IconId::Split;
     case cad::FeatureType::Draft: return IconId::Draft;
+    case cad::FeatureType::Pattern: return IconId::PatternRect;
     }
     return IconId::Body;
+}
+
+IconId iconFor(const cad::Feature &f) {
+    if(auto p = dynamic_cast<const cad::PatternFeature *>(&f))
+        return p->kind == cad::PatternKind::Mirror     ? IconId::Mirror
+               : p->kind == cad::PatternKind::Circular ? IconId::PatternCircular
+                                                       : IconId::PatternRect;
+    return iconFor(f.type());
 }
 
 QToolButton *playButton(QWidget *parent, IconId id, const QString &tip, const char *name) {
@@ -222,7 +233,7 @@ void TimelineWidget::paintEvent(QPaintEvent *) {
         p.drawLine(QPointF(chip.left() + 5, chip.top() + 1.2), QPointF(chip.right() - 5, chip.top() + 1.2));
 
         const QRect ir = chip.toAlignedRect().adjusted(4, 4, -4, -4);
-        const QPixmap pm = icon(iconFor(f->type()))
+        const QPixmap pm = icon(iconFor(*f))
                                .pixmap(ir.size(), dpr, f->suppressed ? QIcon::Disabled : QIcon::Normal);
         p.drawPixmap(ir, pm);
 

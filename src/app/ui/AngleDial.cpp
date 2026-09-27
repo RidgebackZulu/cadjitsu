@@ -36,12 +36,18 @@ void AngleDial::setInvalid(bool on) {
     update();
 }
 
+double AngleDial::shown() const {
+    if(m_invalid) return 0.0;
+    if(!m_fullTurn) return wrapDegrees(m_angle);
+    return std::clamp(m_angle, -360.0, 360.0);
+}
+
 void AngleDial::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     const QPointF c = QRectF(rect()).center();
     const double r = std::min(width(), height()) / 2.0 - 5.0;
-    const double a = m_invalid ? 0.0 : wrapDegrees(m_angle);
+    const double a = shown();
     const bool hot = m_hover || m_dragging;
 
     // The face: a soft disc with a track ring.
@@ -113,7 +119,13 @@ void AngleDial::setFromPoint(QPointF pt, Qt::KeyboardModifiers mods) {
     if(std::hypot(v.x(), v.y()) < 3.0) return; // too close to the middle to tell
     double d = std::atan2(-v.y(), v.x()) * 180.0 / M_PI;
     const double step = (mods & Qt::ShiftModifier) ? 15.0 : 1.0;
-    edit(wrapDegrees(std::round(d / step) * step));
+    d = std::round(d / step) * step;
+    if(m_fullTurn) {
+        if(d <= 0) d += 360.0; // 0..360, with 0 read as all the way round
+        edit(d);
+    } else {
+        edit(wrapDegrees(d));
+    }
 }
 
 void AngleDial::edit(double degrees) {
@@ -151,8 +163,9 @@ void AngleDial::wheelEvent(QWheelEvent *e) {
     const int dy = e->angleDelta().y() != 0 ? e->angleDelta().y() : e->angleDelta().x();
     if(dy == 0) return;
     const double step = (e->modifiers() & Qt::ShiftModifier) ? 15.0 : 1.0;
-    const double base = m_invalid ? 0.0 : wrapDegrees(m_angle);
-    edit(wrapDegrees(std::round(base / step) * step + (dy > 0 ? step : -step)));
+    const double base = shown();
+    const double next = std::round(base / step) * step + (dy > 0 ? step : -step);
+    edit(m_fullTurn ? std::clamp(next, -360.0, 360.0) : wrapDegrees(next));
     e->accept();
 }
 

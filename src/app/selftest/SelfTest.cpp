@@ -11,6 +11,7 @@
 #include "command/MeasureCommand.h"
 #include "command/OverhangCommand.h"
 #include "command/Manipulator.h"
+#include "command/PatternCommand.h"
 #include "command/PlaneCommand.h"
 #include "ui/AngleDial.h"
 #include "command/SectionCommand.h"
@@ -1088,6 +1089,58 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     w.commandPanel()->okButton()->click();
     settle();
     check(lastOk(), QStringLiteral("Draft committed"));
+
+    // Circular Pattern: a hole in a disc repeated around the disc's axis.
+    auto discSketch = std::make_shared<cad::SketchFeature>();
+    discSketch->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+    discSketch->sketch.addCircle(cad::Vec2{-60, 20}, 25);
+    const cad::FeatureId dsid = doc.addFeature(discSketch);
+    auto discEx = std::make_shared<cad::ExtrudeFeature>();
+    for(const auto &p : doc.stateAt(doc.marker())->sketches.at(dsid)->profiles) discEx->profiles.push_back({dsid, p.key, p.sample});
+    discEx->distance = doc.makeSlot("6 mm");
+    discEx->operation = cad::BodyOperation::NewBody;
+    doc.addFeature(discEx);
+    w.refresh();
+    settle();
+    vp->setStandardView(StandardView::Home, false);
+    vp->fitAll(false);
+    waitForFrames(vp, 1);
+    w.action(QStringLiteral("hole"))->trigger();
+    auto *discHole = qobject_cast<HoleCommand *>(w.commands()->command());
+    if(!discHole) return false;
+    clickAt(vp, at(-43, 20, 6));
+    settle();
+    w.commandPanel()->okButton()->click();
+    settle();
+    const cad::FeatureId holeId = doc.features().back()->id;
+    w.action(QStringLiteral("patternCircular"))->trigger();
+    auto *circ = qobject_cast<PatternCommand *>(w.commands()->command());
+    if(!circ) return false;
+    circ->objectsBox()->setCurrentIndex(1);
+    // Click into the hole until its wall (not the disc's top) is picked.
+    const QPointF holeAt = at(-43, 20, 6);
+    for(int r = 0; r <= 8 && circ->featureIds() != std::vector<cad::FeatureId>{holeId}; ++r)
+        for(int k = 0; k < 8 && circ->featureIds() != std::vector<cad::FeatureId>{holeId}; ++k) {
+            const QPointF at2 = holeAt + QPointF(r * std::cos(k * M_PI / 4), r * std::sin(k * M_PI / 4));
+            clickAt(vp, at2);
+            if(!circ->featureIds().empty() && circ->featureIds() != std::vector<cad::FeatureId>{holeId})
+                clickAt(vp, at2); // the wrong feature: click again to drop it
+        }
+    circ->axisBox()->setCurrentIndex(3); // the disc's own axis
+    clickAt(vp, at(-60 + 25 * 0.7, 20 - 25 * 0.7, 3));
+    type(circ->countField(), QStringLiteral("8"));
+    settle();
+    check(circ->featureCount() == 1 && w.commandPanel()->okButton()->isEnabled(),
+          QStringLiteral("Circular Pattern: the hole repeated 8 times round the disc ('%1')").arg(w.commandPanel()->message()));
+    shot("features_14_pattern.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    const auto pat = std::dynamic_pointer_cast<const cad::PatternFeature>(doc.features().back());
+    check(lastOk() && pat && pat->features == std::vector<cad::FeatureId>{holeId} && pat->name == "CircularPattern1",
+          QStringLiteral("Circular Pattern committed (%1, repeating %2, hole %3)")
+              .arg(pat ? QString::fromStdString(pat->name) : QString())
+              .arg(pat && !pat->features.empty() ? pat->features.front() : -1)
+              .arg(holeId));
     return ok;
 }
 

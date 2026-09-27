@@ -12,6 +12,7 @@
 #include "command/HoleCommand.h"
 #include "command/MeasureCommand.h"
 #include "command/OverhangCommand.h"
+#include "command/PatternCommand.h"
 #include "command/PlaneCommand.h"
 #include "command/SplitCommand.h"
 #include "ui/AngleDial.h"
@@ -27,6 +28,7 @@
 #include "features/ExtrudeFeature.h"
 #include "features/FilletFeature.h"
 #include "features/HoleFeature.h"
+#include "features/PatternFeature.h"
 #include "features/SketchFeature.h"
 #include "features/SplitFeature.h"
 #include "geom/OcctUtil.h"
@@ -710,6 +712,77 @@ private slots:
         m_window->editFeature(f->id);
         d = command<DraftCommand>();
         QVERIFY(d && d->hasHinge() && d->faceCount() == 1);
+        panel()->cancelButton()->click();
+        settle();
+    }
+
+    void patternsOfBodiesAndABoltCircleOfHoles() {
+        // A 10 x 10 block: three in a row, 15 mm apart.
+        box(0, 0, 10, 10, 5);
+        showHome();
+        trigger("patternRect");
+        auto *p = command<PatternCommand>();
+        QVERIFY(p);
+        click(at(5, 5, 5));
+        QCOMPARE(p->bodyCount(), 1);
+        typeInto(p->count1Field(), QStringLiteral("3"));
+        typeInto(p->spacing1Field(), QStringLiteral("15"));
+        p->joinBox()->setChecked(false);
+        settle();
+        QCOMPARE(int(view()->state()->bodies.size()), 3);
+        QVERIFY(std::fabs(shown() - 3 * 500) < 1e-6);
+        // A second direction makes a grid.
+        p->secondBox()->setChecked(true);
+        settle();
+        QCOMPARE(int(view()->state()->bodies.size()), 6);
+        panel()->okButton()->click();
+        settle();
+        QCOMPARE(int(doc().features().size()), 3);
+
+        // A disc with a hole, and the hole repeated around Z.
+        m_window->newDocument();
+        auto s = std::make_shared<cad::SketchFeature>();
+        s->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        s->sketch.addCircle(cad::Vec2{0, 0}, 30);
+        const cad::FeatureId sid = doc().addFeature(s);
+        auto e = std::make_shared<cad::ExtrudeFeature>();
+        for(const auto &pr : doc().stateAt(1)->sketches.at(sid)->profiles) e->profiles.push_back({sid, pr.key, pr.sample});
+        e->distance = doc().makeSlot("5 mm");
+        doc().addFeature(e);
+        const cad::Body &disc = *doc().displayedState()->bodies.begin()->second;
+        auto h = std::make_shared<cad::HoleFeature>();
+        for(int i = 1; i <= disc.shape.faceCount(); ++i) {
+            gp_Pln pl;
+            if(cad::planeOfFace(disc.shape.face(i), pl) && pl.Axis().Direction().Z() > 0.9)
+                h->face = cad::makeTopoRef(disc, cad::TopoKind::Face, i);
+        }
+        h->points = {{20, 0}};
+        h->extent = cad::ExtentType::ThroughAll;
+        h->diameter = doc().makeSlot("6 mm");
+        const cad::FeatureId hid = doc().addFeature(h);
+        showHome();
+        settle();
+        const double before = shown();
+        trigger("patternCircular");
+        p = command<PatternCommand>();
+        QVERIFY(p);
+        p->objectsBox()->setCurrentIndex(1); // features
+        // Click into the hole until its wall is hit.
+        const QPointF c = at(20, 0, 5);
+        for(int dx = -6; dx <= 6 && p->featureCount() == 0; dx += 2)
+            for(int dy = -6; dy <= 6 && p->featureCount() == 0; dy += 2) click(c + QPointF(dx, dy));
+        QCOMPARE(p->featureCount(), 1);
+        typeInto(p->countField(), QStringLiteral("5"));
+        settle();
+        const double hole = M_PI * 3 * 3 * 5;
+        QVERIFY2(std::fabs(shown() - (before - 4 * hole)) < 1e-3, qPrintable(QString::number(before - shown())));
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::PatternFeature>(doc().features().back());
+        QVERIFY(f && f->kind == cad::PatternKind::Circular && f->features == std::vector<cad::FeatureId>{hid});
+        m_window->editFeature(f->id);
+        p = command<PatternCommand>();
+        QVERIFY(p && p->featureCount() == 1 && p->countField()->expression() == QStringLiteral("5"));
         panel()->cancelButton()->click();
         settle();
     }

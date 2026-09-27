@@ -124,6 +124,39 @@ Drills holes into a planar face at world points on it (or at the points of a ske
 | `tip_angle` | number or string | drill point angle, default 118 |
 | `type` | `simple` / `counterbore` / `countersink` | default simple |
 
+## `mirror`
+
+Mirrors bodies, or holes / extrudes, across a plane (XY, XZ, YZ, a construction plane or a planar face). Symmetric parts: model half, mirror it with join.
+
+| Argument | Type | Description |
+|---|---|---|
+| `bodies` | array of string | bodies to copy |
+| `features` | array of integer or string | holes or extrudes to repeat (their copies cut / join like the original) |
+| `join` | boolean | bodies: join copies that touch the original (default true) |
+| `plane` **(required)** | string or object | Where: "XY", "XZ" or "YZ" (origin planes), {"plane": <construction plane feature id>}, or {"face": {"body": "b2", "index": 5}} for a planar face of a body. |
+| `skip` | array of integer | copies to leave out |
+
+## `pattern`
+
+Repeats bodies, or holes / extrudes, in rows (rectangular: count and spacing along one or two directions) or around an axis (circular: count over a total angle) - bolt circles, rows of holes, grids of pegs.
+
+| Argument | Type | Description |
+|---|---|---|
+| `angle` | number or string | circular: total degrees (default 360: evenly all round) |
+| `axis` | any | circular: "x", "y", "z" (through the origin), {"edge": ...} (a straight or round edge) or {"face": ...} (a cylinder: a hole's axis) |
+| `bodies` | array of string | bodies to copy |
+| `count` | number or string | instances including the original (rectangular default 3, circular 6) |
+| `count2` | number or string | instances along direction2 (default 2) |
+| `direction` | any | rectangular: "x", "y", "z" or {"edge": {body, index}} |
+| `direction2` | any | rectangular: an optional second direction |
+| `features` | array of integer or string | holes or extrudes to repeat (their copies cut / join like the original) |
+| `join` | boolean | bodies: join copies that touch the original (default true) |
+| `skip` | array of integer | copies to leave out |
+| `spacing` | number or string | rectangular: mm between instances (negative: the other way) |
+| `spacing2` | number or string | mm along direction2 |
+| `symmetric` | boolean | circular: spread both ways from the original |
+| `type` **(required)** | `rectangular` / `circular` | rectangular (rows along directions) or circular (around an axis) |
+
 ## `draft`
 
 Tilts flat faces about a hinge edge (a draft). The hinge is a straight edge of one of the faces (list_edges); the face on its other side sets the pull direction and stays put. A positive angle leans the faces in over the body - a taper that prints without support; lean_out tilts them out instead. Give all the walls of a box with one bottom edge to taper the whole box.

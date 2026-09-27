@@ -21,6 +21,12 @@ public:
     double angle() const { return m_angle; }
     // Draw as unset (the value box does not evaluate).
     void setInvalid(bool on);
+    // Show and set 0..360 degrees (a total angle: 360 is all the way round)
+    // instead of -180..180.
+    void setFullTurn(bool on) {
+        m_fullTurn = on;
+        update();
+    }
     QColor accent() const { return m_accent; }
 
     QSize sizeHint() const override { return {44, 44}; }
@@ -46,7 +52,8 @@ private:
 
     QColor m_accent;
     double m_angle = 0.0;
-    bool m_invalid = false, m_dragging = false, m_hover = false;
+    bool m_invalid = false, m_dragging = false, m_hover = false, m_fullTurn = false;
+    double shown() const;
 };
 
 // Wraps degrees to (-180, 180].

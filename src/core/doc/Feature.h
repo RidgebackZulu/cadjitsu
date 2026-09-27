@@ -14,7 +14,7 @@
 
 namespace cad {
 
-enum class FeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Combine, ConstructionPlane, Split, Draft };
+enum class FeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Combine, ConstructionPlane, Split, Draft, Pattern };
 
 const char *toString(FeatureType t);
 bool featureTypeFromString(const std::string &s, FeatureType &out);
@@ -38,9 +38,15 @@ struct ParamSlot {
     bool empty() const { return name.empty(); }
 };
 
+class Feature;
+
 struct ComputeContext {
     const ParamTable *params = nullptr;
     const std::atomic<bool> *cancel = nullptr;
+    // The timeline being evaluated and this feature's place in it (patterns
+    // look up the features they repeat, which must come before them).
+    const std::vector<std::shared_ptr<const Feature>> *timeline = nullptr;
+    size_t index = 0;
 
     bool cancelled() const { return cancel && cancel->load(std::memory_order_relaxed); }
     // Looks up an evaluated parameter; on failure fills `status` with an error.
@@ -71,6 +77,8 @@ public:
     bool suppressed = false;
 
     virtual FeatureType type() const = 0;
+    // What new features of this kind are called ("Extrude" -> Extrude1).
+    virtual std::string nameStem() const { return displayStem(type()); }
     virtual std::shared_ptr<Feature> clone() const = 0;
 
     // Numeric inputs exposed as model parameters.

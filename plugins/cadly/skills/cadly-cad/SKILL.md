@@ -64,6 +64,8 @@ port. Start every session with `get_design`.
 4. **Combine** - join / cut / intersect bodies with `combine` (target + tools, optional `keep_tools`). Prefer
    "new body, then combine" to extruding with `operation: "cut"`, because it keeps each shape editable and visible.
 5. **Refine** - `fillet`, `chamfer`, `hole` using face / edge indexes from `list_faces` / `list_edges`.
+   Repeat holes or bosses with `pattern` (rows, grids, bolt circles) and symmetric halves with `mirror`,
+   instead of drawing every copy.
 6. **Verify** - `get_design` (volumes, bounding boxes, every feature `ok`), `measure` (distances, wall
    thicknesses, hole spacing, angles), `screenshot` (view `home`, `top`, `front`...), `section` to look inside.
 7. **Export** - `export_stl` (report must say `printable: true`, `shells: 1` for a single part) and/or

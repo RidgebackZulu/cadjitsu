@@ -342,6 +342,24 @@ private slots:
         QVERIFY(std::fabs(r["bodies"][0]["volume_mm3"].get<double>() - (8000 - wedge)) < 0.01);
     }
 
+    void mirrorAndPatternThroughTools() {
+        initialize();
+        QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {10, 10}}}}}})
+                     .first);
+        QVERIFY(!tool("extrude", {{"sketch", 1}, {"distance", 5}}).first);
+        const auto [e1, m] = tool("mirror", {{"bodies", {"Body1"}}, {"plane", "YZ"}, {"join", false}});
+        QVERIFY2(!e1, m.dump().c_str());
+        QCOMPARE(int(m["bodies"].size()), 2);
+        const auto [e2, p] = tool("pattern", {{"type", "rectangular"}, {"bodies", {"Body1"}}, {"direction", "y"},
+                                              {"count", 4}, {"spacing", 20}, {"join", false}});
+        QVERIFY2(!e2, p.dump().c_str());
+        QCOMPARE(int(p["bodies"].size()), 5);
+        // Features: a hole in a plate, around a hole's own axis is pointless; around z.
+        QVERIFY(tool("pattern", {{"type", "circular"}, {"features", {1}}}).first); // a sketch cannot be repeated
+        QVERIFY(tool("pattern", {{"type", "rectangular"}, {"bodies", {"Body1"}}}).first); // no spacing
+    }
+
     void aBatchBuildsAPartInOneCall() {
         initialize();
         const json calls = {

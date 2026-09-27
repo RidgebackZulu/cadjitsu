@@ -53,6 +53,7 @@ public:
     // them so that committing is a cache hit).
     FeatureId nextFeatureId() const { return m_nextId; }
     std::string defaultName(FeatureType type) const;
+    std::string defaultName(const std::string &stem) const;
 
     // --- Edits (each is one undo step) ----------------------------------------
     // Inserts at the marker (assigning id and default name) and advances the marker.

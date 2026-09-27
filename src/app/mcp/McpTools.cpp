@@ -17,6 +17,7 @@
 #include "features/ExtrudeFeature.h"
 #include "features/FilletFeature.h"
 #include "features/HoleFeature.h"
+#include "features/PatternFeature.h"
 #include "features/SketchFeature.h"
 #include "features/SplitFeature.h"
 #include "geom/OcctUtil.h"
@@ -865,6 +866,100 @@ void McpTools::define() {
             h->tipAngle = ang("tip_angle", 118);
             h->flatTip = a.value("flat_tip", false);
             return commit(h, "Create Hole (MCP)");
+        });
+
+    // Bodies and / or features for mirror and pattern.
+    auto patternObjects = [bodyOf, featureOf](const cad::StatePtr &st, const json &a, cad::PatternFeature &p) {
+        for(const json &b : a.value("bodies", json::array())) p.bodies.push_back(bodyOf(st, b)->id);
+        for(const json &f : a.value("features", json::array())) {
+            const cad::FeaturePtr fp = featureOf(f);
+            if(fp->type() != cad::FeatureType::Hole && fp->type() != cad::FeatureType::Extrude)
+                fail(fp->name + " cannot be repeated (holes and extrudes can)");
+            p.features.push_back(fp->id);
+        }
+        if(p.bodies.empty() == p.features.empty()) fail("give bodies or features (not both)");
+        p.join = a.value("join", true);
+        for(const json &k : a.value("skip", json::array())) p.skip.push_back(k.get<int>());
+    };
+    auto patternAxis = [topo](const cad::StatePtr &st, const json &v) {
+        cad::PatternAxis ax;
+        if(v.is_string()) {
+            ax.builtin = lower(v.get<std::string>());
+            if(ax.builtin != "x" && ax.builtin != "y" && ax.builtin != "z") fail("axis must be x, y, z or {edge} / {face}");
+        } else if(v.is_object() && v.contains("edge")) {
+            ax.ref = topo(st, v["edge"], cad::TopoKind::Edge);
+        } else if(v.is_object() && v.contains("face")) {
+            ax.ref = topo(st, v["face"], cad::TopoKind::Face);
+        } else {
+            fail("axis must be \"x\", \"y\", \"z\", {\"edge\": {body, index}} or {\"face\": {body, index}}");
+        }
+        return ax;
+    };
+    const json objectsDoc = {
+        {"bodies", arrayOf(str("body id or name"), "bodies to copy")},
+        {"features", arrayOf({{"description", "feature id or name"}, {"anyOf", json::array({{{"type", "integer"}}, {{"type", "string"}}})}},
+                             "holes or extrudes to repeat (their copies cut / join like the original)")},
+        {"join", boolean("bodies: join copies that touch the original (default true)")},
+        {"skip", arrayOf(integer("copy number, 1 = first copy"), "copies to leave out")}};
+    json mirrorArgs = objectsDoc;
+    mirrorArgs["plane"] = planeSpec();
+    add("mirror",
+        "Mirrors bodies, or holes / extrudes, across a plane (XY, XZ, YZ, a construction plane or a planar face). "
+        "Symmetric parts: model half, mirror it with join.",
+        mirrorArgs, {"plane"}, [begin, settle, planeOf, commit, patternObjects](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            auto p = std::make_shared<cad::PatternFeature>();
+            p->kind = cad::PatternKind::Mirror;
+            patternObjects(st, a, *p);
+            p->plane = planeOf(st, a.at("plane"));
+            return commit(p, "Mirror (MCP)");
+        });
+    json patternArgs = objectsDoc;
+    patternArgs["type"] = enumOf({"rectangular", "circular"}, "rectangular (rows along directions) or circular (around an axis)");
+    patternArgs["direction"] = {{"description", "rectangular: \"x\", \"y\", \"z\" or {\"edge\": {body, index}}"}};
+    patternArgs["count"] = numberOrExpr("instances including the original (rectangular default 3, circular 6)");
+    patternArgs["spacing"] = numberOrExpr("rectangular: mm between instances (negative: the other way)");
+    patternArgs["direction2"] = {{"description", "rectangular: an optional second direction"}};
+    patternArgs["count2"] = numberOrExpr("instances along direction2 (default 2)");
+    patternArgs["spacing2"] = numberOrExpr("mm along direction2");
+    patternArgs["axis"] = {{"description", "circular: \"x\", \"y\", \"z\" (through the origin), {\"edge\": ...} (a straight "
+                                           "or round edge) or {\"face\": ...} (a cylinder: a hole's axis)"}};
+    patternArgs["angle"] = numberOrExpr("circular: total degrees (default 360: evenly all round)");
+    patternArgs["symmetric"] = boolean("circular: spread both ways from the original");
+    add("pattern",
+        "Repeats bodies, or holes / extrudes, in rows (rectangular: count and spacing along one or two directions) or "
+        "around an axis (circular: count over a total angle) - bolt circles, rows of holes, grids of pegs.",
+        patternArgs, {"type"}, [begin, settle, commit, slot, patternObjects, patternAxis](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            auto p = std::make_shared<cad::PatternFeature>();
+            patternObjects(st, a, *p);
+            auto scalar = [&](const json &v, const char *what) {
+                const std::string e = v.is_number() ? num(v.get<double>()) : v.is_string() ? v.get<std::string>() : "";
+                if(e.empty()) fail(std::string(what) + " must be a number or an expression");
+                return slot(e, cad::ValueKind::Scalar, what);
+            };
+            if(a.at("type") == "circular") {
+                p->kind = cad::PatternKind::Circular;
+                p->axis = patternAxis(st, a.value("axis", json("z")));
+                p->count = scalar(a.value("count", json(6)), "count");
+                p->angle = slot(angleExpr(a.value("angle", json(360.0)), "angle"), cad::ValueKind::Angle, "angle");
+                p->symmetric = a.value("symmetric", false);
+            } else {
+                p->kind = cad::PatternKind::Rectangular;
+                p->dir1 = patternAxis(st, a.value("direction", json("x")));
+                p->count1 = scalar(a.value("count", json(3)), "count");
+                if(!a.contains("spacing")) fail("give the spacing");
+                p->spacing1 = slot(lengthExpr(a["spacing"], "spacing"), cad::ValueKind::Length, "spacing");
+                if(a.contains("direction2")) {
+                    p->dir2 = patternAxis(st, a["direction2"]);
+                    p->count2 = scalar(a.value("count2", json(2)), "count2");
+                    if(!a.contains("spacing2")) fail("give spacing2");
+                    p->spacing2 = slot(lengthExpr(a["spacing2"], "spacing2"), cad::ValueKind::Length, "spacing2");
+                }
+            }
+            return commit(p, "Pattern (MCP)");
         });
 
     add("draft",

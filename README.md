@@ -159,6 +159,13 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 **Combine**
 - Click the target body, then the tool bodies; Join, Cut or Intersect; **Keep Tools** leaves the tools in the model.
 
+**Mirror, Rectangular Pattern, Circular Pattern** (Create)
+- Repeat **bodies** (copies that touch the original are joined to it unless **Join to Original** is off), or **features**: click a face of a hole or an extrude, and its copies cut or join exactly as the original does. A later change to the original (a bigger hole) carries to every copy.
+- **Mirror** across an origin plane, a construction plane or a planar face.
+- **Rectangular**: count and spacing along X, Y, Z or an edge, optionally in a second direction (a grid of pegs). A negative spacing goes the other way.
+- **Circular**: count over a total angle (360° spreads the copies evenly: a bolt circle) around X, Y, Z, an edge, or a cylinder's axis (pick the part's round face); **Symmetric** spreads a partial angle both ways.
+- Counts, spacings and angles are parameters.
+
 **Draft** (Modify)
 - Tilt flat faces about a hinge edge: pick the faces, then a straight edge of one of them as the hinge (the first face's edges are offered). The face across the hinge sets the pull direction and stays put.
 - Type the angle, turn the dial, or drag the ring drawn on the hinge (1° steps, 15° with Shift). A positive angle leans the faces in over the body, a taper that prints without support; **Lean Out** tilts them out. Pick all the walls of a box with one bottom edge to taper the whole box.

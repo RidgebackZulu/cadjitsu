@@ -483,6 +483,56 @@ def draft():
     return s
 
 
+def mirror():
+    """A body and its mirror image either side of an orange mirror plane."""
+    iso = Iso(32, 38, 1.0)
+    P = iso.p
+    s = iso.floor_shadow(-20, -10, 40, 20)
+    # The original: an L-shaped block (left), the plane, and its reflection (right).
+    s += iso.box(-20, -8, 0, 12, 16, 8)
+    s += iso.box(-20, -8, 8, 5, 16, 10)
+    s += poly([P(0, -14, -2), P(0, 14, -2), P(0, 14, 22), P(0, -14, 22)], "url(#planeFill)", "#D9771A", 1.3)
+    s += iso.box(8, -8, 0, 12, 16, 8, top="url(#oTop)", left="url(#oSide)", right="url(#oDark)")
+    s += iso.box(15, -8, 8, 5, 16, 10, top="url(#oTop)", left="url(#oSide)", right="url(#oDark)")
+    return s
+
+
+def pattern_rect():
+    """A plate with a grid of pegs: the first one blue, its copies orange."""
+    iso = Iso(32, 40, 1.0)
+    s = iso.floor_shadow(-20, -14, 40, 28)
+    s += iso.box(-20, -14, 0, 40, 28, 4)
+    for j in range(2):
+        for i in range(3):
+            x, y = -15 + i * 12, -9 + j * 12
+            first = i == 0 and j == 0
+            s += iso.box(x, y, 4, 6, 6, 9,
+                         top="url(#gTop)" if first else "url(#oTop)",
+                         left="url(#gLeft)" if first else "url(#oSide)",
+                         right="url(#gRight)" if first else "url(#oDark)", sw=1.3)
+    return s
+
+
+def pattern_circ():
+    """A disc with a bolt circle of holes: the first one blue, its copies orange."""
+    iso = Iso(32, 36, 1.0)
+    P = iso.p
+    s = iso.floor_shadow(-20, -20, 40, 40)
+    rim_top = iso.top_ellipse(0, 0, 6, 20)
+    rim_bot = iso.top_ellipse(0, 0, 0, 20)
+    # Side band: bottom half of the lower rim, joined to the upper rim.
+    lo = [p for p in rim_bot if p[1] >= P(0, 0, 0)[1] - 0.1]
+    s += poly(rim_top + lo[::-1], "url(#gRight)")
+    s += poly(rim_top, "url(#gTop)")
+    for k in range(6):
+        a = 2 * math.pi * k / 6 + 0.3
+        cx, cy = 12 * math.cos(a), 12 * math.sin(a)
+        hole = iso.top_ellipse(cx, cy, 6, 3.2, 24)
+        s += poly(hole, "url(#bore)" if k == 0 else "url(#oDark)", "#153F86" if k == 0 else "#8E4A0A", 1.2)
+    s += curved_arrow(32, 36, 23, 200, 320, 4.5, 7)
+    return s
+
+
 def flip():
     iso = Iso(32, 44, 1.0)
     s = iso.floor_shadow(-13, -13, 26, 26)
@@ -984,7 +1034,7 @@ ICONS = {
     "parallel": g_parallel, "perpendicular": g_perpendicular, "tangent": g_tangent, "equal": g_equal,
     "midpoint": g_midpoint, "concentric": g_concentric, "fix": g_fix, "symmetric": g_symmetric,
     "extrude": extrude, "fillet": fillet, "chamfer": chamfer, "hole": hole, "combine": combine, "plane": plane,
-    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "draft": draft,
+    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "draft": draft, "mirror": mirror, "pattern-rect": pattern_rect, "pattern-circ": pattern_circ,
     "undo": undo, "redo": redo, "save": save, "open": open_, "new": new, "export-stl": export_stl,
     "export-step": export_step, "print-3d": print3d,
     "eye": eye, "eye-off": eye_off, "body": body, "sketch-node": sketch_node, "plane-node": plane_node,

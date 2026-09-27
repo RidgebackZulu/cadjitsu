@@ -9,6 +9,7 @@
 #include "command/HoleCommand.h"
 #include "command/MeasureCommand.h"
 #include "command/OverhangCommand.h"
+#include "command/PatternCommand.h"
 #include "command/PlaneCommand.h"
 #include "command/SectionCommand.h"
 #include "command/SplitCommand.h"
@@ -314,7 +315,7 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "split", "draft", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
+    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "split", "draft", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
         action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
@@ -442,6 +443,10 @@ void MainWindow::editFeature(cad::FeatureId id) {
     case cad::FeatureType::ConstructionPlane: m_commands->start(std::make_unique<PlaneCommand>(ctx, id)); return;
     case cad::FeatureType::Split: m_commands->start(std::make_unique<SplitCommand>(ctx, id)); return;
     case cad::FeatureType::Draft: m_commands->start(std::make_unique<DraftCommand>(ctx, id)); return;
+    case cad::FeatureType::Pattern:
+        m_commands->start(std::make_unique<PatternCommand>(
+            ctx, std::static_pointer_cast<const cad::PatternFeature>(f)->kind, id));
+        return;
     }
 }
 
@@ -560,6 +565,15 @@ void MainWindow::buildActions() {
                [this, ctx] { startCommand(QStringLiteral("chamfer"), std::make_unique<ChamferCommand>(ctx)); });
     makeAction("combine", tr("Combine"), IconId::Combine, {},
                [this, ctx] { startCommand(QStringLiteral("combine"), std::make_unique<CombineCommand>(ctx)); });
+    makeAction("mirror", tr("Mirror"), IconId::Mirror, {}, [this, ctx] {
+        startCommand(QStringLiteral("mirror"), std::make_unique<PatternCommand>(ctx, cad::PatternKind::Mirror));
+    });
+    makeAction("patternRect", tr("Rectangular Pattern"), IconId::PatternRect, {}, [this, ctx] {
+        startCommand(QStringLiteral("patternRect"), std::make_unique<PatternCommand>(ctx, cad::PatternKind::Rectangular));
+    });
+    makeAction("patternCircular", tr("Circular Pattern"), IconId::PatternCircular, {}, [this, ctx] {
+        startCommand(QStringLiteral("patternCircular"), std::make_unique<PatternCommand>(ctx, cad::PatternKind::Circular));
+    });
     makeAction("draft", tr("Draft"), IconId::Draft, {},
                [this, ctx] { startCommand(QStringLiteral("draft"), std::make_unique<DraftCommand>(ctx)); });
     makeAction("split", tr("Split Body"), IconId::Split, {},
@@ -646,6 +660,9 @@ void MainWindow::buildRibbon() {
     create->addAction(action(QStringLiteral("createSketch")));
     create->addAction(action(QStringLiteral("extrude")));
     create->addAction(action(QStringLiteral("hole")));
+    create->addAction(action(QStringLiteral("patternRect")), false);
+    create->addAction(action(QStringLiteral("patternCircular")), false);
+    create->addAction(action(QStringLiteral("mirror")), false);
     RibbonGroup *modify = m_solidTab->addGroup(tr("MODIFY"));
     modify->addAction(action(QStringLiteral("fillet")));
     modify->addAction(action(QStringLiteral("chamfer")));

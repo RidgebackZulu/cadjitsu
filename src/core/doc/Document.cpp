@@ -78,6 +78,8 @@ int evaluateTimeline(const std::vector<FeaturePtr> &features, const ParamTable &
         ComputeContext ctx;
         ctx.params = &params;
         ctx.cancel = cancel;
+        ctx.timeline = &features;
+        ctx.index = i;
         FeatureResult r;
         {
             const KernelLock lock(kernelMutex());
@@ -120,8 +122,9 @@ std::vector<FeatureId> Document::dependents(FeatureId id) const {
     return out;
 }
 
-std::string Document::defaultName(FeatureType type) const {
-    const std::string stem = displayStem(type);
+std::string Document::defaultName(FeatureType type) const { return defaultName(std::string(displayStem(type))); }
+
+std::string Document::defaultName(const std::string &stem) const {
     int maxN = 0;
     for(const auto &f : m_features) {
         if(f->name.rfind(stem, 0) != 0) continue;
@@ -134,7 +137,7 @@ std::string Document::defaultName(FeatureType type) const {
 FeatureId Document::addFeature(std::shared_ptr<Feature> f, const std::string &undoLabel) {
     if(!f) return kNoFeature;
     f->id = m_nextId++;
-    if(f->name.empty()) f->name = defaultName(f->type());
+    if(f->name.empty()) f->name = defaultName(f->nameStem());
     pushUndo(undoLabel.empty() ? "Create " + f->name : undoLabel);
     m_features.insert(m_features.begin() + m_marker, f);
     ++m_marker;
