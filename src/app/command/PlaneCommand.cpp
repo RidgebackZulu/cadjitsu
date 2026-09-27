@@ -8,8 +8,8 @@
 #include "geom/OcctUtil.h"
 #include "topo/Resolver.h"
 
-#include <BRepGProp.hxx>
-#include <GProp_GProps.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <TopoDS.hxx>
 
 #include <QComboBox>
 
@@ -19,15 +19,16 @@ namespace {
 
 const QColor kActive(20, 100, 225);
 const QColor kOther(120, 150, 200);
-const cad::PlaneRotationAxis kAxes[] = {cad::PlaneRotationAxis::LocalX, cad::PlaneRotationAxis::LocalY,
-                                        cad::PlaneRotationAxis::Edge};
+// The Rotation Axis choices: the plane's own axes (Tilt X and Tilt Y), or an edge.
+const cad::PlaneRotationAxis kAxes[] = {cad::PlaneRotationAxis::LocalX, cad::PlaneRotationAxis::Edge};
+const QColor kTiltX(229, 70, 58), kTiltY(61, 174, 79);
 
 QVector3D toQ(const gp_XYZ &v) { return QVector3D(float(v.X()), float(v.Y()), float(v.Z())); }
 
 } // namespace
 
 PlaneCommand::PlaneCommand(const CommandContext &ctx, cad::FeatureId editing)
-    : Command(ctx, editing), m_arrow(ctx.viewport) {}
+    : Command(ctx, editing), m_gizmo(ctx.viewport) {}
 
 IconId PlaneCommand::iconId() const { return IconId::Plane; }
 
@@ -37,15 +38,27 @@ void PlaneCommand::setup() {
     if(isEditing()) m_original = std::dynamic_pointer_cast<const cad::ConstructionPlaneFeature>(doc.feature(m_editing));
     m_baseField = panel.addSelection(tr("Plane"), tr("Select a plane or face"), "planeBase");
     m_offsetField = panel.addValue(tr("Distance"), cad::ValueKind::Length, evaluator(), "planeOffset");
-    m_angleField = panel.addValue(tr("Angle"), cad::ValueKind::Angle, evaluator(), "planeAngle");
-    m_axis = panel.addChoice(tr("Rotation Axis"), {tr("Plane X Axis"), tr("Plane Y Axis"), tr("Edge")}, "planeAxis");
+    m_angleField = panel.addAngle(tr("Tilt X"), evaluator(), "planeAngle", kTiltX);
+    m_angleYField = panel.addAngle(tr("Tilt Y"), evaluator(), "planeAngleY", kTiltY);
+    m_axis = panel.addChoice(tr("Rotation Axis"), {tr("Plane axes"), tr("Edge")}, "planeAxis");
     m_edgeField = panel.addSelection(tr("Axis Edge"), tr("Select a straight edge"), "planeEdge");
+    m_offset = m_original && !m_original->offset.empty() ? m_original->offset : doc.makeSlot("10 mm");
     if(m_original) {
         m_base = InputRef::ofPlane(m_original->base);
         if(!m_original->axisEdge.empty()) m_edge = InputRef::ofTopo(m_original->axisEdge);
-        for(int i = 0; i < 3; ++i)
-            if(kAxes[i] == m_original->axis) m_axis->setCurrentIndex(i);
+        const bool edge = m_original->axis == cad::PlaneRotationAxis::Edge;
+        m_axis->setCurrentIndex(edge ? 1 : 0);
+        if(m_original->axis == cad::PlaneRotationAxis::LocalY) {
+            // A plane from before two-axis tilts, turned about Y: its angle is Tilt Y.
+            m_angleY = !m_original->angle.empty() ? m_original->angle : doc.makeSlot("0 deg");
+            m_angle = doc.makeSlot("0 deg");
+        } else {
+            m_angle = !m_original->angle.empty() ? m_original->angle : doc.makeSlot("0 deg");
+            m_angleY = !m_original->angleY.empty() ? m_original->angleY : doc.makeSlot("0 deg");
+        }
     } else {
+        m_angle = doc.makeSlot("0 deg");
+        m_angleY = doc.makeSlot("0 deg");
         // A plane or planar face selected beforehand.
         for(const auto &it : m_ctx.view->selection().items())
             if(const auto p = m_ctx.view->planeRefOf(it)) {
@@ -53,18 +66,18 @@ void PlaneCommand::setup() {
                 break;
             }
     }
-    m_offset = m_original && !m_original->offset.empty() ? m_original->offset : doc.makeSlot("10 mm");
-    m_angle = m_original && !m_original->angle.empty() ? m_original->angle : doc.makeSlot("0 deg");
     m_offsetField->setExpression(QString::fromStdString(m_offset.expr));
     m_angleField->setExpression(QString::fromStdString(m_angle.expr));
-    for(ValueField *v : {m_offsetField, m_angleField})
+    m_angleYField->setExpression(QString::fromStdString(m_angleY.expr));
+    for(ValueField *v : {m_offsetField, m_angleField, m_angleYField})
         connect(v, &ValueField::edited, this, [this] {
             updateArrow();
             emit inputsChanged();
         });
     connect(m_axis, &QComboBox::currentIndexChanged, this, [this] {
         updateRows();
-        if(kAxes[m_axis->currentIndex()] == cad::PlaneRotationAxis::Edge && !m_edge) activate(Field::Edge);
+        if(edgeMode() && !m_edge) activate(Field::Edge);
+        updateArrow();
         emit inputsChanged();
     });
     connect(m_baseField, &SelectionField::activated, this, [this] { activate(Field::Base); });
@@ -79,10 +92,17 @@ void PlaneCommand::setup() {
         activate(Field::Edge);
         emit inputsChanged();
     });
-    m_arrow.onDrag = [this](double d) {
+    m_gizmo.arrow().onDrag = [this](double d) {
         m_offsetField->setExpression(QString::fromStdString(SketchEditor::formatExpression(d, cad::ValueKind::Length)));
         emit inputsChanged();
     };
+    m_gizmo.onRingDrag = [this](int ring, double a) {
+        ValueField *f = ring == 0 ? m_angleField : m_angleYField;
+        f->setExpression(QString::fromStdString(SketchEditor::formatExpression(a, cad::ValueKind::Angle)));
+        updateArrow();
+        emit inputsChanged();
+    };
+    m_gizmo.onFocusChanged = [this] { m_ctx.viewport->refreshOverlay(); };
     // The origin planes can be picked while the command runs.
     m_ctx.view->setOriginForced(true);
     updateRows();
@@ -93,9 +113,36 @@ void PlaneCommand::setup() {
     }
 }
 
+bool PlaneCommand::edgeMode() const {
+    return kAxes[std::clamp(m_axis->currentIndex(), 0, 1)] == cad::PlaneRotationAxis::Edge;
+}
+
+int PlaneCommand::ringOf(PlaneGizmo::Part p) const {
+    const int i = p == PlaneGizmo::Part::Ring0 ? 0 : p == PlaneGizmo::Part::Ring1 ? 1 : -1;
+    return i >= 0 && m_gizmo.ring(i).visible ? i : -1;
+}
+
+ValueField *PlaneCommand::canvasValue() const {
+    const int i = ringOf(m_gizmo.focus());
+    return i == 0 ? m_angleField : i == 1 ? m_angleYField : m_offsetField;
+}
+
+std::optional<QVector3D> PlaneCommand::canvasAnchor() const {
+    const int i = ringOf(m_gizmo.focus());
+    if(i >= 0) return m_gizmo.knobPoint(i);
+    return m_gizmo.arrow().visible() ? std::optional<QVector3D>(m_gizmo.arrow().headPoint()) : std::nullopt;
+}
+
+QColor PlaneCommand::canvasAccent() const {
+    const int i = ringOf(m_gizmo.focus());
+    return i >= 0 ? m_gizmo.ring(i).color : QColor();
+}
+
 void PlaneCommand::updateRows() {
-    const bool edge = kAxes[std::clamp(m_axis->currentIndex(), 0, 2)] == cad::PlaneRotationAxis::Edge;
+    const bool edge = edgeMode();
     m_ctx.panel->setRowVisible(m_edgeField, edge);
+    m_ctx.panel->setRowVisible(m_angleYField, !edge);
+    m_ctx.panel->setRowLabel(m_angleField, edge ? tr("Angle") : tr("Tilt X"));
     if(!edge && m_active == Field::Edge) activate(Field::Base);
 }
 
@@ -129,36 +176,65 @@ void PlaneCommand::updateMarks() {
     m_edgeField->setCount(m_edge ? 1 : 0);
 }
 
-// The arrow stands on the base (a face's middle, a plane's centre) along its normal.
+// The arrow stands on the base (a face's middle, a plane's centre) along its
+// normal, up to the new plane's centre; the rings turn about the plane's pivot
+// (its centre), or about the edge.
 void PlaneCommand::updateArrow() {
     const cad::StatePtr base = baseState();
-    gp_Ax3 frame;
-    cad::Status st;
     const std::optional<cad::PlaneRef> ref = m_base ? m_base->planeRef() : std::nullopt;
-    const bool show = base && ref && cad::resolvePlane(*base, *ref, frame, st);
-    m_arrow.setVisible(show);
+    cad::ConstructionPlaneFeature probe;
+    gp_Ax3 frame;
+    gp_Pnt centre;
+    cad::Status st;
+    if(ref) probe.base = *ref;
+    const bool show = base && ref && probe.baseFrame(*base, frame, centre, st);
+    m_gizmo.arrow().setVisible(show);
+    m_gizmo.ring(0).visible = m_gizmo.ring(1).visible = false;
     if(show) {
-        gp_Pnt c = frame.Location();
-        if(ref->kind == cad::PlaneRef::Kind::Face) {
-            const cad::ResolvedRef r = cad::resolveRef(*base, ref->face);
-            if(r.ok) {
-                GProp_GProps g;
-                BRepGProp::SurfaceProperties(r.shape, g);
-                c = g.CentreOfMass();
-            }
-        } else if(ref->kind == cad::PlaneRef::Kind::Construction) {
-            if(auto it = base->planes.find(ref->plane); it != base->planes.end()) c = it->second->center;
-        } else {
-            for(const auto &[item, q] : m_ctx.view->planeQuads())
-                if(item.kind == SelectionItem::Kind::Plane && item.feature == cad::kNoFeature && m_base->key == item.key) {
-                    const QVector3D m = (q[0] + q[2]) * 0.5f;
-                    c = gp_Pnt(m.x(), m.y(), m.z());
+        const double d = m_offsetField->value().value_or(0.0);
+        const gp_Vec n(frame.Direction());
+        m_gizmo.arrow().setAxis(toQ(centre.XYZ()), toQ(n.XYZ()));
+        m_gizmo.arrow().setDistance(d);
+        frame.Translate(n * d);
+        centre.Translate(n * d);
+        const gp_Pnt pivot = (!m_original || m_original->pivotAtCenter) ? centre : frame.Location();
+        const double ax = m_angleField->value().value_or(0.0), ay = m_angleYField->value().value_or(0.0);
+        PlaneGizmo::Ring &r0 = m_gizmo.ring(0), &r1 = m_gizmo.ring(1);
+        if(!edgeMode()) {
+            r0.visible = r1.visible = true;
+            r0.name = tr("Tilt X");
+            r0.center = r1.center = toQ(pivot.XYZ());
+            r0.axis = toQ(frame.XDirection().XYZ());
+            r0.zero = toQ(frame.YDirection().XYZ());
+            r0.angle = ax;
+            const gp_Ax3 tilted = cad::tiltedFrame(frame, pivot, ax, 0.0);
+            r1.axis = toQ(tilted.YDirection().XYZ());
+            r1.zero = toQ(tilted.XDirection().XYZ());
+            r1.angle = ay;
+        } else if(m_edge && !m_edge->topo.empty()) {
+            const cad::ResolvedRef r = cad::resolveRef(*base, m_edge->topo);
+            if(r.ok && r.shape.ShapeType() == TopAbs_EDGE) {
+                BRepAdaptor_Curve c(TopoDS::Edge(r.shape));
+                if(c.GetType() == GeomAbs_Line) {
+                    // A ring about the edge, through the foot of the plane's centre.
+                    const gp_Lin line = c.Line();
+                    const gp_Dir dir = line.Direction();
+                    const gp_Pnt foot = line.Location().Translated(
+                        gp_Vec(dir) * gp_Vec(line.Location(), centre).Dot(gp_Vec(dir)));
+                    gp_Vec zero(foot, centre);
+                    if(zero.Magnitude() < 1e-6) zero = gp_Vec(frame.Direction()).Crossed(gp_Vec(dir));
+                    if(zero.Magnitude() < 1e-6) zero = gp_Vec(frame.XDirection());
+                    r0.visible = true;
+                    r0.name = tr("Angle");
+                    r0.center = toQ(foot.XYZ());
+                    r0.axis = toQ(dir.XYZ());
+                    r0.zero = toQ(zero.Normalized().XYZ());
+                    r0.angle = ax;
                 }
+            }
         }
-        m_arrow.setAxis(toQ(c.XYZ()), toQ(frame.Direction().XYZ()));
-        m_arrow.setDistance(m_offsetField->value().value_or(0.0));
-        // The value shows in the on-canvas box instead of a label.
     }
+    if(ringOf(m_gizmo.focus()) < 0 && m_gizmo.focus() != PlaneGizmo::Part::Arrow) m_gizmo.setFocus(PlaneGizmo::Part::Arrow);
     m_ctx.viewport->refreshOverlay();
 }
 
@@ -179,7 +255,7 @@ void PlaneCommand::picked(const std::optional<SelectionItem> &item, const PickHi
             return;
         if(r.createdBy(isEditing() ? m_editing : m_ctx.doc->nextFeatureId())) return;
         m_base = r;
-        if(kAxes[m_axis->currentIndex()] == cad::PlaneRotationAxis::Edge && !m_edge) activate(Field::Edge);
+        if(edgeMode() && !m_edge) activate(Field::Edge);
     } else {
         if(item->kind != SelectionItem::Kind::Edge) return;
         const std::optional<InputRef> r = inputRefOf(*m_ctx.view, *item);
@@ -197,22 +273,27 @@ std::shared_ptr<cad::Feature> PlaneCommand::build(QString &why) {
         why = tr("Select a plane or planar face.");
         return nullptr;
     }
-    const cad::PlaneRotationAxis axis = kAxes[std::clamp(m_axis->currentIndex(), 0, 2)];
-    if(axis == cad::PlaneRotationAxis::Edge && !m_edge) {
+    const cad::PlaneRotationAxis axis = kAxes[std::clamp(m_axis->currentIndex(), 0, 1)];
+    const bool edge = axis == cad::PlaneRotationAxis::Edge;
+    if(edge && !m_edge) {
         why = tr("Select the straight edge to turn the plane about.");
         return nullptr;
     }
-    if(!m_offsetField->valid() || !m_angleField->valid()) {
-        why = tr("%1: enter a value").arg(m_offsetField->valid() ? tr("Angle") : tr("Distance"));
-        return nullptr;
-    }
+    const std::pair<ValueField *, QString> fields[] = {
+        {m_offsetField, tr("Distance")}, {m_angleField, edge ? tr("Angle") : tr("Tilt X")}, {m_angleYField, tr("Tilt Y")}};
+    for(const auto &[field, name] : fields)
+        if(!field->valid() && (field != m_angleYField || !edge)) {
+            why = tr("%1: enter a value").arg(name);
+            return nullptr;
+        }
     auto f = m_original ? std::static_pointer_cast<cad::ConstructionPlaneFeature>(m_original->clone())
                         : std::make_shared<cad::ConstructionPlaneFeature>();
     f->base = *ref;
     f->offset = {m_offset.name, m_offsetField->expression().toStdString()};
     f->angle = {m_angle.name, m_angleField->expression().toStdString()};
+    f->angleY = edge ? cad::ParamSlot() : cad::ParamSlot{m_angleY.name, m_angleYField->expression().toStdString()};
     f->axis = axis;
-    f->axisEdge = axis == cad::PlaneRotationAxis::Edge ? m_edge->topo : cad::TopoRef();
+    f->axisEdge = edge ? m_edge->topo : cad::TopoRef();
     return f;
 }
 

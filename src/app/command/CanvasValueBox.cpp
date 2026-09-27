@@ -43,7 +43,14 @@ void CanvasValueBox::restyle() {
     setStyleSheet(QStringLiteral("#canvasValue { background: rgba(255, 255, 255, 245); border: 1px solid %1;"
                                  " border-radius: 3px; padding: 1px 4px; color: #10223c; font-size: 12px;"
                                  " selection-background-color: #9cc6ff; selection-color: #10223c; }")
-                      .arg(bad ? QStringLiteral("#d23c3c") : QStringLiteral("#1a65c9")));
+                      .arg(bad ? QStringLiteral("#d23c3c")
+                               : m_accent.isValid() ? m_accent.name() : QStringLiteral("#1a65c9")));
+}
+
+void CanvasValueBox::setAccent(const QColor &c) {
+    if(c == m_accent) return;
+    m_accent = c;
+    restyle();
 }
 
 void CanvasValueBox::showAt(QPointF px) {

@@ -29,6 +29,10 @@ public:
     // The head's position on screen (logical pixels) and in the model.
     QPointF headOnScreen() const;
     QVector3D headPoint() const { return head(); }
+    // Whether a point (logical pixels) grabs the head; highlight it (hover).
+    bool nearHead(QPointF px) const;
+    void setHot(bool on) { m_hot = on; }
+    bool hot() const { return m_hot; }
 
     std::function<void(double)> onDrag;  // new distance while dragging
     std::function<void()> onRelease;
@@ -44,7 +48,6 @@ private:
     QVector3D head() const { return m_origin + m_dir * float(displayLength()); }
     double displayLength() const;
     double axisParameter(QPointF px, bool *ok) const;
-    bool nearHead(QPointF px) const;
 
     Viewport *m_viewport;
     QVector3D m_origin, m_dir{0, 0, 1};

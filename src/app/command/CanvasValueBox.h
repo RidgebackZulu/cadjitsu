@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QColor>
 #include <QLineEdit>
 #include <QPointer>
 
@@ -20,6 +21,8 @@ public:
     ValueField *field() const { return m_field; }
     // Shows the box with its left edge at `px` (canvas pixels), or hides it.
     void showAt(QPointF px);
+    // Border colour (invalid: the default blue); red while the value is bad.
+    void setAccent(const QColor &c);
 
 signals:
     void commitRequested();
@@ -35,6 +38,7 @@ private:
 
     QPointer<ValueField> m_field;
     QMetaObject::Connection m_textConn;
+    QColor m_accent;
 };
 
 } // namespace cadly

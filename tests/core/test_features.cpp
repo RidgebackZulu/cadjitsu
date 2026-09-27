@@ -355,6 +355,64 @@ TEST_CASE("construction planes: offset and rotated") {
     CHECK(n.Y() == doctest::Approx(-std::sin(PI / 6)));
 }
 
+TEST_CASE("construction planes tilt about both of their axes, around their centre") {
+    Box box; // 40 x 20 x 10 at the origin
+    Document &doc = box.doc;
+    // On the box's top face, raised 5, tilted 30 degrees about X then 20 about Y.
+    auto p = std::make_shared<ConstructionPlaneFeature>();
+    p->base = PlaneRef::onFace(box.topFace());
+    p->offset = doc.makeSlot("5");
+    p->angle = doc.makeSlot("30");
+    p->angleY = doc.makeSlot("20");
+    const FeatureId pid = doc.addFeature(p);
+    checkOk(doc);
+    const PlaneResult &plane = *doc.displayedState()->planes.at(pid);
+    // X first (about +X), then Y (about the tilted Y): the same as the shared helper.
+    gp_Ax3 expected(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+    expected = tiltedFrame(expected, gp_Pnt(0, 0, 0), 30 * PI / 180, 20 * PI / 180);
+    CHECK(plane.frame.Direction().IsEqual(expected.Direction(), 1e-9));
+    CHECK(std::fabs(plane.frame.Direction().Z() - std::cos(30 * PI / 180) * std::cos(20 * PI / 180)) < 1e-9);
+    // It turns about its centre (the face's middle, raised 5), which stays put and on the plane.
+    const gp_Pnt top(20, 10, 10); // the top face's middle
+    CHECK(plane.center.Distance(top.Translated(gp_Vec(0, 0, 5))) < 1e-9);
+    CHECK(std::fabs(gp_Vec(plane.frame.Location(), plane.center).Dot(gp_Vec(plane.frame.Direction()))) < 1e-9);
+    // Each tilt alone matches the one-axis result.
+    auto onlyY = std::static_pointer_cast<ConstructionPlaneFeature>(doc.feature(pid)->clone());
+    onlyY->angle.expr = "0";
+    onlyY->angleY.expr = "90";
+    doc.replaceFeature(onlyY);
+    checkOk(doc);
+    CHECK(doc.displayedState()->planes.at(pid)->frame.Direction().IsEqual(gp_Dir(1, 0, 0), 1e-9));
+    // Saved and loaded, with the centre pivot.
+    Document copy;
+    std::string err;
+    REQUIRE(copy.fromJson(doc.toJson(), err));
+    checkOk(copy);
+    CHECK(copy.displayedState()->planes.at(pid)->center.Distance(top.Translated(gp_Vec(0, 0, 5))) < 1e-9);
+}
+
+TEST_CASE("construction planes saved before two-axis tilts keep their geometry") {
+    Document doc;
+    // A LocalY plane, as older Cadly wrote it (no pivot, no angleY).
+    json j = json::parse(R"({"type":"plane","id":1,"name":"Plane1","data":{
+        "base":{"kind":"xy"},"offset":{"name":"d1","expr":"10"},
+        "angle":{"name":"d2","expr":"90 deg"},"axis":"localY"}})");
+    std::string err;
+    auto f = Feature::fromJson(j, &err);
+    REQUIRE(f);
+    auto plane = std::static_pointer_cast<ConstructionPlaneFeature>(f);
+    CHECK_FALSE(plane->pivotAtCenter);
+    CHECK(plane->axis == PlaneRotationAxis::LocalY);
+    doc.addFeature(plane);
+    checkOk(doc);
+    // About the Y axis through the (raised) frame origin: normal +X, through (0,0,10).
+    const PlaneResult &r = *doc.displayedState()->planes.begin()->second;
+    CHECK(r.frame.Direction().IsEqual(gp_Dir(1, 0, 0), 1e-9));
+    CHECK(r.frame.Location().Distance(gp_Pnt(0, 0, 10)) < 1e-9);
+    // Written back without a pivot key, so it stays the old way.
+    CHECK_FALSE(plane->dataToJson().contains("pivot"));
+}
+
 TEST_CASE("extrude a planar face of a body (press-pull style)") {
     Box box;
     auto e = std::make_shared<ExtrudeFeature>();

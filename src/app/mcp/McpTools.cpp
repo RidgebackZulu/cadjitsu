@@ -455,7 +455,7 @@ void McpTools::define() {
             json planes = json::array();
             for(const auto &[id, p] : st->planes)
                 planes.push_back({{"id", id}, {"name", p->name}, {"origin", pt(p->frame.Location())},
-                                  {"normal", dir(p->frame.Direction())},
+                                  {"center", pt(p->center)}, {"normal", dir(p->frame.Direction())},
                                   {"visible", doc.planeVisible(id) && doc.folderVisible("construction")}});
             json folders = json::object();
             for(const std::string &f : cad::Document::folderNames()) folders[f] = doc.folderVisible(f);
@@ -876,19 +876,28 @@ void McpTools::define() {
 
     add("offset_plane",
         "A construction plane offset from an origin plane, another construction plane or a planar face, optionally "
-        "turned by an angle about its local X or Y axis. Sketch on it with create_sketch {plane: {plane: id}}.",
+        "tilted about its own X axis (tilt_x), its Y axis (tilt_y) or both - X first, then the tilted Y - turning "
+        "about the plane's centre. Sketch on it with create_sketch {plane: {plane: id}}.",
         {{"base", planeSpec()},
          {"offset", numberOrExpr("distance along the base normal, mm (default 0)")},
-         {"angle", numberOrExpr("rotation in degrees (default 0)")},
-         {"axis", enumOf({"x", "y"}, "rotation axis (default x)")}},
+         {"tilt_x", numberOrExpr("tilt about the plane's X axis, degrees (default 0)")},
+         {"tilt_y", numberOrExpr("tilt about the plane's Y axis (after tilt_x), degrees (default 0)")},
+         {"angle", numberOrExpr("older form: a single tilt in degrees about `axis`")},
+         {"axis", enumOf({"x", "y"}, "older form: the axis `angle` turns about (default x)")}},
         {"base"}, [begin, settle, planeOf, commit, slot](const json &a) {
             begin();
             const cad::StatePtr st = settle();
             auto p = std::make_shared<cad::ConstructionPlaneFeature>();
             p->base = planeOf(st, a.at("base"));
             p->offset = slot(lengthExpr(a.value("offset", json(0.0)), "offset"), cad::ValueKind::Length, "offset");
-            p->angle = slot(angleExpr(a.value("angle", json(0.0)), "angle"), cad::ValueKind::Angle, "angle");
-            p->axis = a.value("axis", "x") == "y" ? cad::PlaneRotationAxis::LocalY : cad::PlaneRotationAxis::LocalX;
+            json tx = a.value("tilt_x", json()), ty = a.value("tilt_y", json());
+            if(a.contains("angle")) {
+                json &legacy = a.value("axis", "x") == "y" ? ty : tx;
+                if(legacy.is_null()) legacy = a.at("angle");
+            }
+            p->angle = slot(angleExpr(tx.is_null() ? json(0.0) : tx, "tilt_x"), cad::ValueKind::Angle, "tilt_x");
+            p->angleY = slot(angleExpr(ty.is_null() ? json(0.0) : ty, "tilt_y"), cad::ValueKind::Angle, "tilt_y");
+            p->axis = cad::PlaneRotationAxis::LocalX;
             return commit(p, "Create Plane (MCP)");
         });
 

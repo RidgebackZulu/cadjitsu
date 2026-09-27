@@ -1,5 +1,7 @@
 #include "command/CommandPanel.h"
 
+#include "sketch/SketchEditor.h"
+#include "ui/AngleDial.h"
 #include "ui/Icons.h"
 #include "viewport/ViewCube.h"
 
@@ -78,6 +80,7 @@ void ValueField::revalidate() {
         style()->polish(this);
         update();
     }
+    emit revalidated();
 }
 
 // --- SelectionField ----------------------------------------------------------------
@@ -197,6 +200,8 @@ void CommandPanel::begin(const QString &title, IconId id) {
         delete item;
     }
     m_labels.clear();
+    m_rowWidgets.clear();
+    m_dials.clear();
     m_nextRow = 0;
     m_title->setText(title.toUpper());
     m_titleIcon->setPixmap(icon(id).pixmap(QSize(22, 22), devicePixelRatioF()));
@@ -247,6 +252,40 @@ ValueField *CommandPanel::addValue(const QString &label, cad::ValueKind kind, Va
     return f;
 }
 
+ValueField *CommandPanel::addAngle(const QString &label, ValueField::Evaluator eval, const char *name,
+                                   const QColor &accent) {
+    auto *row = new QWidget(m_body);
+    auto *h = new QHBoxLayout(row);
+    h->setContentsMargins(0, 0, 0, 0);
+    h->setSpacing(6);
+    auto *dial = new AngleDial(accent, row);
+    dial->setObjectName(QString::fromLatin1(name) + QStringLiteral("Dial"));
+    auto *f = new ValueField(cad::ValueKind::Angle, std::move(eval), row);
+    f->setObjectName(QString::fromLatin1(name));
+    f->installEventFilter(this);
+    h->addWidget(dial);
+    h->addWidget(f, 1);
+    addRow(label, row);
+    m_labels[f] = m_labels[row];
+    m_rowWidgets[f] = row;
+    m_dials[f] = dial;
+    // The dial shows the box's value; turning it types into the box.
+    connect(f, &ValueField::revalidated, dial, [f, dial] {
+        if(f->valid()) dial->setAngle(*f->value() * 180.0 / cad::kPi);
+        dial->setInvalid(!f->valid());
+    });
+    connect(dial, &AngleDial::angleEdited, f, [f](double deg) {
+        f->enterExpression(QString::fromStdString(SketchEditor::formatExpression(deg * cad::kPi / 180.0,
+                                                                                 cad::ValueKind::Angle)));
+    });
+    return f;
+}
+
+AngleDial *CommandPanel::angleDial(ValueField *field) const {
+    auto it = m_dials.find(field);
+    return it == m_dials.end() ? nullptr : it->second;
+}
+
 QCheckBox *CommandPanel::addCheck(const QString &label, const char *name) {
     auto *c = new QCheckBox(m_body);
     c->setObjectName(QString::fromLatin1(name));
@@ -264,10 +303,15 @@ QLabel *CommandPanel::addSection(const QString &title) {
 }
 
 void CommandPanel::setRowVisible(QWidget *field, bool visible) {
+    if(auto row = m_rowWidgets.find(field); row != m_rowWidgets.end()) field = row->second;
     field->setVisible(visible);
     auto it = m_labels.find(field);
     if(it != m_labels.end()) it->second->setVisible(visible);
     adjustSize();
+}
+
+void CommandPanel::setRowLabel(QWidget *field, const QString &label) {
+    if(auto it = m_labels.find(field); it != m_labels.end()) it->second->setText(label);
 }
 
 void CommandPanel::setMessage(const QString &text, cad::Severity severity) {

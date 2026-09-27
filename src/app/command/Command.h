@@ -7,6 +7,7 @@
 
 #include "doc/Document.h"
 
+#include <QColor>
 #include <QObject>
 #include <QString>
 #include <QVector3D>
@@ -72,6 +73,8 @@ public:
     // box, next to the last point picked.
     virtual ValueField *canvasValue() const;
     virtual std::optional<QVector3D> canvasAnchor() const { return m_lastPick; }
+    // The box's border colour (invalid: the default blue).
+    virtual QColor canvasAccent() const { return {}; }
     void notePick(const QVector3D &p) { m_lastPick = p; }
 
     cad::FeatureId editing() const { return m_editing; }

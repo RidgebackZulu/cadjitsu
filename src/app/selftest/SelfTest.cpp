@@ -9,6 +9,7 @@
 #include "command/HoleCommand.h"
 #include "command/Manipulator.h"
 #include "command/PlaneCommand.h"
+#include "ui/AngleDial.h"
 #include "command/SectionCommand.h"
 #include "model/ModelView.h"
 #include "selftest/DemoModels.h"
@@ -831,16 +832,45 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     settle();
     check(lastOk(), QStringLiteral("Hole committed"));
 
-    // An offset plane above the plate, turned 20 degrees.
+    // An offset plane above the plate, tilted 20 degrees about X and 15 about Y.
     w.action(QStringLiteral("offsetPlane"))->trigger();
     auto *plane = qobject_cast<PlaneCommand *>(w.commands()->command());
     if(!plane) return false;
     clickAt(vp, at(30, 8, 20));
     type(plane->offsetField(), QStringLiteral("25"));
     type(plane->angleField(), QStringLiteral("20"));
+    type(plane->tiltYField(), QStringLiteral("15"));
     settle();
     check(plane->hasBase() && w.modelView()->state()->planes.size() == 1, QStringLiteral("Offset Plane previewed"));
     shot("features_4_plane.png");
+    {
+        // Hover the Tilt Y knob: its ring lights up with degree marks and the
+        // canvas value box moves to it. Then close-ups of the rings and dials.
+        const QPointF knob = plane->gizmo().knobOnScreen(1);
+        sendMouse(vp, QEvent::MouseMove, knob, Qt::NoButton, Qt::NoButton);
+        check(plane->gizmo().hot() == PlaneGizmo::Part::Ring1 && w.commands()->command()->canvasValue() == plane->tiltYField(),
+              QStringLiteral("hovering a ring's knob puts the canvas value on that tilt"));
+        shot("features_4b_plane_ring.png");
+        const QPoint c = vp->mapTo(&w, vp->camera().project(plane->gizmo().ring(0).center).toPoint());
+        const QImage full = w.grab().toImage();
+        const qreal dpr = full.devicePixelRatio();
+        const QRect crop(QPoint(int((c.x() - 150) * dpr), int((c.y() - 130) * dpr)), QSize(int(300 * dpr), int(260 * dpr)));
+        full.copy(crop).scaled(QSize(900, 780), Qt::KeepAspectRatio, Qt::SmoothTransformation)
+            .save(out.filePath(QStringLiteral("features_4c_tilt_closeup.png")));
+        // The two dials, drawn at 4x.
+        QImage dials(QSize(2 * 44 + 12, 44) * 4, QImage::Format_ARGB32_Premultiplied);
+        dials.setDevicePixelRatio(4);
+        dials.fill(Qt::white);
+        QPainter dp(&dials);
+        int x = 0;
+        for(ValueField *f : {plane->angleField(), plane->tiltYField()}) {
+            w.commandPanel()->angleDial(f)->render(&dp, QPoint(x, 0));
+            x += 56;
+        }
+        dp.end();
+        dials.save(out.filePath(QStringLiteral("features_4d_dials.png")));
+        sendMouse(vp, QEvent::MouseMove, QPointF(5, 5), Qt::NoButton, Qt::NoButton);
+    }
     w.commandPanel()->okButton()->click();
     settle();
     check(lastOk(), QStringLiteral("Offset Plane committed"));

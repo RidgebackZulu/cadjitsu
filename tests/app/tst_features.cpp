@@ -10,6 +10,7 @@
 #include "command/EdgeCommands.h"
 #include "command/HoleCommand.h"
 #include "command/PlaneCommand.h"
+#include "ui/AngleDial.h"
 #include "model/ModelView.h"
 #include "selftest/TestUtil.h"
 #include "ui/TimelineWidget.h"
@@ -31,6 +32,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QtTest>
 
@@ -385,6 +387,145 @@ private slots:
         QVERIFY(plane->hasBase());
         settle();
         QCOMPARE(int(view()->state()->planes.size()), 2);
+    }
+
+    void offsetPlaneTiltsOnBothAxesWithRingsAndDials() {
+        box(0, 0, 40, 20, 10);
+        showHome();
+        trigger("offsetPlane");
+        auto *plane = command<PlaneCommand>();
+        QVERIFY(plane);
+        click(at(20, 10, 10)); // the top face
+        QVERIFY(plane->hasBase());
+        typeInto(plane->offsetField(), QStringLiteral("5"));
+        typeInto(plane->angleField(), QStringLiteral("30"));
+        typeInto(plane->tiltYField(), QStringLiteral("20"));
+        settle();
+        auto normalTilt = [&] {
+            const cad::PlaneResult *p = view()->state()->planes.begin()->second.get();
+            return p->frame.Direction().Angle(gp_Dir(0, 0, 1));
+        };
+        auto centre = [&] { return view()->state()->planes.begin()->second->center; };
+        // Tilted about X then about the new Y: cos(tilt) = cos(30) cos(20); it
+        // turns about its centre, over the face's middle.
+        QVERIFY(std::fabs(std::cos(normalTilt()) - std::cos(M_PI / 6) * std::cos(M_PI / 9)) < 1e-9);
+        QVERIFY(centre().Distance(gp_Pnt(20, 10, 15)) < 1e-6);
+        // The dials show the typed values.
+        QCOMPARE(qRound(panel()->angleDial(plane->angleField())->angle()), 30);
+        QCOMPARE(qRound(panel()->angleDial(plane->tiltYField())->angle()), 20);
+
+        // Drag the Tilt X ring's knob round to 60 degrees.
+        PlaneGizmo &g = plane->gizmo();
+        QVERIFY(g.ring(0).visible && g.ring(1).visible);
+        QVERIFY(std::fabs(g.ring(0).angle - M_PI / 6) < 1e-9);
+        auto dragRing = [&](int ring, double toDeg, Qt::KeyboardModifiers mods) {
+            const QPointF from = g.knobOnScreen(ring);
+            const double a0 = g.ring(ring).angle, a1 = toDeg * M_PI / 180.0;
+            send(vp(), QEvent::MouseMove, from, Qt::NoButton, Qt::NoButton);
+            send(vp(), QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+            QCOMPARE(g.dragged(), ring ? PlaneGizmo::Part::Ring1 : PlaneGizmo::Part::Ring0);
+            QPointF p;
+            for(int i = 1; i <= 12; ++i) {
+                p = g.ringPointOnScreen(ring, a0 + (a1 - a0) * i / 12.0);
+                QMouseEvent ev(QEvent::MouseMove, p, vp()->mapToGlobal(p), Qt::NoButton, Qt::LeftButton, mods);
+                QCoreApplication::sendEvent(vp(), &ev);
+            }
+            send(vp(), QEvent::MouseButtonRelease, p, Qt::LeftButton, Qt::NoButton);
+            QCOMPARE(g.dragged(), PlaneGizmo::Part::None);
+        };
+        dragRing(0, 60.0, Qt::NoModifier);
+        QCOMPARE(plane->angleField()->expression(), QStringLiteral("60 deg"));
+        QCOMPARE(qRound(panel()->angleDial(plane->angleField())->angle()), 60);
+        settle();
+        QVERIFY(std::fabs(std::cos(normalTilt()) - std::cos(M_PI / 3) * std::cos(M_PI / 9)) < 1e-9);
+        // With Shift it snaps to 15 degrees: 97 -> 90 on the Tilt Y ring.
+        dragRing(1, 97.0, Qt::ShiftModifier);
+        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("90 deg"));
+        settle();
+
+        // Hovering a ring puts typed digits into its tilt.
+        send(vp(), QEvent::MouseMove, g.knobOnScreen(1), Qt::NoButton, Qt::NoButton);
+        QCOMPARE(g.focus(), PlaneGizmo::Part::Ring1);
+        QCOMPARE(plane->canvasValue(), plane->tiltYField());
+        QVERIFY(waitForFrames(vp(), 1));
+        auto *canvasBox = vp()->findChild<QLineEdit *>(QStringLiteral("canvasValue"));
+        QVERIFY(canvasBox && canvasBox->isVisible());
+        vp()->setFocus();
+        QTest::keyClick(vp(), Qt::Key_4, Qt::NoModifier);
+        QTest::keyClicks(canvasBox, QStringLiteral("5"));
+        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("45"));
+        // Hovering the arrow puts them back into the distance.
+        send(vp(), QEvent::MouseMove, g.arrow().headOnScreen(), Qt::NoButton, Qt::NoButton);
+        QCOMPARE(plane->canvasValue(), plane->offsetField());
+
+        // The dial: scroll a degree, drag to straight up (90), double-click for 0.
+        AngleDial *dial = panel()->angleDial(plane->tiltYField());
+        QVERIFY(dial && dial->isVisible());
+        const QPointF mid = QRectF(dial->rect()).center();
+        QWheelEvent wheel(mid, dial->mapToGlobal(mid), QPoint(), QPoint(0, 120), Qt::NoButton, Qt::NoModifier,
+                          Qt::NoScrollPhase, false);
+        QCoreApplication::sendEvent(dial, &wheel);
+        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("46 deg"));
+        QTest::mouseMove(dial, (mid + QPointF(0, -15)).toPoint());
+        QTest::mousePress(dial, Qt::LeftButton, Qt::NoModifier, (mid + QPointF(0, -15)).toPoint());
+        QTest::mouseRelease(dial, Qt::LeftButton, Qt::NoModifier, (mid + QPointF(0, -15)).toPoint());
+        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("90 deg"));
+        doubleClick(dial, (mid + QPointF(0, -15)).toPoint());
+        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("0 deg"));
+        settle();
+        QVERIFY(std::fabs(normalTilt() - M_PI / 3) < 1e-9);
+
+        // Edge mode: one angle, one ring.
+        plane->axisBox()->setCurrentIndex(1);
+        QVERIFY(!plane->tiltYField()->isVisibleTo(panel()) && !g.ring(1).visible);
+        plane->axisBox()->setCurrentIndex(0);
+        QVERIFY(plane->tiltYField()->isVisibleTo(panel()) && g.ring(1).visible);
+
+        typeInto(plane->tiltYField(), QStringLiteral("-25"));
+        settle();
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::ConstructionPlaneFeature>(doc().features().back());
+        QVERIFY(f && f->axis == cad::PlaneRotationAxis::LocalX && f->pivotAtCenter);
+        QCOMPARE(QString::fromStdString(f->angle.expr), QStringLiteral("60 deg"));
+        QCOMPARE(QString::fromStdString(f->angleY.expr), QStringLiteral("-25"));
+        // Edit Feature reopens both tilts.
+        m_window->editFeature(f->id);
+        plane = command<PlaneCommand>();
+        QVERIFY(plane && plane->isEditing());
+        QCOMPARE(plane->angleField()->expression(), QStringLiteral("60 deg"));
+        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("-25"));
+        panel()->cancelButton()->click();
+        settle();
+    }
+
+    void planesFromBeforeTwoAxisTiltsEditUnchanged() {
+        auto legacy = std::make_shared<cad::ConstructionPlaneFeature>();
+        legacy->base = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        legacy->offset = doc().makeSlot("10 mm");
+        legacy->angle = doc().makeSlot("90 deg");
+        legacy->axis = cad::PlaneRotationAxis::LocalY;
+        legacy->pivotAtCenter = false;
+        const cad::FeatureId id = doc().addFeature(legacy);
+        showHome();
+        auto check = [&] {
+            const cad::PlaneResult *p = doc().stateAt(doc().marker())->planes.at(id).get();
+            QVERIFY(p->frame.Direction().IsParallel(gp_Dir(1, 0, 0), 1e-9));
+            QVERIFY(p->frame.Location().Distance(gp_Pnt(0, 0, 10)) < 1e-9);
+        };
+        check();
+        // It opens with its angle as Tilt Y, and OK keeps the plane where it was.
+        m_window->editFeature(id);
+        auto *plane = command<PlaneCommand>();
+        QVERIFY(plane);
+        QCOMPARE(plane->tiltYField()->expression(), QStringLiteral("90 deg"));
+        QCOMPARE(plane->angleField()->expression(), QStringLiteral("0 deg"));
+        settle();
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::ConstructionPlaneFeature>(doc().feature(id));
+        QVERIFY(f && f->axis == cad::PlaneRotationAxis::LocalX && !f->pivotAtCenter);
+        check();
     }
 
     void markingMenuAndShortcutsReachTheNewCommands() {

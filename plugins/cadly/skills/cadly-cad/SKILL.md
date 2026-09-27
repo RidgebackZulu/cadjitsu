@@ -55,6 +55,9 @@ port. Start every session with `get_design`.
    rectangles, circles, polygons, lines, arcs, points. Rectangles and circles get driving dimensions
    (parameters such as `d1`, `d2`) and are anchored (rectangle at corner1, circle at its centre), so later
    parameter changes grow them predictably.
+   For an angled or raised sketch plane, make a construction plane first:
+   `offset_plane {"base": "XY", "offset": 20, "tilt_x": 30, "tilt_y": 15}` tilts it about its own X axis, then
+   its (tilted) Y axis, turning about its centre; `get_design` gives each plane's `center` and `normal`.
 3. **Extrude** - `extrude` the sketch's profiles. It makes a **new body** by default. Pick regions with
    `profile_points` (sketch coordinates inside the region); without them every profile is extruded (a circle
    inside a rectangle then fills the hole, so give a point in the ring to keep the hole).

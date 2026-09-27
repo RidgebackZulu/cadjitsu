@@ -159,7 +159,8 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 
 **Offset Plane**
 - Pick an origin plane (they are shown while the command runs), a construction plane or a planar face; type the distance or drag the arrow.
-- **Angle** turns the plane by any angle about its own X or Y axis, or about a straight edge.
+- **Tilt X** and **Tilt Y** tilt the plane about its own X axis, its Y axis or both, turning about its centre. Drag the red and green protractor rings on the canvas (1° steps, 15° with Shift), turn the small dials in the dialog (scroll for 1°, double-click for 0°), or type an angle or expression. Hover a ring and type digits to set that tilt in the on-canvas box.
+- **Rotation Axis: Edge** turns the plane about a straight edge instead.
 - Sketches can be created on construction planes, and planes follow the faces they are built on.
 
 **Section Analysis** (Inspect)

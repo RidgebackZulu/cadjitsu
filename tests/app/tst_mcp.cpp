@@ -5,6 +5,7 @@
 #include "TestRegistry.h"
 
 #include "MainWindow.h"
+#include "features/ConstructionPlaneFeature.h"
 #include "mcp/McpButton.h"
 #include "mcp/McpDialog.h"
 #include "mcp/McpLog.h"
@@ -230,6 +231,31 @@ private slots:
         // A bad name changes nothing.
         QVERIFY(tool("set_visibility", {{"bodies", {"NoSuchBody"}}, {"folders", {"construction"}}, {"visible", false}}).first);
         QVERIFY(m_window->document().folderVisible("construction"));
+    }
+
+    void offsetPlaneTiltsOnBothAxes() {
+        initialize();
+        auto normalOf = [&](int i) {
+            const json d = tool("get_design").second;
+            const json &n = d["construction_planes"][i]["normal"];
+            return QVector3D(n[0].get<float>(), n[1].get<float>(), n[2].get<float>());
+        };
+        const auto [e1, r1] = tool("offset_plane", {{"base", "XY"}, {"offset", 20}, {"tilt_x", 30}, {"tilt_y", "15 deg"}});
+        QVERIFY2(!e1, r1.dump().c_str());
+        // X first, then the tilted Y: n = Ry'(15) Rx(30) z.
+        const double ax = M_PI / 6, ay = M_PI / 12;
+        const QVector3D want(float(std::sin(ay)),
+                             float(-std::cos(ay) * std::sin(ax)), float(std::cos(ay) * std::cos(ax)));
+        QVERIFY2((normalOf(0) - want).length() < 2e-3f, qPrintable(QString::fromStdString(tool("get_design").second.dump())));
+        const json d = tool("get_design").second;
+        QCOMPARE(d["construction_planes"][0]["center"][2].get<double>(), 20.0); // turned about its centre
+        // The older angle + axis form still works: 90 about Y points the normal along +X.
+        const auto [e2, r2] = tool("offset_plane", {{"base", "XY"}, {"angle", 90}, {"axis", "y"}});
+        QVERIFY2(!e2, r2.dump().c_str());
+        QVERIFY((normalOf(1) - QVector3D(1, 0, 0)).length() < 2e-3f);
+        // Both tilts are parameters.
+        const auto f = std::dynamic_pointer_cast<const cad::ConstructionPlaneFeature>(m_window->document().features().front());
+        QVERIFY(f && f->angle.expr == "30 deg" && f->angleY.expr == "15 deg");
     }
 
     void aBatchBuildsAPartInOneCall() {

@@ -87,6 +87,7 @@ void CommandController::placeCanvasBox() {
     ValueField *f = m_cmd ? m_cmd->canvasValue() : nullptr;
     const auto anchor = m_cmd ? m_cmd->canvasAnchor() : std::nullopt;
     m_box->bind(f);
+    m_box->setAccent(m_cmd ? m_cmd->canvasAccent() : QColor());
     if(!f || !anchor) {
         m_box->hide();
         return;

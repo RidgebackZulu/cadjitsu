@@ -137,14 +137,16 @@ Joins, cuts or intersects bodies: the target body with the tool bodies. keep_too
 
 ## `offset_plane`
 
-A construction plane offset from an origin plane, another construction plane or a planar face, optionally turned by an angle about its local X or Y axis. Sketch on it with create_sketch {plane: {plane: id}}.
+A construction plane offset from an origin plane, another construction plane or a planar face, optionally tilted about its own X axis (tilt_x), its Y axis (tilt_y) or both - X first, then the tilted Y - turning about the plane's centre. Sketch on it with create_sketch {plane: {plane: id}}.
 
 | Argument | Type | Description |
 |---|---|---|
-| `angle` | number or string | rotation in degrees (default 0) |
-| `axis` | `x` / `y` | rotation axis (default x) |
+| `angle` | number or string | older form: a single tilt in degrees about `axis` |
+| `axis` | `x` / `y` | older form: the axis `angle` turns about (default x) |
 | `base` **(required)** | string or object | Where: "XY", "XZ" or "YZ" (origin planes), {"plane": <construction plane feature id>}, or {"face": {"body": "b2", "index": 5}} for a planar face of a body. |
 | `offset` | number or string | distance along the base normal, mm (default 0) |
+| `tilt_x` | number or string | tilt about the plane's X axis, degrees (default 0) |
+| `tilt_y` | number or string | tilt about the plane's Y axis (after tilt_x), degrees (default 0) |
 
 ## `edit_feature`
 

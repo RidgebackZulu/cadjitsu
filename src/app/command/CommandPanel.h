@@ -21,6 +21,7 @@ class QToolButton;
 namespace cadly {
 
 enum class IconId;
+class AngleDial;
 
 // A value box that takes numbers with units or expressions ("20", "d1 * 2",
 // "1 in") and shows whether they evaluate.
@@ -41,6 +42,8 @@ public:
 
 signals:
     void edited();
+    // The value was worked out again (after any change of text).
+    void revalidated();
 
 protected:
     // Focusing a value, or the first click into one the user has not typed
@@ -101,9 +104,14 @@ public:
     SelectionField *addSelection(const QString &label, const QString &hint, const char *name);
     QComboBox *addChoice(const QString &label, const QStringList &options, const char *name);
     ValueField *addValue(const QString &label, cad::ValueKind kind, ValueField::Evaluator eval, const char *name);
+    // An angle value box with a circular dial (in `accent`) beside it; the
+    // two follow each other. setRowVisible() takes the value box.
+    ValueField *addAngle(const QString &label, ValueField::Evaluator eval, const char *name, const QColor &accent);
+    AngleDial *angleDial(ValueField *field) const;
     QCheckBox *addCheck(const QString &label, const char *name);
     QLabel *addSection(const QString &title);
     void setRowVisible(QWidget *field, bool visible);
+    void setRowLabel(QWidget *field, const QString &label);
     void setMessage(const QString &text, cad::Severity severity = cad::Severity::Ok);
     QString message() const;
     void setOkEnabled(bool on);
@@ -129,6 +137,8 @@ private:
     QLabel *m_message;
     QPushButton *m_ok, *m_cancel;
     std::map<QWidget *, QLabel *> m_labels;
+    std::map<QWidget *, QWidget *> m_rowWidgets; // a field inside a row's widget (angle + dial)
+    std::map<ValueField *, AngleDial *> m_dials;
     int m_nextRow = 0;
 };
 
