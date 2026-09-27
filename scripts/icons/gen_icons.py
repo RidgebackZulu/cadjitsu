@@ -432,6 +432,19 @@ def overhang():
     return s
 
 
+def split():
+    """A block split in two by a plane: the halves pulled apart, the cutting
+    plane glowing orange between them."""
+    iso = Iso(32, 38, 1.0)
+    P = iso.p
+    s = iso.floor_shadow(-18, -12, 36, 24)
+    s += iso.box(-18, -10, 0, 14, 20, 16)
+    # The cutting plane (x = 0), standing between the halves.
+    s += poly([P(0, -15, -3), P(0, 15, -3), P(0, 15, 21), P(0, -15, 21)], "url(#planeFill)", "#D9771A", 1.3)
+    s += iso.box(4, -10, 0, 14, 20, 16, top="url(#oTop)", left="url(#oSide)", right="url(#oDark)")
+    return s
+
+
 def flip():
     iso = Iso(32, 44, 1.0)
     s = iso.floor_shadow(-13, -13, 26, 26)
@@ -933,7 +946,7 @@ ICONS = {
     "parallel": g_parallel, "perpendicular": g_perpendicular, "tangent": g_tangent, "equal": g_equal,
     "midpoint": g_midpoint, "concentric": g_concentric, "fix": g_fix, "symmetric": g_symmetric,
     "extrude": extrude, "fillet": fillet, "chamfer": chamfer, "hole": hole, "combine": combine, "plane": plane,
-    "section": section, "measure": measure, "overhang": overhang,
+    "section": section, "measure": measure, "overhang": overhang, "split": split,
     "undo": undo, "redo": redo, "save": save, "open": open_, "new": new, "export-stl": export_stl,
     "export-step": export_step, "print-3d": print3d,
     "eye": eye, "eye-off": eye_off, "body": body, "sketch-node": sketch_node, "plane-node": plane_node,

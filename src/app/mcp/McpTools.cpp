@@ -17,6 +17,7 @@
 #include "features/FilletFeature.h"
 #include "features/HoleFeature.h"
 #include "features/SketchFeature.h"
+#include "features/SplitFeature.h"
 #include "geom/OcctUtil.h"
 #include "measure/Measure.h"
 #include "measure/MeasureBetween.h"
@@ -863,6 +864,44 @@ void McpTools::define() {
             h->tipAngle = ang("tip_angle", 118);
             h->flatTip = a.value("flat_tip", false);
             return commit(h, "Create Hole (MCP)");
+        });
+
+    add("split_body",
+        "Splits bodies in two (or more) with a plane - \"XY\"/\"XZ\"/\"YZ\", a construction plane or a planar face, "
+        "all unbounded - or with the curves of a sketch swept both ways along its normal. Every piece becomes a body "
+        "(the biggest keeps the name). For parts too big for the printer: keep \"both\" and set pins to drill matching "
+        "alignment pin holes into both halves of a plane cut.",
+        {{"plane", planeSpec()},
+         {"sketch", integer("split with this sketch's curves instead of a plane")},
+         {"curves", arrayOf(integer("sketch entity id"), "only these curves of the sketch (default all non-construction)")},
+         {"bodies", arrayOf(str("body id or name"), "bodies to split (default every body the tool crosses)")},
+         {"keep", enumOf({"both", "front", "back"}, "plane splits: keep both sides (default) or only the side the "
+                                                     "plane normal points to (front) or the other")},
+         {"pins", boolean("drill alignment pin holes into both halves (plane splits keeping both)")},
+         {"pin_diameter", numberOrExpr("pin hole diameter, mm (default 3.2)")},
+         {"pin_depth", numberOrExpr("pin hole depth into each half, mm (default 6)")}},
+        {}, [begin, settle, planeOf, bodyOf, commit, slot](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            auto sp = std::make_shared<cad::SplitFeature>();
+            if(a.contains("sketch")) {
+                sp->tool = cad::SplitTool::Sketch;
+                sp->sketch = a["sketch"].get<int>();
+                if(!st->sketches.count(sp->sketch)) fail("no sketch " + std::to_string(sp->sketch) + " (see get_design)");
+                sp->curves = a.value("curves", std::vector<int>{});
+            } else if(a.contains("plane")) {
+                sp->plane = planeOf(st, a["plane"]);
+            } else {
+                fail("give a plane or a sketch to split with");
+            }
+            for(const json &b : a.value("bodies", json::array())) sp->bodies.push_back(bodyOf(st, b)->id);
+            const std::string keep = a.value("keep", "both");
+            sp->keep = keep == "front" ? cad::SplitKeep::Front : keep == "back" ? cad::SplitKeep::Back : cad::SplitKeep::Both;
+            sp->pins = a.value("pins", false);
+            sp->pinDiameter = slot(lengthExpr(a.value("pin_diameter", json(3.2)), "pin_diameter"), cad::ValueKind::Length,
+                                   "pin_diameter");
+            sp->pinDepth = slot(lengthExpr(a.value("pin_depth", json(6.0)), "pin_depth"), cad::ValueKind::Length, "pin_depth");
+            return commit(sp, "Split Body (MCP)");
         });
 
     add("combine",

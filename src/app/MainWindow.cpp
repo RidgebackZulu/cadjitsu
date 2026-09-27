@@ -10,6 +10,7 @@
 #include "command/OverhangCommand.h"
 #include "command/PlaneCommand.h"
 #include "command/SectionCommand.h"
+#include "command/SplitCommand.h"
 #include "mcp/McpButton.h"
 #include "mcp/McpDialog.h"
 #include "mcp/McpLog.h"
@@ -265,7 +266,7 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
+    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "split", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
         action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
@@ -391,6 +392,7 @@ void MainWindow::editFeature(cad::FeatureId id) {
     case cad::FeatureType::Hole: m_commands->start(std::make_unique<HoleCommand>(ctx, id)); return;
     case cad::FeatureType::Combine: m_commands->start(std::make_unique<CombineCommand>(ctx, id)); return;
     case cad::FeatureType::ConstructionPlane: m_commands->start(std::make_unique<PlaneCommand>(ctx, id)); return;
+    case cad::FeatureType::Split: m_commands->start(std::make_unique<SplitCommand>(ctx, id)); return;
     }
 }
 
@@ -508,6 +510,8 @@ void MainWindow::buildActions() {
                [this, ctx] { startCommand(QStringLiteral("chamfer"), std::make_unique<ChamferCommand>(ctx)); });
     makeAction("combine", tr("Combine"), IconId::Combine, {},
                [this, ctx] { startCommand(QStringLiteral("combine"), std::make_unique<CombineCommand>(ctx)); });
+    makeAction("split", tr("Split Body"), IconId::Split, {},
+               [this, ctx] { startCommand(QStringLiteral("split"), std::make_unique<SplitCommand>(ctx)); });
     makeAction("offsetPlane", tr("Offset Plane"), IconId::Plane, {},
                [this, ctx] { startCommand(QStringLiteral("offsetPlane"), std::make_unique<PlaneCommand>(ctx)); });
     makeAction("sectionAnalysis", tr("Section Analysis"), IconId::Section, {}, [this, ctx] {
@@ -593,6 +597,7 @@ void MainWindow::buildRibbon() {
     modify->addAction(action(QStringLiteral("fillet")));
     modify->addAction(action(QStringLiteral("chamfer")));
     modify->addAction(action(QStringLiteral("combine")));
+    modify->addAction(action(QStringLiteral("split")));
     RibbonGroup *construct = m_solidTab->addGroup(tr("CONSTRUCT"));
     construct->addAction(action(QStringLiteral("offsetPlane")));
     RibbonGroup *inspect = m_solidTab->addGroup(tr("INSPECT"));

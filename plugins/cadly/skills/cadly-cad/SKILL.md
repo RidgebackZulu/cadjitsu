@@ -111,6 +111,8 @@ Keep at least 2 wall thicknesses (~2.5 mm) between a hole and an outside face.
 - **Strength:** layers are weakest in Z; lay parts so loads run along the layers. Inside corners carrying
   load get fillets (R >= wall thickness).
 - **Orientation:** the largest flat face goes on XY; avoid tiny first-layer contact.
+- **Too big for the bed:** `split_body` with a plane and `pins: true` cuts it into pieces with alignment pin holes;
+  export each piece.
 - **Export check:** `export_stl` must report watertight and printable. More than one shell means separate
   pieces - combine touching bodies (or keep `merge: true`).
 

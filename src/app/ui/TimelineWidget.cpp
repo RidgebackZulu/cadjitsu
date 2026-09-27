@@ -34,6 +34,7 @@ IconId iconFor(cad::FeatureType t) {
     case cad::FeatureType::Hole: return IconId::Hole;
     case cad::FeatureType::Combine: return IconId::Combine;
     case cad::FeatureType::ConstructionPlane: return IconId::Plane;
+    case cad::FeatureType::Split: return IconId::Split;
     }
     return IconId::Body;
 }

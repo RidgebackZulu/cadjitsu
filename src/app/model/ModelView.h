@@ -38,6 +38,7 @@ struct SelectFilter {
     bool profiles = true;        // sketch regions
     bool planes = false;         // construction planes, and the origin planes when shown
     bool sketchPoints = false;   // points of the sketches on screen
+    bool sketchCurves = false;   // lines, arcs and circles of the sketches on screen
     bool planarFacesOnly = false;
     bool linearEdgesOnly = false;
     bool faceSelectsBody = false; // a click on a body picks the whole body
@@ -144,6 +145,8 @@ public:
     std::optional<cad::PlaneRef> planeRefOf(const SelectionItem &it) const;
     // Where a sketch point item is.
     std::optional<gp_Pnt> sketchPointOf(const SelectionItem &it) const;
+    // A sketch curve (line, arc, circle) as a polyline in the model; empty if it is not one.
+    std::vector<QVector3D> sketchCurvePolyline(cad::FeatureId sketch, int entity) const;
     // The pickable planes as drawn.
     const std::vector<std::pair<SelectionItem, Quad>> &planeQuads() const { return m_planeQuads; }
     // A profile's shading triangles.
@@ -172,6 +175,7 @@ private:
     bool accepts(const PickHit &hit) const;
     std::optional<std::pair<SelectionItem, float>> pickPlane(QPointF px) const;
     std::optional<SelectionItem> pickSketchPoint(QPointF px) const;
+    std::optional<SelectionItem> pickSketchCurve(QPointF px) const;
     bool originPlanesShown() const { return originVisible() || m_originForced; }
     void updateHighlights();
     void updateStats();

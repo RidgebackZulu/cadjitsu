@@ -60,6 +60,7 @@ constexpr std::array kIcons = {
     Entry{IconId::Section, "section"},
     Entry{IconId::Measure, "measure"},
     Entry{IconId::Overhang, "overhang"},
+    Entry{IconId::Split, "split"},
     Entry{IconId::Undo, "undo"},
     Entry{IconId::Redo, "redo"},
     Entry{IconId::Save, "save"},

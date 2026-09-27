@@ -124,6 +124,21 @@ Drills holes into a planar face at world points on it (or at the points of a ske
 | `tip_angle` | number or string | drill point angle, default 118 |
 | `type` | `simple` / `counterbore` / `countersink` | default simple |
 
+## `split_body`
+
+Splits bodies in two (or more) with a plane - "XY"/"XZ"/"YZ", a construction plane or a planar face, all unbounded - or with the curves of a sketch swept both ways along its normal. Every piece becomes a body (the biggest keeps the name). For parts too big for the printer: keep "both" and set pins to drill matching alignment pin holes into both halves of a plane cut.
+
+| Argument | Type | Description |
+|---|---|---|
+| `bodies` | array of string | bodies to split (default every body the tool crosses) |
+| `curves` | array of integer | only these curves of the sketch (default all non-construction) |
+| `keep` | `both` / `front` / `back` | plane splits: keep both sides (default) or only the side the plane normal points to (front) or the other |
+| `pin_depth` | number or string | pin hole depth into each half, mm (default 6) |
+| `pin_diameter` | number or string | pin hole diameter, mm (default 3.2) |
+| `pins` | boolean | drill alignment pin holes into both halves (plane splits keeping both) |
+| `plane` | string or object | Where: "XY", "XZ" or "YZ" (origin planes), {"plane": <construction plane feature id>}, or {"face": {"body": "b2", "index": 5}} for a planar face of a body. |
+| `sketch` | integer | split with this sketch's curves instead of a plane |
+
 ## `combine`
 
 Joins, cuts or intersects bodies: the target body with the tool bodies. keep_tools leaves the tools in place (for example to cut a clearance pocket and keep the part that fits in it).

@@ -12,6 +12,7 @@
 #include "command/MeasureCommand.h"
 #include "command/OverhangCommand.h"
 #include "command/PlaneCommand.h"
+#include "command/SplitCommand.h"
 #include "ui/AngleDial.h"
 #include "model/ModelView.h"
 #include "selftest/TestUtil.h"
@@ -25,6 +26,7 @@
 #include "features/FilletFeature.h"
 #include "features/HoleFeature.h"
 #include "features/SketchFeature.h"
+#include "features/SplitFeature.h"
 #include "geom/OcctUtil.h"
 #include "topo/Resolver.h"
 
@@ -606,6 +608,64 @@ private slots:
         QVERIFY(std::fabs(view()->overhangAreas()[size_t(cad::OverhangKind::Bridge)] - 800.0) < 1e-3);
         panel()->okButton()->click();
         QVERIFY(!view()->overhangAnalysis());
+    }
+
+    void splitBodyWithAPlaneAndWithASketchLine() {
+        box(0, 0, 40, 20, 10);
+        auto p = std::make_shared<cad::ConstructionPlaneFeature>();
+        p->base = cad::PlaneRef::origin(cad::PlaneRef::Kind::YZ);
+        p->offset = doc().makeSlot("15 mm");
+        const cad::FeatureId pid = doc().addFeature(p);
+        auto line = std::make_shared<cad::SketchFeature>();
+        line->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        line->sketch.addLine(cad::Vec2{30, -5}, cad::Vec2{30, 25});
+        const cad::FeatureId lid = doc().addFeature(line);
+        showHome();
+        settle();
+        trigger("split");
+        auto *sp = command<SplitCommand>();
+        QVERIFY(sp);
+        // Click the construction plane's square away from the box.
+        for(const auto &[item, q] : view()->planeQuads())
+            if(item.kind == SelectionItem::Kind::Plane && item.feature == pid)
+                for(int k = 0; k < 4 && !sp->hasPlane(); ++k) // a corner the box does not hide
+                    click(vp()->camera().project(q[size_t(k)] * 0.85f + q[size_t((k + 2) % 4)] * 0.15f));
+        QVERIFY(sp->hasPlane());
+        settle();
+        QCOMPARE(int(view()->state()->bodies.size()), 2);
+        QVERIFY(std::fabs(shown() - 8000.0) < 1e-3);
+        // Keep the front side only (x > 15).
+        sp->keepBox()->setCurrentIndex(1);
+        settle();
+        QCOMPARE(int(view()->state()->bodies.size()), 1);
+        QVERIFY(std::fabs(shown() - 25 * 20 * 10) < 1e-3);
+        // Both sides with alignment pins: two 3.2 x 6 mm holes in each half.
+        sp->keepBox()->setCurrentIndex(0);
+        sp->pinsBox()->setChecked(true);
+        settle();
+        QCOMPARE(int(view()->state()->bodies.size()), 2);
+        const double hole = M_PI * 1.6 * 1.6 * 6;
+        QVERIFY2(std::fabs(shown() - (8000 - 4 * hole)) < 1e-3, qPrintable(QString::number(shown())));
+        // With the sketch line instead.
+        sp->pinsBox()->setChecked(false);
+        sp->toolBox()->setCurrentIndex(1);
+        QVERIFY(!field<QWidget>("splitKeep")->isVisibleTo(panel()));
+        settle();
+        click(at(30, -2, 0)); // on the line, outside the box
+        QCOMPARE(sp->curveCount(), 1);
+        settle();
+        QCOMPARE(int(view()->state()->bodies.size()), 2);
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::SplitFeature>(doc().features().back());
+        QVERIFY(f && f->tool == cad::SplitTool::Sketch && f->sketch == lid && f->curves.size() == 1);
+        QCOMPARE(int(view()->state()->bodies.size()), 2);
+        // Edit reopens it.
+        m_window->editFeature(f->id);
+        sp = command<SplitCommand>();
+        QVERIFY(sp && sp->curveCount() == 1 && sp->toolBox()->currentIndex() == 1);
+        panel()->cancelButton()->click();
+        settle();
     }
 
     void markingMenuAndShortcutsReachTheNewCommands() {

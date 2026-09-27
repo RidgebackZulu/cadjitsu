@@ -157,6 +157,11 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 **Combine**
 - Click the target body, then the tool bodies; Join, Cut or Intersect; **Keep Tools** leaves the tools in the model.
 
+**Split Body** (Modify)
+- Cut bodies in two (or more) with an origin plane, a construction plane (tilt it for an angled cut) or a planar face, all unbounded, or with sketch curves (lines, arcs, circles) swept through the model. Every piece becomes a body; the biggest keeps the name.
+- **Bodies** is optional: by default every body the tool crosses is split. For plane cuts, **Keep** can drop one side instead (cut a part down to size).
+- **Alignment Pins** drills matching holes (3.2 x 6 mm by default) into both halves of a plane cut, for a 3 mm dowel or a piece of filament that lines the printed pieces up when they are glued: the way to print a part bigger than the bed.
+
 **Offset Plane**
 - Pick an origin plane (they are shown while the command runs), a construction plane or a planar face; type the distance or drag the arrow.
 - **Tilt X** and **Tilt Y** tilt the plane about its own X axis, its Y axis or both, turning about its centre. Drag the red and green protractor rings on the canvas (1° steps, 15° with Shift), turn the small dials in the dialog (scroll for 1°, double-click for 0°), or type an angle or expression. Hover a ring and type digits to set that tilt in the on-canvas box.

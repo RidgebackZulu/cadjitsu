@@ -13,6 +13,7 @@
 #include "command/PlaneCommand.h"
 #include "ui/AngleDial.h"
 #include "command/SectionCommand.h"
+#include "command/SplitCommand.h"
 #include "model/ModelView.h"
 #include "selftest/DemoModels.h"
 #include "selftest/TestUtil.h"
@@ -974,6 +975,41 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
               .arg(areas[size_t(cad::OverhangKind::Near)], 0, 'f', 1));
     shot("features_9_overhangs.png");
     w.commandPanel()->okButton()->click();
+
+    // Split the plate in two at x = 30 with alignment pins, as for a part
+    // printed in pieces.
+    auto cut = std::make_shared<cad::ConstructionPlaneFeature>();
+    cut->base = cad::PlaneRef::origin(cad::PlaneRef::Kind::YZ);
+    cut->offset = doc.makeSlot("30 mm");
+    const cad::FeatureId cutId = doc.addFeature(cut);
+    doc.setFolderVisible("construction", true);
+    w.refresh();
+    settle();
+    vp->setStandardView(StandardView::Home, false);
+    vp->fitAll(false);
+    waitForFrames(vp, 1);
+    const size_t before9 = w.modelView()->state()->bodies.size();
+    w.action(QStringLiteral("split"))->trigger();
+    auto *split = qobject_cast<SplitCommand *>(w.commands()->command());
+    if(!split) return false;
+    for(const auto &[item, q] : w.modelView()->planeQuads())
+        if(item.kind == SelectionItem::Kind::Plane && item.feature == cutId)
+            for(int k = 0; k < 4 && !split->hasPlane(); ++k)
+                clickAt(vp, vp->camera().project(q[size_t(k)] * 0.85f + q[size_t((k + 2) % 4)] * 0.15f));
+    split->pinsBox()->setChecked(true);
+    settle();
+    check(split->hasPlane() && w.modelView()->state()->bodies.size() == before9 + 1,
+          QStringLiteral("Split: the plate cut in two at x = 30 with alignment pins (%1 bodies, '%2')")
+              .arg(w.modelView()->state()->bodies.size())
+              .arg(w.commandPanel()->message()));
+    shot("features_10_split.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(lastOk(), QStringLiteral("Split committed"));
+    doc.setFolderVisible("construction", false);
+    w.refresh();
+    settle();
+    shot("features_11_split_done.png");
     return ok;
 }
 

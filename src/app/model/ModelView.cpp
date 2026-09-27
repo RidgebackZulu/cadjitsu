@@ -524,6 +524,66 @@ std::optional<SelectionItem> ModelView::pickSketchPoint(QPointF px) const {
     return best;
 }
 
+std::vector<QVector3D> ModelView::sketchCurvePolyline(cad::FeatureId sketch, int entity) const {
+    std::vector<QVector3D> out;
+    if(!m_state) return out;
+    auto skIt = m_state->sketches.find(sketch);
+    if(skIt == m_state->sketches.end()) return out;
+    const cad::SketchResult &sk = *skIt->second;
+    const cad::SkEntity *e = sk.sketch.find(entity);
+    if(!e || !e->isCurve()) return out;
+    auto at = [&](const cad::SkEntity *p) { return p ? cad::Vec2{p->x, p->y} : cad::Vec2{0, 0}; };
+    auto world = [&](cad::Vec2 v) { return toQ(sk.toWorld(v)); };
+    if(e->type == cad::SkType::Line) return {world(at(sk.sketch.find(e->a))), world(at(sk.sketch.find(e->b)))};
+    const cad::Vec2 c = at(sk.sketch.find(e->a));
+    double a0 = 0, a1 = 2 * cad::kPi, r = e->r;
+    if(e->type == cad::SkType::Arc) {
+        const cad::Vec2 p0 = at(sk.sketch.find(e->b)), p1 = at(sk.sketch.find(e->c));
+        r = std::hypot(p0.x - c.x, p0.y - c.y);
+        a0 = std::atan2(p0.y - c.y, p0.x - c.x);
+        a1 = std::atan2(p1.y - c.y, p1.x - c.x);
+        while(a1 <= a0) a1 += 2 * cad::kPi;
+    }
+    const int n = std::max(8, int(48 * (a1 - a0) / (2 * cad::kPi)));
+    for(int i = 0; i <= n; ++i) {
+        const double t = a0 + (a1 - a0) * i / n;
+        out.push_back(world({c.x + r * std::cos(t), c.y + r * std::sin(t)}));
+    }
+    return out;
+}
+
+std::optional<SelectionItem> ModelView::pickSketchCurve(QPointF px) const {
+    if(!m_filter.sketchCurves || !m_state) return std::nullopt;
+    Camera cam = m_viewport->camera();
+    cam.viewport = m_viewport->size();
+    std::optional<SelectionItem> best;
+    double bestDist = kPointTolerance;
+    for(cad::FeatureId fid : m_shownSketches) {
+        auto skIt = m_state->sketches.find(fid);
+        if(skIt == m_state->sketches.end()) continue;
+        for(const auto &e : skIt->second->sketch.entities) {
+            if(!e.isCurve() || e.id < 0) continue;
+            const std::vector<QVector3D> poly = sketchCurvePolyline(fid, e.id);
+            for(size_t i = 0; i + 1 < poly.size(); ++i) {
+                const QPointF a = cam.project(poly[i]), b = cam.project(poly[i + 1]);
+                const QPointF d = b - a;
+                const double len2 = QPointF::dotProduct(d, d);
+                const double t = len2 > 0 ? std::clamp(QPointF::dotProduct(px - a, d) / len2, 0.0, 1.0) : 0.0;
+                const QPointF f = a + d * t;
+                const double dist = std::hypot(f.x() - px.x(), f.y() - px.y());
+                if(dist >= bestDist) continue;
+                bestDist = dist;
+                SelectionItem it;
+                it.kind = SelectionItem::Kind::SketchEntity;
+                it.feature = fid;
+                it.entity = e.id;
+                best = it;
+            }
+        }
+    }
+    return best;
+}
+
 bool ModelView::accepts(const PickHit &hit) const {
     const cad::Body *b = bodyById(hit.body);
     if(!b) return false;
@@ -549,6 +609,7 @@ std::optional<SelectionItem> ModelView::itemAt(const PickHit &hit) const {
     const QPointF px = hit.screen;
     // Sketch points are small targets: when the cursor is on one, it wins.
     if(auto p = pickSketchPoint(px)) return p;
+    if(auto c = pickSketchCurve(px)) return c;
     const bool onBody = hit.valid() && accepts(hit);
     const float bodyT = onBody ? hit.rayT : std::numeric_limits<float>::infinity();
     const bool edgeOrVertex = onBody && hit.kind != PickHit::Kind::Face; // these win over regions and planes

@@ -7,6 +7,7 @@
 #include "features/FilletFeature.h"
 #include "features/HoleFeature.h"
 #include "features/SketchFeature.h"
+#include "features/SplitFeature.h"
 
 #include <Standard_Failure.hxx>
 
@@ -30,6 +31,7 @@ const TypeName kTypes[] = {
     {FeatureType::Hole, "hole", "Hole"},
     {FeatureType::Combine, "combine", "Combine"},
     {FeatureType::ConstructionPlane, "plane", "Plane"},
+    {FeatureType::Split, "split", "Split"},
 };
 
 } // namespace
@@ -95,6 +97,7 @@ std::shared_ptr<Feature> Feature::create(FeatureType type) {
     case FeatureType::Hole: return std::make_shared<HoleFeature>();
     case FeatureType::Combine: return std::make_shared<CombineFeature>();
     case FeatureType::ConstructionPlane: return std::make_shared<ConstructionPlaneFeature>();
+    case FeatureType::Split: return std::make_shared<SplitFeature>();
     }
     return nullptr;
 }

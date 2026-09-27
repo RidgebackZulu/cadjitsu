@@ -308,6 +308,24 @@ private slots:
         QVERIFY(tool("overhangs", {{"threshold", 95}}).first);
     }
 
+    void splitBodyIntoPrintablePieces() {
+        initialize();
+        QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {40, 20}}}}}})
+                     .first);
+        QVERIFY(!tool("extrude", {{"sketch", 1}, {"distance", 10}}).first);
+        QVERIFY(!tool("offset_plane", {{"base", "YZ"}, {"offset", 20}}).first);
+        const auto [e1, r] = tool("split_body", {{"plane", {{"plane", 3}}}, {"pins", true}});
+        QVERIFY2(!e1, r.dump().c_str());
+        QCOMPARE(int(r["bodies"].size()), 2);
+        const double hole = M_PI * 1.6 * 1.6 * 6;
+        for(const json &b : r["bodies"]) QVERIFY(std::fabs(b["volume_mm3"].get<double>() - (4000 - 2 * hole)) < 0.01);
+        // A plane that misses the bodies is an error, and nothing is added.
+        QVERIFY(!tool("offset_plane", {{"base", "YZ"}, {"offset", 100}}).first);
+        QVERIFY(tool("split_body", {{"plane", {{"plane", 5}}}}).first);
+        QVERIFY(tool("split_body", json::object()).first);
+    }
+
     void aBatchBuildsAPartInOneCall() {
         initialize();
         const json calls = {
