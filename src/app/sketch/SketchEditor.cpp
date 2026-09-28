@@ -1207,7 +1207,8 @@ QString SketchEditor::selectionStats() const {
     if(total == 0) return {};
     if(total == 1 && ents.size() == 1) {
         const SkEntity *e = s.find(ents[0]);
-        static const char *names[] = {"Point", "Line", "Circle", "Arc"};
+        static const char *names[] = {"Point", "Line", "Circle", "Arc", "Text"};
+        static_assert(std::size(names) == size_t(SkType::Text) + 1, "a name per entity type");
         m.push_back(text(std::string(e->construction ? "Construction " : "") + names[int(e->type)]));
         const auto more = cad::measureSketchEntity(s, ents[0]);
         m.insert(m.end(), more.begin(), more.end());

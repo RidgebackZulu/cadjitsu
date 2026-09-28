@@ -567,7 +567,6 @@ private slots:
         QCOMPARE(countType(sk(), SkType::Text), 0);
         size->enterExpression(QStringLiteral("10"));
         const size_t hiLines = ed()->previewLines.size();
-        qInfo("text: typed, placing");
         QTest::keyClick(text, Qt::Key_Return);
         QTRY_VERIFY(!panel->isVisible());
         QCOMPARE(countType(sk(), SkType::Text), 1);
@@ -590,11 +589,16 @@ private slots:
         QTest::keyClicks(second, QStringLiteral("X"));
         QTest::keyClick(second, Qt::Key_Escape);
         QTRY_VERIFY(!panel->isVisible());
-        qInfo("text: cancelled, editing");
         QCOMPARE(countType(sk(), SkType::Text), 1);
 
-        // Double-clicking the text (inside a letter) opens it again; Reverse mirrors it.
+        // Selected, it shows what it is (its text and size).
         trigger("sketchSelect");
+        ed()->selectEntities({textId}, false);
+        QTRY_VERIFY2(m_window->selectionStatsLabel()->text().contains(QStringLiteral("Text")),
+                     qPrintable(m_window->selectionStatsLabel()->text()));
+        QVERIFY(m_window->selectionStatsLabel()->text().contains(QStringLiteral("HI")));
+        ed()->clearSelection();
+        // Double-clicking the text (inside a letter) opens it again; Reverse mirrors it.
         QCOMPARE(int(ed()->profiles().size()), 2);
         const cad::Vec2 inH = ed()->profiles()[0].sample;
         doubleClick(at(inH.x, inH.y));
@@ -608,7 +612,6 @@ private slots:
         QVERIFY(reverse);
         reverse->setChecked(true);
         panel->okButton()->click();
-        qInfo("text: edited");
         QCOMPARE(countType(sk(), SkType::Text), 1);
         QVERIFY(sk().find(textId));
         QCOMPARE(QString::fromStdString(sk().find(textId)->text), QStringLiteral("HI!"));
@@ -619,7 +622,6 @@ private slots:
         QVERIFY(sk().find(textId));
         QCOMPARE(QString::fromStdString(sk().find(textId)->text), QStringLiteral("HI"));
 
-        qInfo("text: dragging");
         // Dragging the text moves its origin.
         trigger("sketchSelect");
         const cad::Vec2 before = sk().pointPos(sk().find(textId)->a);
