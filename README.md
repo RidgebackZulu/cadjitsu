@@ -37,16 +37,24 @@ open build/macos/src/app/Cadjitsu.app
 
 Tests: `ctest --preset macos-brew`.
 
-## Downloading a CI build
+## Downloads
 
-Each CI run uploads an ad-hoc-signed disk image as the `Cadjitsu-macOS-dmg` artifact. GitHub always delivers artifacts zipped.
+Releases are on the [Releases page](https://github.com/RidgebackZulu/cadjitsu/releases). File names carry the version:
 
-1. Download `Cadjitsu-macOS-dmg` from the run's **Artifacts** section and unzip it: you get `Cadjitsu.dmg`.
-2. Open `Cadjitsu.dmg` and drag Cadjitsu onto Applications.
-3. Clear the quarantine flag once: `xattr -dr com.apple.quarantine /Applications/Cadjitsu.app`.
-4. Open Cadjitsu.
+| File | For |
+|---|---|
+| `Cadjitsu-1.0.0-macOS.dmg` | macOS 15 (Sequoia) or later on Apple Silicon |
+| `Cadjitsu-1.0.0-Linux-x86_64.tar.gz` | 64-bit Linux with X11 and OpenGL |
 
-The bundle is built for Apple Silicon, draws with Metal and needs macOS 15 (Sequoia) or later. It is self-contained: after `macdeployqt`, `scripts/macos_bundle_fix.py` points every library reference into the bundle and fails the build if anything still leads outside it. Before the disk image is uploaded, CI hides Homebrew, runs the `acceptance` self test on the packaged app, and runs the app copied out of the finished disk image. On an older macOS, build locally (see above).
+**macOS:** open the dmg and drag Cadjitsu onto Applications. It is ad-hoc signed, so clear the quarantine flag once: `xattr -dr com.apple.quarantine /Applications/Cadjitsu.app`.
+
+**Linux:** unpack the tarball and run `cadjitsu` in its folder. It brings its own Qt and OpenCASCADE; the system provides X11 and OpenGL (on Debian / Ubuntu: `sudo apt install libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0`).
+
+Every CI run also uploads both as artifacts, named for the next version and the run: `Cadjitsu-1.0.1-dev.52-macOS` holds `Cadjitsu-1.0.1-dev.52-macOS.dmg` (GitHub delivers artifacts zipped). The app reports the same version (the MCP server's info and `--selftest` logs).
+
+The version is `project(VERSION)` in `CMakeLists.txt`; `scripts/version_label.sh` makes the labels. **To release:** set the version, add `docs/releases/<version>.md`, then push the tag `v<version>` (or run the CI workflow by hand with "release" ticked). CI builds and tests both packages and publishes the GitHub release.
+
+The macOS bundle is built for Apple Silicon, draws with Metal and needs macOS 15 (Sequoia) or later. It is self-contained: after `macdeployqt`, `scripts/macos_bundle_fix.py` points every library reference into the bundle and fails the build if anything still leads outside it. Before the disk image is uploaded, CI hides Homebrew, runs the `acceptance` self test on the packaged app, and runs the app copied out of the finished disk image. The Linux package (`scripts/package_linux.py`) is tested the same way, with the build's conda environment hidden. On an older macOS, build locally (see above).
 
 ## Building on Linux
 

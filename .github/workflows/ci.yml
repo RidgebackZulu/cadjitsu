@@ -4,6 +4,16 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Publish a GitHub release of this commit (tag v<project version>)"
+        type: boolean
+        default: false
+
+# File names carry the version (scripts/version_label.sh): a release is
+# Cadjitsu-1.0.0-macOS.dmg, any other build Cadjitsu-1.0.1-dev.<run>-macOS.dmg.
+env:
+  RELEASE: ${{ (github.event_name == 'workflow_dispatch' && inputs.release) && '1' || '0' }}
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -18,6 +28,12 @@ jobs:
         shell: bash -el {0}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        shell: bash
+        run: scripts/version_label.sh --github
 
       - uses: mamba-org/setup-micromamba@v2
         with:
@@ -32,7 +48,7 @@ jobs:
           sudo apt-get install -y -qq xvfb x11-utils libgl1-mesa-dri libglx-mesa0 libegl-mesa0
 
       - name: Configure
-        run: CADJITSU_ENV="$CONDA_PREFIX" cmake --preset linux-conda
+        run: CADJITSU_ENV="$CONDA_PREFIX" cmake --preset linux-conda -DCADJITSU_BUILD_LABEL="$CADJITSU_LABEL"
 
       - name: Build
         run: cmake --build --preset linux-conda
@@ -58,12 +74,40 @@ jobs:
             scripts/run_xvfb.sh build/linux/src/app/Cadjitsu --selftest=$t --out out/linux
           done
 
+      - name: Package Cadjitsu for Linux
+        run: |
+          python3 scripts/package_linux.py build/linux "$CONDA_PREFIX" "$CADJITSU_LABEL" out/package
+          echo "CONDA_ENV_DIR=$CONDA_PREFIX" >> "$GITHUB_ENV"
+
+      - name: Test the Linux package (conda environment hidden)
+        shell: bash
+        run: |
+          # The package has to run without the environment it was built in.
+          mv "$CONDA_ENV_DIR" "$CONDA_ENV_DIR.hidden"
+          trap 'mv "$CONDA_ENV_DIR.hidden" "$CONDA_ENV_DIR"' EXIT
+          mkdir -p out/unpacked
+          tar -xzf "out/package/Cadjitsu-$CADJITSU_LABEL-Linux-x86_64.tar.gz" -C out/unpacked
+          app="$PWD/out/unpacked/Cadjitsu-$CADJITSU_LABEL-Linux-x86_64/cadjitsu"
+          for t in smoke acceptance; do
+            scripts/run_xvfb.sh env -i DISPLAY=:99 HOME="$HOME" PATH=/usr/bin:/bin LANG=C.UTF-8 \
+              LIBGL_ALWAYS_SOFTWARE=1 __GLX_VENDOR_LIBRARY_NAME=mesa QT_XCB_GL_INTEGRATION=xcb_glx \
+              "$app" --selftest=$t --out out/linux-package
+          done
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: linux-selftest-screenshots
-          path: out/linux
+          path: |
+            out/linux
+            out/linux-package
           if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cadjitsu-${{ env.CADJITSU_LABEL }}-Linux-x86_64
+          path: out/package/Cadjitsu-${{ env.CADJITSU_LABEL }}-Linux-x86_64.tar.gz
+          compression-level: 0
 
   macos:
     name: macOS Apple Silicon (Homebrew, Metal)
@@ -74,6 +118,11 @@ jobs:
       HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: 1
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        run: scripts/version_label.sh --github
 
       - name: Install dependencies
         run: |
@@ -81,7 +130,7 @@ jobs:
           brew list --versions qtbase qtshadertools opencascade eigen
 
       - name: Configure
-        run: cmake --preset macos-brew
+        run: cmake --preset macos-brew -DCADJITSU_BUILD_LABEL="$CADJITSU_LABEL"
 
       - name: Build
         run: cmake --build --preset macos-brew
@@ -133,17 +182,17 @@ jobs:
       # A disk image, not a zip: upload-artifact zips every artifact itself (a
       # zip inside would come out double-zipped), and an app bundle uploaded
       # as loose files loses its symlinks and executable bits.
-      - name: Make Cadjitsu.dmg
+      - name: Make the disk image
         run: |
           mkdir -p out/dmg
           cp -R out/Cadjitsu.app out/dmg/
           ln -s /Applications out/dmg/Applications
-          hdiutil create -volname Cadjitsu -srcfolder out/dmg -format UDZO -ov out/Cadjitsu.dmg
+          hdiutil create -volname "Cadjitsu $CADJITSU_LABEL" -srcfolder out/dmg -format UDZO -ov "out/Cadjitsu-$CADJITSU_LABEL-macOS.dmg"
 
-      - name: Test the app from Cadjitsu.dmg (Homebrew hidden)
+      - name: Test the app from the disk image (Homebrew hidden)
         run: |
           mnt=$(mktemp -d)
-          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" out/Cadjitsu.dmg
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "out/Cadjitsu-$CADJITSU_LABEL-macOS.dmg"
           test -L "$mnt/Applications"
           cp -R "$mnt/Cadjitsu.app" out/from-dmg.app
           hdiutil detach "$mnt"
@@ -162,5 +211,42 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Cadjitsu-macOS-dmg
-          path: out/Cadjitsu.dmg
+          name: Cadjitsu-${{ env.CADJITSU_LABEL }}-macOS
+          path: out/Cadjitsu-${{ env.CADJITSU_LABEL }}-macOS.dmg
+          compression-level: 0
+
+  # A v* tag, or a manual run with "release" ticked, publishes a GitHub release
+  # of the two downloads (the tag is made if it is not there yet).
+  release:
+    name: GitHub release
+    needs: [linux, macos]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: v
+        run: scripts/version_label.sh --github
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Cadjitsu-${{ steps.v.outputs.label }}-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.v.outputs.version }}"
+          ls -l dist
+          test -s "dist/Cadjitsu-$version-macOS.dmg"
+          test -s "dist/Cadjitsu-$version-Linux-x86_64.tar.gz"
+          notes="docs/releases/$version.md"
+          test -s "$notes"
+          gh release create "v$version" dist/* --title "Cadjitsu $version" --notes-file "$notes" --target "$GITHUB_SHA"
