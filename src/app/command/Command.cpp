@@ -99,7 +99,7 @@ void CommandController::placeCanvasBox() {
         m_box->hide();
         return;
     }
-    m_box->showAt(px + QPointF(16, -18));
+    m_box->showAt(px + QPointF(18, -20)); // clear of the handle, which stays grabbable
 }
 
 bool CommandController::eventFilter(QObject *o, QEvent *e) {

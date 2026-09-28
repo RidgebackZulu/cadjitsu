@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "command/Command.h"
+#include "command/CanvasValueBox.h"
 #include "command/CommandPanel.h"
 #include "command/CombineCommand.h"
 #include "command/DraftCommand.h"
@@ -90,7 +91,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
             cad::SectionAnalysis moved = *s;
             moved.offset = d;
             m_modelView->setSectionOverride(std::optional<cad::SectionAnalysis>(moved));
-            m_sectionArrow->label = QString::fromStdString(SketchEditor::formatExpression(d, cad::ValueKind::Length));
+            // The box beside the handle follows the drag.
+            m_sectionDepth->setExpression(QString::fromStdString(SketchEditor::formatExpression(d, cad::ValueKind::Length)));
         }
     };
     m_sectionArrow->onRelease = [this] {
@@ -102,6 +104,25 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
         }
     };
     m_viewport->setIdleTool(m_sectionArrow.get());
+    // Its depth in a value box beside the handle: type a number (in the
+    // unit of the drop-down) and press Enter; Esc puts it back.
+    m_sectionDepth = new ValueField(
+        cad::ValueKind::Length,
+        [this](const std::string &expr, cad::ValueKind kind) { return m_document->params().evaluateExpression(expr, kind); },
+        this);
+    m_sectionDepth->hide();
+    m_sectionBox = new CanvasValueBox(m_viewport);
+    m_sectionBox->setObjectName(QStringLiteral("sectionDepthBox"));
+    m_sectionBox->setToolTip(tr("Section depth: type it, or drag the handle"));
+    m_sectionBox->bind(m_sectionDepth);
+    connect(m_sectionDepth, &ValueField::edited, this, &MainWindow::previewSectionDepth);
+    connect(m_sectionBox, &CanvasValueBox::commitRequested, this, &MainWindow::applySectionDepth);
+    connect(m_sectionBox, &CanvasValueBox::cancelRequested, this, [this] {
+        m_modelView->setSectionOverride(std::nullopt);
+        updateSectionArrow(true);
+        m_viewport->setFocus(Qt::OtherFocusReason);
+    });
+    connect(m_viewport, &QRhiWidget::frameSubmitted, this, &MainWindow::placeSectionBox);
     m_viewport->setMouseBindings(MouseBindings::load());
 
     // Bottom-right selection statistics, as in Fusion 360; a busy note to their left.
@@ -231,7 +252,7 @@ void MainWindow::onDocumentChanged() {
     updateActions();
 }
 
-void MainWindow::updateSectionArrow() {
+void MainWindow::updateSectionArrow(bool resetBox) {
     const cad::SectionAnalysis *s = m_document->activeSection();
     const cad::StatePtr st = m_modelView->state();
     QVector3D o, d;
@@ -239,12 +260,54 @@ void MainWindow::updateSectionArrow() {
     m_sectionArrow->setVisible(show);
     if(show) {
         m_sectionArrow->setAxis(o, d);
-        if(!m_sectionArrow->dragging()) {
+        // Not while the handle is dragged, or a depth is being typed.
+        if(!m_sectionArrow->dragging() && (resetBox || !m_sectionBox->hasFocus())) {
             m_sectionArrow->setDistance(s->offset);
-            m_sectionArrow->label = QString::fromStdString(SketchEditor::formatExpression(s->offset, cad::ValueKind::Length));
+            m_sectionDepth->setExpression(
+                QString::fromStdString(SketchEditor::formatExpression(s->offset, cad::ValueKind::Length)));
         }
     }
+    placeSectionBox();
     m_viewport->refreshOverlay();
+}
+
+void MainWindow::placeSectionBox() {
+    // Only with the arrow on the canvas and nothing else going on (commands
+    // and sketches have boxes of their own).
+    const bool idle = m_sectionArrow->visible() && !m_commands->active() && !m_sketch->active() &&
+                      m_viewport->activeTool() == m_sectionArrow.get();
+    if(!idle) {
+        if(m_sectionBox->isVisible()) m_sectionBox->hide();
+        return;
+    }
+    const QPointF head = m_sectionArrow->headOnScreen();
+    if(!QRectF(m_viewport->rect()).contains(head)) {
+        m_sectionBox->hide();
+        return;
+    }
+    m_sectionBox->showAt(head + QPointF(18, -20));
+}
+
+void MainWindow::previewSectionDepth() {
+    const cad::SectionAnalysis *s = m_document->activeSection();
+    if(!s || !m_sectionDepth->value()) return;
+    cad::SectionAnalysis moved = *s;
+    moved.offset = *m_sectionDepth->value();
+    m_modelView->setSectionOverride(std::optional<cad::SectionAnalysis>(moved));
+    m_sectionArrow->setDistance(moved.offset);
+    m_viewport->refreshOverlay();
+}
+
+void MainWindow::applySectionDepth() {
+    const cad::SectionAnalysis *s = m_document->activeSection();
+    m_modelView->setSectionOverride(std::nullopt);
+    if(s && m_sectionDepth->value() && *m_sectionDepth->value() != s->offset) {
+        cad::SectionAnalysis moved = *s;
+        moved.offset = *m_sectionDepth->value();
+        m_document->updateSection(moved); // one undo step
+    }
+    updateSectionArrow(true);
+    m_viewport->setFocus(Qt::OtherFocusReason);
 }
 
 bool MainWindow::liveSketchBodies() {

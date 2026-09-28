@@ -201,7 +201,7 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 **Section Analysis** (Inspect)
 - Pick an origin plane, a construction plane or a planar face, then type the depth or drag the arrow; **Flip** keeps the other side. Cut faces are closed with hatched caps, as in Fusion.
 - The section is kept in the browser's **Analysis** folder, not the timeline. Its eye turns it off (back to the normal view) and on again; double-click it (or right-click > Edit Section Analysis) to change it; right-click > Delete removes it. One section shows at a time.
-- While a section is shown its depth arrow stays on the canvas: drag it at any time, even in the middle of another command. Each drag is one undo step.
+- While a section is shown its depth arrow stays on the canvas with a round handle on its head: slide it at any time, even in the middle of another command. A value box beside the handle shows the depth as you slide; you can also type a depth there (with its unit drop-down) and press Enter, or Esc to put it back. Each drag or typed depth is one undo step.
 - Modelling carries on while sectioned. What is cut away cannot be picked (the caps block picks too), and a section built on a face follows that face when the model changes.
 
 **Timeline** (bottom of the window)

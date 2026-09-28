@@ -5,6 +5,7 @@
 
 #include "MainWindow.h"
 #include "command/Command.h"
+#include "command/CanvasValueBox.h"
 #include "command/CommandPanel.h"
 #include "command/EdgeCommands.h"
 #include "command/Manipulator.h"
@@ -206,6 +207,55 @@ private slots:
         QVERIFY(!cutAway(*view()->clipPlane(), QVector3D(20, 7, 5)));
         m_window->undo();
         QVERIFY(std::fabs(doc().activeSection()->offset + 10.0) < 1e-9);
+    }
+
+    // Beside the handle, a value box shows the depth: it follows a drag, and a
+    // typed depth (Enter) moves the cut, as one undo step.
+    void theDepthBoxFollowsTheHandleAndTakesTypedValues() {
+        box();
+        sectionAcrossTheMiddle();
+        DistanceManipulator *arrow = m_window->sectionArrow();
+        CanvasValueBox *depth = m_window->sectionDepthBox();
+        QVERIFY(waitForFrames(vp(), 2));
+        QTRY_VERIFY(depth->isVisible());
+        QCOMPARE(depth->text(), QStringLiteral("-10"));
+        // Next to the handle, not over it.
+        const QPointF head = arrow->headOnScreen();
+        QVERIFY(!depth->geometry().contains(head.toPoint()));
+        QVERIFY(QLineF(head, depth->geometry().topLeft()).length() < 60);
+        QVERIFY(arrow->nearHead(head));
+        // Sliding the handle updates the box while dragging.
+        const QVector3D target = arrow->origin() + arrow->direction() * float(arrow->distance() + 3.0);
+        const QPointF to = at(target.x(), target.y(), target.z());
+        send(vp(), QEvent::MouseMove, head, Qt::NoButton, Qt::NoButton);
+        send(vp(), QEvent::MouseButtonPress, head, Qt::LeftButton, Qt::LeftButton);
+        for(int i = 1; i <= 10; ++i) send(vp(), QEvent::MouseMove, head + (to - head) * (i / 10.0), Qt::NoButton, Qt::LeftButton);
+        QVERIFY2(std::fabs(depth->text().toDouble() + 7.0) < 0.05, qPrintable(depth->text()));
+        QVERIFY(std::fabs(doc().activeSection()->offset + 10.0) < 1e-9); // not kept until let go
+        send(vp(), QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+        QVERIFY(std::fabs(doc().activeSection()->offset + 7.0) < 0.05);
+        // Typed: the preview follows as you type; Enter keeps it.
+        depth->setFocus();
+        depth->selectAll();
+        QTest::keyClicks(depth, QStringLiteral("-4"));
+        QVERIFY(cutAway(*view()->clipPlane(), QVector3D(20, 3, 5)));
+        QVERIFY(!cutAway(*view()->clipPlane(), QVector3D(20, 5, 5)));
+        QTest::keyClick(depth, Qt::Key_Return);
+        QVERIFY(std::fabs(doc().activeSection()->offset + 4.0) < 1e-9);
+        QCOMPARE(QString::fromStdString(doc().undoLabel()), QStringLiteral("Edit Section1"));
+        QVERIFY(std::fabs(arrow->distance() + 4.0) < 1e-9);
+        // Esc gives up a typed value.
+        depth->setFocus();
+        depth->selectAll();
+        QTest::keyClicks(depth, QStringLiteral("-8"));
+        QTest::keyClick(depth, Qt::Key_Escape);
+        QVERIFY(std::fabs(doc().activeSection()->offset + 4.0) < 1e-9);
+        QCOMPARE(depth->text(), QStringLiteral("-4"));
+        // A command has its own box: this one steps aside.
+        trigger("fillet");
+        QVERIFY(waitForFrames(vp(), 2));
+        QVERIFY(!depth->isVisible());
+        panel()->cancelButton()->click();
     }
 
     void modellingGoesOnWhileSectioned() {

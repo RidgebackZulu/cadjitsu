@@ -23,7 +23,9 @@ namespace cadly {
 class BrowserTree;
 class Command;
 class CommandController;
+class CanvasValueBox;
 class DistanceManipulator;
+class ValueField;
 class CommandPanel;
 class ExportDialog;
 class McpButton;
@@ -88,6 +90,9 @@ public:
     void editSection(int id);
     // The shown section's depth arrow on the canvas (always there to drag).
     DistanceManipulator *sectionArrow() const { return m_sectionArrow.get(); }
+    // The shown section's depth, typed or following the arrow (on the canvas).
+    CanvasValueBox *sectionDepthBox() const { return m_sectionBox; }
+    ValueField *sectionDepthField() const { return m_sectionDepth; }
     void showMarkingMenu(QPoint canvasPos);
     // File > Export and MAKE > 3D Print: opens the export dialog (window-modal,
     // deleted when closed) for the model as it is now.
@@ -116,7 +121,11 @@ private:
     void onSketchTool(SketchToolKind kind);
     void onDocumentChanged();
     void onEvaluation(const EvaluationPtr &e);
-    void updateSectionArrow();
+    void updateSectionArrow(bool resetBox = false);
+    void placeSectionBox();
+    // A section depth typed in the box: previewed, or kept (Enter).
+    void previewSectionDepth();
+    void applySectionDepth();
     // Bodies built from the open sketch follow its edits (a background what-if
     // evaluation with the edited sketch in the timeline).
     void requestLiveSketch();
@@ -137,6 +146,8 @@ private:
     QLabel *m_selectionStats = nullptr;
     QLabel *m_busy = nullptr;
     std::unique_ptr<DistanceManipulator> m_sectionArrow;
+    ValueField *m_sectionDepth = nullptr;
+    CanvasValueBox *m_sectionBox = nullptr;
     McpLog *m_mcpLog = nullptr;
     std::unique_ptr<McpTools> m_mcpTools;
     McpServer *m_mcp = nullptr;

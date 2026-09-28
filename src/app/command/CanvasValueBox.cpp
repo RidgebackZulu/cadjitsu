@@ -61,12 +61,13 @@ void CanvasValueBox::sync() {
 
 void CanvasValueBox::restyle() {
     const bool bad = m_field && !m_field->valid() && !m_field->expression().isEmpty(); // empty: waiting, not wrong
-    setStyleSheet(QStringLiteral("#canvasValue { background: rgba(255, 255, 255, 245); border: 1px solid %1;"
+    setStyleSheet(QStringLiteral("QLineEdit#%2 { background: rgba(255, 255, 255, 245); border: 1px solid %1;"
                                  " border-radius: 3px; padding: 1px 4px; color: #10223c; font-size: 12px;"
                                  " selection-background-color: #9cc6ff; selection-color: #10223c; }"
                                  " #unitSuffix { border: none; }")
                       .arg(bad ? QStringLiteral("#d23c3c")
-                               : m_accent.isValid() ? m_accent.name() : QStringLiteral("#1a65c9")));
+                               : m_accent.isValid() ? m_accent.name() : QStringLiteral("#1a65c9"),
+                           objectName()));
 }
 
 void CanvasValueBox::setAccent(const QColor &c) {

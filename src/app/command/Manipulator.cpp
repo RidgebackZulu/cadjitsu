@@ -142,8 +142,23 @@ void DistanceManipulator::contribute(RenderScene &scene) {
 }
 
 void DistanceManipulator::paintOverlay(QPainter &p) {
-    if(!m_visible || label.isEmpty()) return;
+    if(!m_visible) return;
     const QPointF h = headOnScreen();
+    // The grab handle: a round knob on the head, larger while hot.
+    {
+        p.save();
+        p.setRenderHint(QPainter::Antialiasing);
+        const bool hot = m_hot || m_dragging;
+        const double r = hot ? 7.5 : 6.0;
+        p.setPen(QPen(QColor(255, 255, 255), 2.0));
+        p.setBrush(hot ? kArrowHot : kArrow);
+        p.drawEllipse(h, r, r);
+        p.setPen(QPen(QColor(20, 60, 130, 160), 1.0));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(h, r + 1.5, r + 1.5);
+        p.restore();
+    }
+    if(label.isEmpty()) return;
     QFont f = p.font();
     f.setPixelSize(12);
     p.setFont(f);
