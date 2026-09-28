@@ -207,7 +207,29 @@ void ExtrudeCommand::updateMarks() {
     for(Field f : {Profiles, Object, Object2}) m_fields[f]->setCount(int(m_refs[f].size()));
 }
 
-void ExtrudeCommand::picked(const std::optional<SelectionItem> &item, const PickHit &, Qt::KeyboardModifiers) {
+namespace {
+
+// The letters of the text a letter region belongs to (its key "t<id>.<n>"),
+// or just `r` for any other region.
+std::vector<InputRef> wholeText(const cad::ModelState &state, const InputRef &r) {
+    const std::string &key = r.profile.key;
+    const size_t dot = key.find('.');
+    if(r.kind != SelectionItem::Kind::Profile || key.empty() || key[0] != 't' || dot == std::string::npos ||
+       key.find('.', dot + 1) != std::string::npos)
+        return {r};
+    auto it = state.sketches.find(r.profile.sketch);
+    if(it == state.sketches.end()) return {r};
+    const std::string prefix = key.substr(0, dot + 1);
+    std::vector<InputRef> out;
+    for(const cad::Profile &p : it->second->profiles)
+        if(p.key.rfind(prefix, 0) == 0 && p.key.find('.', dot + 1) == std::string::npos)
+            out.push_back(InputRef::ofProfile({r.profile.sketch, p.key, p.sample}));
+    return out.empty() ? std::vector<InputRef>{r} : out;
+}
+
+} // namespace
+
+void ExtrudeCommand::picked(const std::optional<SelectionItem> &item, const PickHit &, Qt::KeyboardModifiers mods) {
     if(!item) return;
     const std::optional<InputRef> r = inputRefOf(*m_ctx.view, *item);
     // The preview's own faces are not inputs.
@@ -216,7 +238,20 @@ void ExtrudeCommand::picked(const std::optional<SelectionItem> &item, const Pick
     if(m_active == Profiles) {
         // Clicks add and remove, as in Fusion's command inputs.
         if(r->kind != SelectionItem::Kind::Profile && !face) return;
-        toggleRef(m_refs[Profiles], *r);
+        // A letter brings the rest of its text along (Shift: just that letter).
+        const cad::StatePtr base = baseState();
+        const std::vector<InputRef> group =
+            base && !(mods & Qt::ShiftModifier) ? wholeText(*base, *r) : std::vector<InputRef>{*r};
+        auto &refs = m_refs[Profiles];
+        if(group.size() == 1) {
+            toggleRef(refs, *r);
+        } else if(std::find(refs.begin(), refs.end(), *r) != refs.end()) {
+            for(const InputRef &g : group)
+                if(auto at = std::find(refs.begin(), refs.end(), g); at != refs.end()) refs.erase(at);
+        } else {
+            for(const InputRef &g : group)
+                if(std::find(refs.begin(), refs.end(), g) == refs.end()) refs.push_back(g);
+        }
     } else {
         if(!face) return;
         m_refs[m_active] = {*r};

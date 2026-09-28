@@ -4,6 +4,7 @@
 #include "TestRegistry.h"
 
 #include "MainWindow.h"
+#include "command/CommandPanel.h"
 #include "model/ModelView.h"
 #include "selftest/DemoModels.h"
 #include "selftest/TestUtil.h"
@@ -18,8 +19,11 @@
 #include "geom/OcctUtil.h"
 
 #include <QAction>
+#include <QCheckBox>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
+#include <QPushButton>
 #include <QtTest>
 
 #include <algorithm>
@@ -534,6 +538,85 @@ private slots:
         // The extrude still finds its (moved) rectangle.
         QVERIFY(std::fabs(bodyMinX() - 17.0) < 0.05);
         QVERIFY(doc.statusOf(e->id).severity != cad::Severity::Error);
+    }
+
+    // Text: click and type; the panel sets its style and place; double-click edits it.
+    void textToolPlacesAndEditsText() {
+        startSketchOnXY();
+        QCOMPARE(m_window->action(QStringLiteral("sketchText"))->shortcut(), QKeySequence(Qt::Key_T));
+        trigger("sketchText");
+        QCOMPARE(mode()->tool(), SketchToolKind::Text);
+        CommandPanel *panel = m_window->commandPanel();
+        QVERIFY(!panel->isVisible());
+        click(at(10, 5));
+        QVERIFY(panel->isVisible());
+        auto *text = panel->findChild<QPlainTextEdit *>(QStringLiteral("sketchTextText"));
+        QVERIFY(text);
+        QVERIFY(text->hasFocus());
+        // The origin is where it was clicked.
+        auto *x = panel->findChild<ValueField *>(QStringLiteral("sketchTextX"));
+        auto *y = panel->findChild<ValueField *>(QStringLiteral("sketchTextY"));
+        QVERIFY(std::fabs(*x->value() - 10) < 0.5 && std::fabs(*y->value() - 5) < 0.5);
+        x->enterExpression(QStringLiteral("10"));
+        y->enterExpression(QStringLiteral("5"));
+        // Typing previews it at once, nothing is in the sketch yet.
+        QTest::keyClicks(text, QStringLiteral("HI"));
+        QVERIFY(!ed()->previewLines.empty());
+        QCOMPARE(countType(sk(), SkType::Text), 0);
+        panel->findChild<ValueField *>(QStringLiteral("sketchTextSize"))->enterExpression(QStringLiteral("10"));
+        const size_t hiLines = ed()->previewLines.size();
+        QTest::keyClick(text, Qt::Key_Return);
+        QVERIFY(!panel->isVisible());
+        QCOMPARE(countType(sk(), SkType::Text), 1);
+        const cad::SkEntity *t = nullptr;
+        for(const auto &e : sk().entities)
+            if(e.isText()) t = &e;
+        QCOMPARE(QString::fromStdString(t->text), QStringLiteral("HI"));
+        QCOMPARE(t->size, 10.0);
+        QVERIFY(sk().pointPos(t->a).x == 10.0 && sk().pointPos(t->a).y == 5.0);
+        QCOMPARE(int(ed()->profiles().size()), 2); // H and I
+        QVERIFY(hiLines > 8);
+        const int textId = t->id;
+
+        // Esc drops a text not placed yet.
+        click(at(40, 5));
+        QVERIFY(panel->isVisible());
+        QTest::keyClicks(panel->findChild<QPlainTextEdit *>(QStringLiteral("sketchTextText")), QStringLiteral("X"));
+        QTest::keyClick(panel->findChild<QPlainTextEdit *>(QStringLiteral("sketchTextText")), Qt::Key_Escape);
+        QVERIFY(!panel->isVisible());
+        QCOMPARE(countType(sk(), SkType::Text), 1);
+
+        // Double-clicking the text (inside a letter) opens it again; Reverse mirrors it.
+        trigger("sketchSelect");
+        const cad::Vec2 inH = ed()->profiles()[0].sample;
+        doubleClick(at(inH.x, inH.y));
+        QCOMPARE(mode()->tool(), SketchToolKind::Text);
+        QVERIFY(panel->isVisible());
+        text = panel->findChild<QPlainTextEdit *>(QStringLiteral("sketchTextText"));
+        QCOMPARE(text->toPlainText(), QStringLiteral("HI"));
+        text->setPlainText(QStringLiteral("HI!"));
+        panel->findChild<QCheckBox *>(QStringLiteral("sketchTextReverse"))->setChecked(true);
+        panel->okButton()->click();
+        QCOMPARE(countType(sk(), SkType::Text), 1);
+        QCOMPARE(QString::fromStdString(sk().find(textId)->text), QStringLiteral("HI!"));
+        QVERIFY(sk().find(textId)->mirror);
+        QCOMPARE(int(ed()->profiles().size()), 4); // H, I and the two pieces of '!'
+        // One undo step back to "HI".
+        QVERIFY(mode()->undo());
+        QCOMPARE(QString::fromStdString(sk().find(textId)->text), QStringLiteral("HI"));
+
+        // Dragging the text moves its origin.
+        trigger("sketchSelect");
+        const cad::Vec2 before = sk().pointPos(sk().find(textId)->a);
+        const cad::Vec2 inI = ed()->profiles()[1].sample;
+        dragLeft(at(inI.x, inI.y), at(inI.x + 5, inI.y + 3));
+        const cad::Vec2 after = sk().pointPos(sk().find(textId)->a);
+        QVERIFY2(std::fabs(after.x - before.x - 5) < 0.3 && std::fabs(after.y - before.y - 3) < 0.3,
+                 qPrintable(QStringLiteral("%1,%2").arg(after.x).arg(after.y)));
+        // Deleting it takes its origin point too.
+        ed()->selectEntities({textId}, false);
+        mode()->deleteSelection();
+        QVERIFY(sk().entities.empty());
     }
 
     void offsetShellsARectangle() {

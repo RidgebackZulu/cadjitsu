@@ -1,5 +1,7 @@
 #include "sketch/SketchMode.h"
 
+#include "command/CommandPanel.h"
+
 #include "model/ModelView.h"
 #include "model/PlaneDisplay.h"
 #include "sketch/HeadsUpInput.h"
@@ -377,6 +379,7 @@ void SketchMode::finish() {
 }
 
 void SketchMode::leave() {
+    if(m_tool) m_tool->deactivate();
     retire(std::move(m_tool));
     m_viewport->setTool(nullptr);
     m_hud->hide();
@@ -396,7 +399,10 @@ void SketchMode::leave() {
 void SketchMode::setTool(SketchToolKind kind) {
     if(!m_editor) return;
     closeDimensionEditor();
-    if(m_tool) m_tool->cancel();
+    if(m_tool) {
+        m_tool->cancel();
+        m_tool->deactivate();
+    }
     retire(std::move(m_tool));
     m_hud->hide();
     m_hud->unlockAll();
@@ -432,6 +438,18 @@ void SketchMode::editDimension(int constraintId) {
                                             [ed, constraintId](const QString &t, QString *err) {
                                                 return ed->setDimensionExpression(constraintId, t, err);
                                             });
+}
+
+void SketchMode::setCommandPanel(CommandPanel *panel) { m_commandPanel = panel; }
+
+CommandPanel *SketchMode::commandPanel() const { return m_commandPanel; }
+
+bool SketchMode::editText(int entityId) {
+    if(!m_editor) return false;
+    const cad::SkEntity *e = m_editor->sketch().find(entityId);
+    if(!e || !e->isText()) return false;
+    setTool(SketchToolKind::Text);
+    return m_tool && m_tool->openEntity(entityId);
 }
 
 bool SketchMode::editSize(int entityId) {

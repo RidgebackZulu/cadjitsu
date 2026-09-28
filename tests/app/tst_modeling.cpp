@@ -189,6 +189,45 @@ private slots:
         QVERIFY(!view()->sketchShown(doc().features()[0]->id));
     }
 
+    // Clicking one letter of a sketch text picks the whole text; Shift picks one letter.
+    void extrudePicksAWholeText() {
+        auto sk = std::make_shared<cad::SketchFeature>();
+        sk->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        const int t = sk->sketch.addText(cad::Vec2{0, 0}, "HI");
+        sk->sketch.find(t)->size = 20;
+        const cad::FeatureId sid = doc().addFeature(sk);
+        m_window->refresh();
+        vp()->setStandardView(StandardView::Top, false);
+        vp()->fitAll(false);
+        settle();
+        const auto &profiles = doc().stateAt(doc().marker())->sketches.at(sid)->profiles;
+        QCOMPARE(int(profiles.size()), 2);
+        const cad::Vec2 h = profiles[0].sample, i = profiles[1].sample;
+        m_window->action(QStringLiteral("extrude"))->trigger();
+        QVERIFY(m_window->commands()->active());
+        auto *picked = field<SelectionField>("extrudeProfiles");
+        click(at(h.x, h.y, 0));
+        QCOMPARE(picked->count(), 2);
+        // Clicking a picked letter lets go of the whole text.
+        click(at(i.x, i.y, 0));
+        QCOMPARE(picked->count(), 0);
+        click(at(i.x, i.y, 0), Qt::ShiftModifier);
+        QCOMPARE(picked->count(), 1);
+        typeInto(field<ValueField>("extrudeDistance"), QStringLiteral("2"));
+        settle();
+        const double one = volume(view()->state());
+        QVERIFY(one > 0);
+        click(at(h.x, h.y, 0));
+        QCOMPARE(picked->count(), 2);
+        settle();
+        QVERIFY(volume(view()->state()) > one * 1.5);
+        panel()->okButton()->click();
+        settle();
+        const auto e = std::dynamic_pointer_cast<const cad::ExtrudeFeature>(doc().features().back());
+        QVERIFY(e);
+        QCOMPARE(int(e->profiles.size()), 2);
+    }
+
     void cancellingLeavesTheDocumentAlone() {
         baseSketch();
         QVERIFY(waitForFrames(vp(), 1));

@@ -362,6 +362,22 @@ bool sketchScenario(MainWindow &w, const QDir &out, QTextStream &log) {
               .arg(curvesAfter - curvesBefore)
               .arg(ed->profiles().size()));
 
+    // Text: click where it goes and type; each letter is a region.
+    const size_t regionsBefore = ed->profiles().size();
+    w.action(QStringLiteral("sketchText"))->trigger();
+    clickAt(vp, at(4, 3));
+    if(auto *size = w.commandPanel()->findChild<ValueField *>(QStringLiteral("sketchTextSize")))
+        size->enterExpression(QStringLiteral("6"));
+    typeText(w, QStringLiteral("Cadjitsu"));
+    processEventsFor(30);
+    check(ed->previewLines.size() > 40, QStringLiteral("Text previews the letters as they are typed"));
+    shot("sketch_text.png");
+    sendKey(w, Qt::Key_Return);
+    sendKey(w, Qt::Key_Escape);
+    const size_t regionsAfter = ed->profiles().size();
+    check(regionsAfter >= regionsBefore + 10,
+          QStringLiteral("the text's letters are regions (%1 more)").arg(regionsAfter - regionsBefore));
+
     // Finish: the sketch lands in the timeline with its profiles.
     w.action(QStringLiteral("finishSketch"))->trigger();
     check(!mode->active(), QStringLiteral("Finish Sketch leaves sketch mode"));
@@ -370,7 +386,7 @@ bool sketchScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     check(sf != nullptr, QStringLiteral("the sketch is in the timeline"));
     if(sf) {
         const auto st = w.document().displayedState();
-        check(st->sketches.count(sf->id) && st->sketches.at(sf->id)->profiles.size() == 4,
+        check(st->sketches.count(sf->id) && st->sketches.at(sf->id)->profiles.size() == regionsAfter,
               QStringLiteral("the committed sketch has the same profiles"));
     }
     vp->setStandardView(StandardView::Home, false);

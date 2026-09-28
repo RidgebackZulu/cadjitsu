@@ -69,6 +69,8 @@ constexpr std::array kIcons = {
     Entry{IconId::PatternRect, "pattern-rect"},
     Entry{IconId::PatternCircular, "pattern-circ"},
     Entry{IconId::Thread, "thread"},
+    Entry{IconId::Text, "text"},
+    Entry{IconId::Emboss, "emboss"},
     Entry{IconId::Undo, "undo"},
     Entry{IconId::Redo, "redo"},
     Entry{IconId::Save, "save"},

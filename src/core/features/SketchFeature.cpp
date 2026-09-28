@@ -1,5 +1,7 @@
 #include "features/SketchFeature.h"
 
+#include "sketch/SketchText.h"
+
 #include "sketch/ProfileBuilder.h"
 #include "sketch/SketchSolver.h"
 #include "topo/Resolver.h"
@@ -64,7 +66,7 @@ FeatureResult SketchFeature::compute(const StatePtr &input, const ComputeContext
         if(!solved.ok) status.merge(Status::warning(solved.message));
         result->status = status;
 
-        result->profiles = buildProfiles(sketchCurves(result->sketch)).profiles;
+        result->profiles = sketchProfiles(result->sketch);
         auto out = std::make_shared<ModelState>(*input);
         out->sketches[id] = std::move(result);
         return {out, status};

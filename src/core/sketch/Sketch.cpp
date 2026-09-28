@@ -41,6 +41,7 @@ const char *typeName(SkType t) {
     case SkType::Line: return "line";
     case SkType::Circle: return "circle";
     case SkType::Arc: return "arc";
+    case SkType::Text: return "text";
     }
     return "point";
 }
@@ -49,6 +50,7 @@ SkType typeFromName(const std::string &s) {
     if(s == "line") return SkType::Line;
     if(s == "circle") return SkType::Circle;
     if(s == "arc") return SkType::Arc;
+    if(s == "text") return SkType::Text;
     return SkType::Point;
 }
 
@@ -170,6 +172,21 @@ int Sketch::addArc(int centre, int start, int end, bool construction) {
     return e.id;
 }
 
+int Sketch::addText(int origin, const std::string &str, bool construction) {
+    SkEntity e;
+    e.id = nextId++;
+    e.type = SkType::Text;
+    e.a = origin;
+    e.text = str;
+    e.construction = construction;
+    entities.push_back(e);
+    return e.id;
+}
+
+int Sketch::addText(Vec2 origin, const std::string &str, bool construction) {
+    return addText(addPoint(origin.x, origin.y, construction), str, construction);
+}
+
 std::vector<int> Sketch::addRectangle(Vec2 c1, Vec2 c2, bool construction) {
     const double x0 = std::min(c1.x, c2.x), x1 = std::max(c1.x, c2.x);
     const double y0 = std::min(c1.y, c2.y), y1 = std::max(c1.y, c2.y);
@@ -286,6 +303,16 @@ json Sketch::toJson() const {
             je["b"] = e.b;
             je["c"] = e.c;
             break;
+        case SkType::Text:
+            je["a"] = e.a;
+            je["text"] = e.text;
+            je["font"] = e.font;
+            je["size"] = e.size;
+            if(e.angle != 0.0) je["angle"] = e.angle;
+            if(e.bold) je["bold"] = true;
+            if(e.italic) je["italic"] = true;
+            if(e.mirror) je["mirror"] = true;
+            break;
         }
         ents.push_back(std::move(je));
     }
@@ -319,6 +346,15 @@ Sketch Sketch::fromJson(const json &j) {
         e.b = jget<int>(je, "b", 0);
         e.c = jget<int>(je, "c", 0);
         e.r = jget<double>(je, "r", 0.0);
+        if(e.type == SkType::Text) {
+            e.text = jget<std::string>(je, "text", "");
+            e.font = jget<std::string>(je, "font", "DejaVu Sans");
+            e.size = jget<double>(je, "size", 5.0);
+            e.angle = jget<double>(je, "angle", 0.0);
+            e.bold = jget<bool>(je, "bold", false);
+            e.italic = jget<bool>(je, "italic", false);
+            e.mirror = jget<bool>(je, "mirror", false);
+        }
         s.entities.push_back(e);
         s.nextId = std::max(s.nextId, e.id + 1);
     }

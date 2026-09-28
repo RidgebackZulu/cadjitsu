@@ -37,6 +37,9 @@ struct TextShape {
     TopoDS_Shape faces;
     // The same as closed outlines: outer loops counter-clockwise, holes clockwise.
     std::vector<std::vector<Vec2>> loops;
+    // Loops by letter piece (a face of `faces`): its outer loop first, then
+    // its holes (the inside of an O).
+    std::vector<std::vector<size_t>> regions;
     Vec2 min, max;        // extent of the letters
 };
 

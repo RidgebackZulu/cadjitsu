@@ -8,6 +8,7 @@
 
 #include "measure/Measure.h"
 #include "sketch/SketchOffset.h"
+#include "sketch/SketchText.h"
 
 #include <QFontMetricsF>
 #include <QIcon>
@@ -194,6 +195,7 @@ std::vector<Vec2> SketchEditor::polyline(const SkEntity &e) const {
     std::vector<Vec2> out;
     switch(e.type) {
     case SkType::Point:
+    case SkType::Text: // many loops: see textLoops()
         break;
     case SkType::Line:
         out = {s.pointPos(e.a), s.pointPos(e.b)};
@@ -216,6 +218,21 @@ std::vector<Vec2> SketchEditor::polyline(const SkEntity &e) const {
         }
         break;
     }
+    }
+    return out;
+}
+
+std::vector<std::vector<Vec2>> SketchEditor::strokes(const SkEntity &e) const {
+    std::vector<std::vector<Vec2>> out;
+    if(e.isText()) {
+        for(const auto &piece : cad::sketchTextLetters(sketch(), e).pieces)
+            for(const auto &loop : piece) {
+                if(loop.empty()) continue;
+                out.push_back(loop);
+                out.back().push_back(loop.front());
+            }
+    } else if(auto pl = polyline(e); !pl.empty()) {
+        out.push_back(std::move(pl));
     }
     return out;
 }
@@ -384,6 +401,12 @@ std::vector<std::pair<Vec2, Vec2>> SketchEditor::movedOutline(const std::set<int
                 const double t0 = a0 + (a1 - a0) * i / n, t1 = a0 + (a1 - a0) * (i + 1) / n;
                 out.push_back({c + Vec2(std::cos(t0), std::sin(t0)) * r, c + Vec2(std::cos(t1), std::sin(t1)) * r});
             }
+        } else if(e->isText()) {
+            for(const auto &piece : cad::sketchTextLetters(s, *e).pieces)
+                for(const auto &loop : piece)
+                    for(size_t i = 0; i < loop.size(); ++i)
+                        out.push_back({moved(loop[i], pivot, delta, angle),
+                                       moved(loop[(i + 1) % loop.size()], pivot, delta, angle)});
         }
     }
     return out;
@@ -416,7 +439,14 @@ bool SketchEditor::moveEntities(const std::set<int> &ids, Vec2 pivot, Vec2 delta
             const SkEntity &e = *s.find(c);
             if(e.type == SkType::Line) map[c] = work.addLine(map[e.a], map[e.b], e.construction);
             else if(e.type == SkType::Circle) map[c] = work.addCircle(map[e.a], e.r, e.construction);
-            else map[c] = work.addArc(map[e.a], map[e.b], map[e.c], e.construction);
+            else if(e.type == SkType::Text) {
+                SkEntity t = e;
+                map[c] = work.addText(map[e.a], e.text, e.construction);
+                t.id = map[c];
+                t.a = map[e.a];
+                t.angle = e.angle + angle * 180.0 / cad::kPi;
+                *work.find(map[c]) = t;
+            } else map[c] = work.addArc(map[e.a], map[e.b], map[e.c], e.construction);
         }
         // Constraints among the copied geometry come along.
         auto inside = [&](int id) { return id == 0 || map.count(id); };
@@ -449,6 +479,8 @@ bool SketchEditor::moveEntities(const std::set<int> &ids, Vec2 pivot, Vec2 delta
             e->x = q.x;
             e->y = q.y;
         }
+        for(int c : curves)
+            if(SkEntity *e = work.find(c); e && e->isText()) e->angle += angle * 180.0 / cad::kPi;
         // Constraints the move breaks: pins on moved points, and H/V on turned lines.
         std::vector<int> drop;
         for(SkConstraint &c : work.constraints) {
@@ -651,7 +683,7 @@ bool SketchEditor::redo() {
 }
 
 void SketchEditor::rebuildProfiles() {
-    m_profiles = cad::buildProfiles(cad::sketchCurves(sketch())).profiles;
+    m_profiles = cad::sketchProfiles(sketch());
     m_profileTriangles.assign(m_profiles.size(), {});
     for(size_t i = 0; i < m_profiles.size(); ++i) m_profileTriangles[i] = triangulateProfile(m_profiles[i], m_frame);
     for(auto it = selectedProfiles.begin(); it != selectedProfiles.end();)
@@ -683,6 +715,7 @@ void SketchEditor::clearPreview() {
     previewConstruction.clear();
     previewPoints.clear();
     previewSnap.reset();
+    previewHidden.clear();
     refreshView();
 }
 
@@ -806,21 +839,31 @@ std::string SketchEditor::formatExpression(double value, cad::ValueKind kind) {
 
 bool SketchEditor::curveNear(const SkEntity &e, QPointF px, double tol, double *dist) const {
     const Projector P(m_viewport);
-    const auto pl = polyline(e);
     double best = tol;
     bool found = false;
-    QPointF prev;
-    for(size_t k = 0; k < pl.size(); ++k) {
-        const QPointF cur = P(toWorld(pl[k]));
-        if(k > 0) {
-            const double d = segDist(px, prev, cur);
-            if(d < best) {
-                best = d;
-                found = true;
+    for(const auto &pl : strokes(e)) {
+        QPointF prev;
+        for(size_t k = 0; k < pl.size(); ++k) {
+            const QPointF cur = P(toWorld(pl[k]));
+            if(k > 0) {
+                const double d = segDist(px, prev, cur);
+                if(d < best) {
+                    best = d;
+                    found = true;
+                }
             }
+            prev = cur;
         }
-        prev = cur;
     }
+    // Inside a letter counts as on the text.
+    if(!found && e.isText())
+        if(const auto q = toSketch(px))
+            for(const auto &piece : cad::sketchTextLetters(sketch(), e).pieces)
+                if(!piece.empty() && cad::pointInPolygon(piece.front(), *q)) {
+                    best = 0.0;
+                    found = true;
+                    break;
+                }
     if(dist) *dist = best;
     return found;
 }
@@ -852,7 +895,7 @@ SketchHit SketchEditor::hitTest(QPointF px, unsigned filter) const {
         double best = kCurveTol;
         int bestId = 0;
         for(const auto &e : s.entities) {
-            if(!e.isCurve()) continue;
+            if(!e.isCurve() && !(e.isText() && (filter & HitText))) continue;
             double d;
             if(curveNear(e, px, best, &d)) {
                 best = d;
@@ -1037,22 +1080,27 @@ std::vector<int> SketchEditor::entitiesInRect(const QRectF &rect, bool crossing)
             if(!usedPoints.count(e.id) && rect.contains(P(toWorld({e.x, e.y})))) out.push_back(e.id);
             continue;
         }
-        std::vector<QPointF> pts;
-        for(const Vec2 &v : polyline(e)) pts.push_back(P(toWorld(v)));
-        bool all = !pts.empty(), any = false;
-        for(const QPointF &p : pts) {
-            const bool in = rect.contains(p);
-            all &= in;
-            any |= in;
+        bool all = true, any = false, none = true;
+        const auto lines = strokes(e);
+        for(const auto &stroke : lines) {
+            std::vector<QPointF> pts;
+            for(const Vec2 &v : stroke) pts.push_back(P(toWorld(v)));
+            for(const QPointF &p : pts) {
+                const bool in = rect.contains(p);
+                all &= in;
+                any |= in;
+                none = false;
+            }
+            if(crossing && !any) {
+                for(size_t k = 0; k + 1 < pts.size() && !any; ++k)
+                    for(const QLineF &edge : edges)
+                        if(QLineF(pts[k], pts[k + 1]).intersects(edge) == QLineF::BoundedIntersection) {
+                            any = true;
+                            break;
+                        }
+            }
         }
-        if(crossing && !any) {
-            for(size_t k = 0; k + 1 < pts.size() && !any; ++k)
-                for(const QLineF &edge : edges)
-                    if(QLineF(pts[k], pts[k + 1]).intersects(edge) == QLineF::BoundedIntersection) {
-                        any = true;
-                        break;
-                    }
-        }
+        all &= !none;
         if(crossing ? any : all) out.push_back(e.id);
     }
     return out;
@@ -1251,7 +1299,7 @@ bool SketchEditor::beginDrag(const SketchHit &hit, QPointF px) {
     case Kind::Curve: {
         const SkEntity *e = s.find(hit.id);
         if(!e) return false;
-        if(e->type == SkType::Line || e->type == SkType::Arc)
+        if(e->type == SkType::Line || e->type == SkType::Arc || e->type == SkType::Text)
             for(int p : {e->a, e->b, e->c})
                 if(p) d.origin[p] = s.pointPos(p);
         break;
@@ -1416,15 +1464,16 @@ void SketchEditor::contribute(RenderScene &scene) const {
         }
     };
     for(const auto &e : s.entities) {
-        if(!e.isCurve()) continue;
+        if((!e.isCurve() && !e.isText()) || previewHidden.count(e.id)) continue;
         LineBatch &base = e.construction   ? construction
                           : failed.count(e.id) ? failedB
                           : freeEnts.count(e.id) ? freeB
                                                  : fixed;
-        const auto pl = polyline(e);
-        addPolyline(base, pl, e.construction);
-        if(selected.count(e.id)) addPolyline(sel, pl, e.construction);
-        else if(hot.count(e.id)) addPolyline(hov, pl, e.construction);
+        for(const auto &pl : strokes(e)) {
+            addPolyline(base, pl, e.construction);
+            if(selected.count(e.id)) addPolyline(sel, pl, e.construction);
+            else if(hot.count(e.id)) addPolyline(hov, pl, e.construction);
+        }
     }
     // Highlighted sketch axes.
     const float ext = std::max(10.0f, m_viewport->content().gridExtent);
@@ -1709,6 +1758,8 @@ std::vector<SketchEditor::Glyph> SketchEditor::glyphs() const {
             pos = c + side * s.arcRadius(*e);
             return true;
         }
+        case SkType::Text:
+            return false;
         }
         return false;
     };

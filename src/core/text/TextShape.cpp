@@ -162,11 +162,14 @@ std::shared_ptr<TextShape> build(const std::string &utf8, const TextStyle &style
     // Faces into one shape (moved copies), mirrored if asked.
     TopoDS_Shape shape = BRepBuilderAPI_Transform(all, gp_Trsf(), true).Shape();
     const double deflection = std::clamp(style.size * 0.001, 0.002, 0.02);
+    std::vector<std::vector<size_t>> regions;
     auto outlines = [&](const TopoDS_Shape &s) {
         std::vector<std::vector<Vec2>> loops;
+        regions.clear();
         for(TopExp_Explorer fx(s, TopAbs_FACE); fx.More(); fx.Next()) {
             const TopoDS_Face f = TopoDS::Face(fx.Current());
             const TopoDS_Wire outer = BRepTools::OuterWire(f);
+            std::vector<size_t> region;
             for(TopExp_Explorer wx(f, TopAbs_WIRE); wx.More(); wx.Next()) {
                 const TopoDS_Wire w = TopoDS::Wire(wx.Current());
                 std::vector<Vec2> pts = wirePoints(w, f, deflection);
@@ -174,8 +177,12 @@ std::shared_ptr<TextShape> build(const std::string &utf8, const TextStyle &style
                 const bool isOuter = w.IsSame(outer);
                 const double a = signedArea(pts);
                 if((isOuter && a < 0) || (!isOuter && a > 0)) std::reverse(pts.begin(), pts.end());
+                // The outer loop first.
+                if(isOuter) region.insert(region.begin(), loops.size());
+                else region.push_back(loops.size());
                 loops.push_back(std::move(pts));
             }
+            if(!region.empty() && signedArea(loops[region.front()]) > 0) regions.push_back(std::move(region));
         }
         return loops;
     };
@@ -206,6 +213,7 @@ std::shared_ptr<TextShape> build(const std::string &utf8, const TextStyle &style
     }
     out->faces = shape;
     out->loops = std::move(loops);
+    out->regions = std::move(regions);
     out->ok = true;
     return out;
 }

@@ -14,6 +14,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QStyle>
 #include <QToolButton>
@@ -186,6 +187,9 @@ CommandPanel::CommandPanel(QWidget *canvas) : QFrame(canvas) {
         "cadjitsu--ValueField { border: 1px solid #b9c0ca; border-radius: 3px; padding: 2px 4px; background: white;"
         " color: #10161f; selection-background-color: #9cc6ff; selection-color: #10161f; font-size: 12px; }"
         "QComboBox, QCheckBox, QPushButton { color: #1c2128; font-size: 11px; }"
+        "QPlainTextEdit { border: 1px solid #b9c0ca; border-radius: 3px; background: white; color: #10161f;"
+        " selection-background-color: #9cc6ff; selection-color: #10161f; font-size: 12px; }"
+        "QPlainTextEdit:focus { border: 1px solid #1a66c9; }"
         "cadjitsu--ValueField:focus { border: 1px solid #1a66c9; }"
         "cadjitsu--ValueField[invalid=\"true\"] { border: 1px solid #d23c3c; background: #fff3f2; }"));
     auto *v = new QVBoxLayout(this);
@@ -338,6 +342,18 @@ QCheckBox *CommandPanel::addCheck(const QString &label, const char *name) {
     return c;
 }
 
+QPlainTextEdit *CommandPanel::addTextBox(const QString &label, const char *name) {
+    auto *t = new QPlainTextEdit(m_body);
+    t->setObjectName(QString::fromLatin1(name));
+    t->setTabChangesFocus(true);
+    t->setLineWrapMode(QPlainTextEdit::NoWrap);
+    t->setPlaceholderText(tr("Type the text"));
+    t->setFixedHeight(3 * t->fontMetrics().lineSpacing() + 14);
+    t->installEventFilter(this);
+    addRow(label, t);
+    return t;
+}
+
 QLabel *CommandPanel::addInfo(const QString &label, const char *name) {
     auto *l = new QLabel(m_body);
     l->setObjectName(QString::fromLatin1(name));
@@ -399,6 +415,17 @@ void CommandPanel::reposition() {
 
 bool CommandPanel::eventFilter(QObject *o, QEvent *e) {
     if(o == parentWidget() && e->type() == QEvent::Resize) reposition();
+    if(e->type() == QEvent::KeyPress && qobject_cast<QPlainTextEdit *>(o)) {
+        auto *k = static_cast<QKeyEvent *>(e);
+        if((k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && !(k->modifiers() & Qt::ShiftModifier)) {
+            emit accepted();
+            return true;
+        }
+        if(k->key() == Qt::Key_Escape) {
+            emit cancelled();
+            return true;
+        }
+    }
     if(e->type() == QEvent::KeyPress && qobject_cast<ValueField *>(o)) {
         auto *k = static_cast<QKeyEvent *>(e);
         if(k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) {

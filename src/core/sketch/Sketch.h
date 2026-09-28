@@ -13,7 +13,7 @@ namespace cad {
 // Curves reference point entities, so a shared endpoint is structurally
 // coincident (a rectangle is 4 points + 4 lines).
 
-enum class SkType { Point, Line, Circle, Arc };
+enum class SkType { Point, Line, Circle, Arc, Text };
 
 // Fixed reference geometry every sketch has; constraints may use these ids.
 constexpr int kSketchOrigin = -1; // the sketch origin point (0, 0)
@@ -32,8 +32,17 @@ struct SkEntity {
     int a = 0, b = 0, c = 0;
     // Circle radius (an arc's radius is |start - centre|).
     double r = 0.0;
+    // Text: a = its origin (the first line's baseline start). Its letters are
+    // regions of the sketch (they can be extruded) but not solver geometry.
+    std::string text;
+    std::string font = "DejaVu Sans";
+    bool bold = false, italic = false;
+    bool mirror = false;   // flipped left-right (reads from the other side)
+    double size = 5.0;     // the font's em size (mm)
+    double angle = 0.0;    // degrees, anticlockwise
 
-    bool isCurve() const { return type != SkType::Point; }
+    bool isCurve() const { return type == SkType::Line || type == SkType::Circle || type == SkType::Arc; }
+    bool isText() const { return type == SkType::Text; }
 };
 
 enum class SkCon {
@@ -101,6 +110,9 @@ struct Sketch {
     int addCircle(int centre, double radius, bool construction = false);
     int addCircle(Vec2 centre, double radius, bool construction = false);
     int addArc(int centre, int start, int end, bool construction = false);
+    // Text at `origin` (a point entity); style fields are set on the result.
+    int addText(int origin, const std::string &text, bool construction = false);
+    int addText(Vec2 origin, const std::string &text, bool construction = false);
     // Axis-aligned rectangle from two corners: 4 points, 4 lines, H/V constraints.
     // Returns the line ids in order bottom, right, top, left.
     std::vector<int> addRectangle(Vec2 corner1, Vec2 corner2, bool construction = false);

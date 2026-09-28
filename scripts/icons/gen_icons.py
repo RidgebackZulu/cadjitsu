@@ -490,6 +490,41 @@ def offset():
     return s
 
 
+# The letter A: its outline and its counter (the hole), x right and y down, in a
+# 0..1 box.
+A_OUTER = [(0.0, 1.0), (0.38, 0.0), (0.62, 0.0), (1.0, 1.0), (0.78, 1.0), (0.69, 0.74), (0.31, 0.74), (0.22, 1.0)]
+A_INNER = [(0.36, 0.56), (0.64, 0.56), (0.5, 0.17)]
+
+
+def letter_path(tf):
+    def ring(points):
+        return "M" + " L".join(f"{f(x)},{f(y)}" for x, y in (tf(u, v) for u, v in points)) + " Z"
+    return ring(A_OUTER) + " " + ring(A_INNER)
+
+
+def text_tool():
+    """Sketch text: a letter A outline (with its counter) and a text cursor."""
+    s = path(letter_path(lambda u, v: (8 + 36 * u, 12 + 40 * v)), ACCENT, ACCENT, 3.0,
+             'fill-opacity="0.14" fill-rule="evenodd"')
+    s += line((53, 13), (53, 51), INK, 2.2)
+    s += line((49, 13), (57, 13), INK, 2.2) + line((49, 51), (57, 51), INK, 2.2)
+    return s
+
+
+def emboss():
+    """A block with a raised orange letter A standing on its top face."""
+    iso = Iso(32, 40, 1.05)
+    s = iso.floor_shadow(-14, -14, 28, 28)
+    s += iso.box(-14, -14, 0, 28, 28, 10)
+    top = lambda z: (lambda u, v: iso.p(-11 + 22 * v, 11 - 22 * u, z))
+    # Solid sides: the letter stacked up in thin layers, then its top.
+    for k in range(9):
+        z = 10 + k * 0.6
+        s += path(letter_path(top(z)), "url(#oDark)", "#8A4A08" if k == 0 else None, 1.2, 'fill-rule="evenodd"')
+    s += path(letter_path(top(15.4)), "url(#oTop)", INK, 1.4, 'fill-rule="evenodd"')
+    return s
+
+
 def draft():
     """A block whose right wall leans in over a hinge along its foot (orange),
     with the tilt shown by a curved arrow."""
@@ -1086,7 +1121,8 @@ ICONS = {
     "parallel": g_parallel, "perpendicular": g_perpendicular, "tangent": g_tangent, "equal": g_equal,
     "midpoint": g_midpoint, "concentric": g_concentric, "fix": g_fix, "symmetric": g_symmetric,
     "extrude": extrude, "fillet": fillet, "chamfer": chamfer, "hole": hole, "combine": combine, "plane": plane,
-    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "offset": offset, "select": select_tool, "draft": draft, "mirror": mirror, "pattern-rect": pattern_rect, "pattern-circ": pattern_circ, "thread": thread,
+    "section": section, "measure": measure, "overhang": overhang, "split": split, "move": move_tool, "offset": offset, "select": select_tool, "draft": draft, "mirror": mirror, "pattern-rect": pattern_rect, "pattern-circ": pattern_circ, "thread": thread, "text": text_tool,
+    "emboss": emboss,
     "undo": undo, "redo": redo, "save": save, "open": open_, "new": new, "export-stl": export_stl,
     "export-step": export_step, "print-3d": print3d,
     "eye": eye, "eye-off": eye_off, "body": body, "sketch-node": sketch_node, "plane-node": plane_node,

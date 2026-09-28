@@ -186,6 +186,8 @@ private:
                     addEntity(Slvs_MakeCircle(m_nextEntity++, kSolve, m_workplane, m_entity[e.a], m_normal, dist));
                 break;
             }
+            case SkType::Text:
+                break; // only its origin point takes part
             case SkType::Arc:
                 if(m_entity.count(e.a) && m_entity.count(e.b) && m_entity.count(e.c))
                     m_entity[e.id] = addEntity(Slvs_MakeArcOfCircle(m_nextEntity++, kSolve, m_workplane, m_normal,
@@ -564,6 +566,7 @@ SolveOutcome solveSketch(Sketch &sketch, const DimensionLookup &lookup, const So
             case SkType::Line: isFree = freePoints.count(e.a) || freePoints.count(e.b); break;
             case SkType::Circle: isFree = freePoints.count(e.a) || freeRadii.count(e.id); break;
             case SkType::Arc: isFree = freePoints.count(e.a) || freePoints.count(e.b) || freePoints.count(e.c); break;
+            case SkType::Text: isFree = freePoints.count(e.a) > 0; break;
             }
             if(isFree) out.freeEntities.push_back(e.id);
         }

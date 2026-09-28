@@ -112,3 +112,109 @@ TEST_CASE("text: holes, spacing, lines and mirror") {
         CHECK(fonts.front().rfind("DejaVu", 0) == 0);
     }
 }
+
+// --- sketch text ---------------------------------------------------------------------
+
+#include "TestModels.h"
+#include "io/StlWriter.h"
+#include "sketch/SketchText.h"
+
+namespace {
+
+using cadtest::extrudeAll;
+using cadtest::totalVolume;
+
+int letterRegions(const std::vector<Profile> &ps) {
+    int n = 0;
+    for(const auto &p : ps) n += textOfProfile(p) != 0;
+    return n;
+}
+
+} // namespace
+
+TEST_CASE("sketch text: letters are regions") {
+    Sketch s;
+    const int t = s.addText(Vec2{10, 5}, "HI O");
+    s.find(t)->size = 10;
+    auto ps = sketchProfiles(s);
+    // H, I and O (a ring: one region with a hole).
+    CHECK(letterRegions(ps) == 3);
+    int ringHoles = 0;
+    for(const auto &p : ps) ringHoles += int(p.holes.size());
+    CHECK(ringHoles == 1);
+    for(const auto &p : ps) {
+        CHECK(p.contains(p.sample));
+        CHECK(p.sample.x > 10);
+    }
+    // Moving the origin moves the letters.
+    Vec2 before = ps.front().sample;
+    s.find(s.find(t)->a)->x += 7;
+    CHECK(sketchProfiles(s).front().sample.x == doctest::Approx(before.x + 7));
+    // Turned by its angle.
+    s.find(t)->angle = 90;
+    for(const auto &p : sketchProfiles(s)) CHECK(p.sample.y > 5); // now it reads upwards
+    // Construction text makes no regions.
+    s.find(t)->construction = true;
+    CHECK(sketchProfiles(s).empty());
+}
+
+TEST_CASE("sketch text: inside a plate, and extruded") {
+    Document doc;
+    auto sk = cadtest::rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {0, 0}, {60, 20});
+    const int t = sk->sketch.addText(Vec2{5, 5}, "O");
+    sk->sketch.find(t)->size = 10;
+    const FeatureId sid = doc.addFeature(sk);
+    const auto st = doc.stateAt(1);
+    const auto &profiles = st->sketches.at(sid)->profiles;
+    // The plate with the O cut out, the O (a ring), and the inside of the O.
+    REQUIRE(profiles.size() == 3);
+    double plate = 0, letters = 0;
+    for(const auto &p : profiles) {
+        if(textOfProfile(p)) letters += std::fabs(p.area);
+        else if(p.key.find(".in") == std::string::npos) plate = std::fabs(p.area);
+    }
+    CHECK(plate > 1100);
+    CHECK(plate < 1200 - letters + 1e-6);
+
+    // Only the letters, extruded 2 mm: one solid per letter piece, watertight.
+    auto e = std::make_shared<ExtrudeFeature>();
+    for(const auto &p : profiles)
+        if(textOfProfile(p)) e->profiles.push_back({sid, p.key, p.sample});
+    e->distance = doc.makeSlot("2 mm");
+    doc.addFeature(e);
+    const auto after = doc.stateAt(2);
+    REQUIRE(doc.statusOf(e->id).isOk());
+    CHECK(totalVolume(after) == doctest::Approx(letters * 2).epsilon(0.005));
+    std::vector<TopoDS_Shape> shapes;
+    for(const auto &kv : after->bodies) shapes.push_back(kv.second->shape.shape());
+    StlExport ex;
+    std::string err;
+    REQUIRE(buildStlMesh(shapes, StlOptions(), ex, err));
+    CHECK(ex.report.watertight);
+}
+
+TEST_CASE("sketch text: saved and read back") {
+    Sketch s;
+    const int t = s.addText(Vec2{1, 2}, "Ab\nc");
+    SkEntity &e = *s.find(t);
+    e.size = 7;
+    e.angle = 30;
+    e.bold = true;
+    e.mirror = true;
+    e.font = "DejaVu Serif";
+    const Sketch back = Sketch::fromJson(s.toJson());
+    const SkEntity *b = back.find(t);
+    REQUIRE(b);
+    CHECK(b->isText());
+    CHECK(b->text == "Ab\nc");
+    CHECK(b->size == 7);
+    CHECK(b->angle == 30);
+    CHECK(b->bold);
+    CHECK(b->mirror);
+    CHECK(b->font == "DejaVu Serif");
+    CHECK(sketchProfiles(back).size() == sketchProfiles(s).size());
+    // Deleting the text takes its origin point too.
+    Sketch d = s;
+    d.removeEntity(t);
+    CHECK(d.entities.empty());
+}

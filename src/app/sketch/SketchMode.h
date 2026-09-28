@@ -14,6 +14,7 @@
 
 namespace cadjitsu {
 
+class CommandPanel;
 class ModelView;
 class PlanePickTool;
 class SketchPalette;
@@ -38,6 +39,9 @@ public:
     Viewport *viewport() const { return m_viewport; }
     ModelView *modelView() const { return m_modelView; }
     cad::Document &document() { return m_doc; }
+    // The panel tools with settings (Text) show them in.
+    void setCommandPanel(CommandPanel *panel);
+    CommandPanel *commandPanel() const;
 
     // "Create Sketch": the origin planes appear and a plane or planar face is picked.
     void startCreateSketch();
@@ -58,6 +62,8 @@ public:
     // Opens a line's length, a circle's diameter or an arc's radius for
     // typing: its dimension if it has one, else a new one beside it.
     bool editSize(int entityId);
+    // Opens a text in the Text tool's panel.
+    bool editText(int entityId);
     InlineValueEditor *dimensionEditor() const { return m_dimensionEdit; }
     bool undo();
     bool redo();
@@ -97,6 +103,7 @@ private:
     std::unique_ptr<PlanePickTool> m_planePick;
     SketchToolKind m_toolKind = SketchToolKind::Select;
     SketchPalette *m_palette = nullptr;
+    QPointer<CommandPanel> m_commandPanel;
     QPointer<InlineValueEditor> m_dimensionEdit;
     std::vector<std::unique_ptr<SketchTool>> m_retiredTools;
     std::vector<std::unique_ptr<PlanePickTool>> m_retiredPicks;

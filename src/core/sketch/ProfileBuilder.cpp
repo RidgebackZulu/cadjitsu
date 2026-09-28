@@ -337,7 +337,7 @@ bool Profile::contains(Vec2 p) const {
 std::vector<Curve2> sketchCurves(const Sketch &sketch) {
     std::vector<Curve2> out;
     for(const auto &e : sketch.entities) {
-        if(e.construction || e.type == SkType::Point) continue;
+        if(e.construction || !e.isCurve()) continue;
         Curve2 c;
         c.id = e.id;
         if(e.type == SkType::Line) {

@@ -39,6 +39,7 @@ enum class SketchToolKind {
     Symmetric,
     Move,
     Offset,
+    Text,
 };
 
 QString sketchToolName(SketchToolKind kind);
@@ -57,6 +58,11 @@ public:
     // Status bar hint.
     virtual QString prompt() const { return {}; }
     virtual void activate() {}
+    // The tool is being put down (another is picked, or the sketch closes).
+    virtual void deactivate() {}
+    // Opens an existing entity for editing (the Text tool: a text); false if
+    // this tool cannot.
+    virtual bool openEntity(int) { return false; }
     // Abandons an operation in progress; false if there was none.
     virtual bool cancel() { return false; }
     // Enter in a heads-up box, and a typed value changing.

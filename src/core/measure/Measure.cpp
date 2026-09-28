@@ -151,6 +151,10 @@ std::vector<Measurement> measureSketchEntity(const Sketch &sk, int entityId) {
         out.push_back({"Sweep", sweep, MeasureUnit::Angle, {}});
         break;
     }
+    case SkType::Text:
+        out.push_back({"Text", 0.0, MeasureUnit::Text, e->text});
+        out.push_back(len("Size", e->size));
+        break;
     }
     return out;
 }

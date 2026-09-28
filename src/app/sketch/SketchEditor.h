@@ -52,7 +52,8 @@ enum SketchHitFilter : unsigned {
     HitDimensions = 1u << 4,
     HitConstraints = 1u << 5,
     HitProfiles = 1u << 6,
-    HitDefault = HitPoints | HitCurves | HitOrigin | HitDimensions | HitConstraints | HitProfiles,
+    HitText = 1u << 7, // texts (as Kind::Curve): on their outline or inside a letter
+    HitDefault = HitPoints | HitCurves | HitOrigin | HitDimensions | HitConstraints | HitProfiles | HitText,
     HitGeometry = HitPoints | HitCurves | HitOrigin | HitAxes,
 };
 
@@ -191,6 +192,9 @@ public:
     std::vector<int> entitiesInRect(const QRectF &rect, bool crossing) const;
     // Polyline of a curve in sketch coordinates.
     std::vector<cad::Vec2> polyline(const cad::SkEntity &e) const;
+    // The lines an entity is drawn with: its polyline, or a text's letter
+    // outlines (each closed: its last point is its first).
+    std::vector<std::vector<cad::Vec2>> strokes(const cad::SkEntity &e) const;
 
     // --- selection ----------------------------------------------------------------------
     std::set<int> selectedEntities;    // may include kSketchOrigin / axes
@@ -223,6 +227,8 @@ public:
     std::vector<std::pair<cad::Vec2, cad::Vec2>> previewConstruction;
     std::vector<cad::Vec2> previewPoints;
     std::optional<SketchSnap> previewSnap;
+    // Entities not drawn while a tool shows them changed (the text being edited).
+    std::set<int> previewHidden;
     void clearPreview();
     // Repaints the viewport and its overlay.
     void refreshView() const;

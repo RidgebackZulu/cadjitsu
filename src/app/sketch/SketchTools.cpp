@@ -1,15 +1,21 @@
 #include "sketch/SketchTools.h"
 
+#include "command/CommandPanel.h"
 #include "sketch/HeadsUpInput.h"
 #include "sketch/SketchMode.h"
 #include "sketch/SketchOffset.h"
+#include "sketch/SketchPalette.h"
+#include "sketch/SketchText.h"
 #include "ui/Icons.h"
 #include "viewport/Viewport.h"
 
+#include <QCheckBox>
+#include <QComboBox>
 #include <QIcon>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPlainTextEdit>
 
 #include <algorithm>
 #include <cmath>
@@ -77,6 +83,7 @@ QString sketchToolName(SketchToolKind k) {
     case SketchToolKind::Symmetric: return SketchTool::tr("Symmetric");
     case SketchToolKind::Move: return SketchTool::tr("Move / Copy");
     case SketchToolKind::Offset: return SketchTool::tr("Offset");
+    case SketchToolKind::Text: return SketchTool::tr("Text");
     }
     return {};
 }
@@ -152,13 +159,12 @@ void SketchTool::highlight(RenderScene &scene, const std::vector<SketchHit> &hit
         case HitKind::Point: pb.points.push_back(editor().toWorld(s.pointPos(h.id))); break;
         case HitKind::Origin: pb.points.push_back(editor().toWorld({0, 0})); break;
         case HitKind::Curve:
-            if(const SkEntity *e = s.find(h.id)) {
-                const auto pl = editor().polyline(*e);
-                for(size_t k = 0; k + 1 < pl.size(); ++k) {
-                    lb.segments.push_back(editor().toWorld(pl[k]));
-                    lb.segments.push_back(editor().toWorld(pl[k + 1]));
-                }
-            }
+            if(const SkEntity *e = s.find(h.id))
+                for(const auto &pl : editor().strokes(*e))
+                    for(size_t k = 0; k + 1 < pl.size(); ++k) {
+                        lb.segments.push_back(editor().toWorld(pl[k]));
+                        lb.segments.push_back(editor().toWorld(pl[k + 1]));
+                    }
             break;
         case HitKind::Axis: {
             const Vec2 d = h.id == cad::kSketchXAxis ? Vec2(1, 0) : Vec2(0, 1);
@@ -243,7 +249,11 @@ public:
         if(hit.kind == HitKind::Dimension) m_mode.editDimension(hit.id);
         else if(hit.kind == HitKind::Curve && (e->modifiers() & Qt::ShiftModifier))
             editor().selectEntities(editor().connectedChain(hit.id), false);
-        else if(hit.kind == HitKind::Curve) m_mode.editSize(hit.id);
+        else if(hit.kind == HitKind::Curve) {
+            const SkEntity *ent = editor().sketch().find(hit.id);
+            if(ent && ent->isText()) m_mode.editText(hit.id);
+            else m_mode.editSize(hit.id);
+        }
         return true;
     }
     bool keyPress(QKeyEvent *e) override { return commonKey(e); }
@@ -1219,6 +1229,272 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Text: click where the text goes and type. The panel sets the text (several
+// lines), font, size, where its origin is, its angle and Reverse (mirrored
+// letters); the canvas shows it as it will be. A click elsewhere on the
+// canvas moves it there. Double-clicking existing text opens it here too.
+
+// The last text's style, for the next one.
+struct TextDefaults {
+    QString font = QStringLiteral("DejaVu Sans");
+    bool bold = false, italic = false;
+    double size = 5.0;
+};
+
+TextDefaults &textDefaults() {
+    static TextDefaults d;
+    return d;
+}
+
+class TextTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Text; }
+    QString prompt() const override {
+        return m_open ? tr("Type the text. Enter or OK places it (Shift+Enter for a new line); click to move it.")
+                      : tr("Click where the text goes.");
+    }
+    Qt::CursorShape cursor() const override { return m_open ? Qt::CrossCursor : Qt::IBeamCursor; }
+    void activate() override {
+        hud().hide();
+        m_mode.showStatus(prompt());
+    }
+    void deactivate() override { close(); }
+    bool openEntity(int id) override {
+        const SkEntity *e = editor().sketch().find(id);
+        if(!e || !e->isText()) return false;
+        m_editing = id;
+        open(editor().sketch().pointPos(e->a), *e);
+        return true;
+    }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        m_snap = editor().snap(e->position(), {}, false);
+        if(!m_open) {
+            SkEntity style;
+            style.font = textDefaults().font.toStdString();
+            style.bold = textDefaults().bold;
+            style.italic = textDefaults().italic;
+            style.size = textDefaults().size;
+            m_editing = 0;
+            open(m_snap.pos, style);
+        } else {
+            // Moves it where clicked.
+            m_x->enterExpression(QString::fromStdString(SketchEditor::formatExpression(m_snap.pos.x, cad::ValueKind::Length)));
+            m_y->enterExpression(QString::fromStdString(SketchEditor::formatExpression(m_snap.pos.y, cad::ValueKind::Length)));
+            m_text->setFocus();
+        }
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        m_cursor = e->position();
+        if(!m_open) {
+            m_snap = editor().snap(e->position(), {}, false);
+            editor().previewSnap = m_snap;
+            editor().refreshView();
+        }
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override {
+        if(m_open && (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter)) {
+            place();
+            return true;
+        }
+        // Typing on the canvas goes into the text.
+        if(m_open && !e->text().isEmpty() && e->text().at(0).isPrint() &&
+           !(e->modifiers() & (Qt::ControlModifier | Qt::MetaModifier | Qt::AltModifier))) {
+            m_text->setFocus();
+            m_text->insertPlainText(e->text());
+            return true;
+        }
+        return commonKey(e);
+    }
+    bool cancel() override {
+        if(!m_open) return false;
+        close();
+        m_mode.showStatus(prompt());
+        return true;
+    }
+
+    // Tests: the panel's widgets.
+    QPlainTextEdit *textBox() const { return m_text; }
+
+private:
+    CommandPanel *panel() const { return m_mode.commandPanel(); }
+
+    void open(Vec2 at, const SkEntity &style) {
+        CommandPanel *p = panel();
+        if(!p) return;
+        close();
+        m_open = true;
+        // The panel goes where the sketch palette is.
+        if(SketchPalette *pal = m_mode.palette()) {
+            m_paletteShown = pal->isVisible();
+            pal->hide();
+        }
+        const auto eval = [this](const std::string &expr, cad::ValueKind k) { return editor().evaluate(expr, k); };
+        p->begin(m_editing ? tr("Edit Text") : tr("Text"), IconId::Text);
+        m_text = p->addTextBox(tr("Text"), "sketchTextText");
+        QStringList fonts;
+        for(const std::string &f : cad::availableFonts()) fonts << QString::fromStdString(f);
+        const QString font = QString::fromStdString(style.font);
+        if(!fonts.contains(font)) fonts.prepend(font);
+        m_font = p->addChoice(tr("Font"), fonts, "sketchTextFont");
+        m_font->setCurrentText(font);
+        m_font->setMaxVisibleItems(16);
+        m_bold = p->addCheck(tr("Bold"), "sketchTextBold");
+        m_bold->setChecked(style.bold);
+        m_italic = p->addCheck(tr("Italic"), "sketchTextItalic");
+        m_italic->setChecked(style.italic);
+        m_size = p->addValue(tr("Size"), cad::ValueKind::Length, eval, "sketchTextSize");
+        m_size->setExpression(QString::fromStdString(SketchEditor::formatExpression(style.size, cad::ValueKind::Length)));
+        m_x = p->addValue(tr("X"), cad::ValueKind::Length, eval, "sketchTextX");
+        m_x->setExpression(QString::fromStdString(SketchEditor::formatExpression(at.x, cad::ValueKind::Length)));
+        m_y = p->addValue(tr("Y"), cad::ValueKind::Length, eval, "sketchTextY");
+        m_y->setExpression(QString::fromStdString(SketchEditor::formatExpression(at.y, cad::ValueKind::Length)));
+        m_angle = p->addAngle(tr("Angle"), eval, "sketchTextAngle", QColor(229, 70, 58));
+        m_angle->setExpression(
+            QString::fromStdString(SketchEditor::formatExpression(style.angle * cad::kPi / 180.0, cad::ValueKind::Angle)));
+        m_mirror = p->addCheck(tr("Reverse"), "sketchTextReverse");
+        m_mirror->setToolTip(tr("Mirrors the letters, so they read the right way from the other side (stamps, "
+                                "moulds, text printed face down)."));
+        m_mirror->setChecked(style.mirror);
+        m_text->setPlainText(QString::fromStdString(style.text));
+        m_text->selectAll();
+        auto changed = [this] { preview(); };
+        QObject::connect(m_text, &QPlainTextEdit::textChanged, p, changed);
+        QObject::connect(m_font, &QComboBox::currentTextChanged, p, changed);
+        for(QCheckBox *c : {m_bold, m_italic, m_mirror}) QObject::connect(c, &QCheckBox::toggled, p, changed);
+        for(ValueField *f : {m_size, m_x, m_y, m_angle}) QObject::connect(f, &ValueField::revalidated, p, changed);
+        m_connections = {QObject::connect(p, &CommandPanel::accepted, p, [this] { place(); }),
+                         QObject::connect(p, &CommandPanel::cancelled, p, [this] { cancel(); })};
+        m_text->setFocus();
+        preview();
+        m_mode.showStatus(prompt());
+    }
+
+    void close() {
+        for(const auto &c : m_connections) QObject::disconnect(c);
+        m_connections.clear();
+        if(m_open && panel()) panel()->end();
+        if(m_open && m_paletteShown)
+            if(SketchPalette *pal = m_mode.palette()) pal->show();
+        m_open = false;
+        m_paletteShown = false;
+        m_text = nullptr;
+        editor().clearPreview();
+    }
+
+    // The text as the panel has it (false, and why, if a value is wrong).
+    bool gather(SkEntity &e, Vec2 &at, QString &why) const {
+        e.text = m_text->toPlainText().toStdString();
+        e.font = m_font->currentText().toStdString();
+        e.bold = m_bold->isChecked();
+        e.italic = m_italic->isChecked();
+        e.mirror = m_mirror->isChecked();
+        if(!m_size->valid() || !m_x->valid() || !m_y->valid() || !m_angle->valid()) {
+            why = tr("Check the values in red.");
+            return false;
+        }
+        e.size = *m_size->value();
+        if(e.size <= 0.0) {
+            why = tr("The size must be more than 0.");
+            return false;
+        }
+        e.angle = *m_angle->value() * 180.0 / cad::kPi;
+        at = {*m_x->value(), *m_y->value()};
+        return true;
+    }
+
+    // The sketch with the text as the panel has it (and its id there).
+    int trial(cad::Sketch &s, const SkEntity &e, Vec2 at) const {
+        int id = m_editing;
+        if(!id || !s.find(id)) id = s.addText(s.addPoint(at.x, at.y), e.text, e.construction);
+        SkEntity &t = *s.find(id);
+        t.text = e.text;
+        t.font = e.font;
+        t.bold = e.bold;
+        t.italic = e.italic;
+        t.mirror = e.mirror;
+        t.size = e.size;
+        t.angle = e.angle;
+        if(SkEntity *o = s.find(t.a)) {
+            o->x = at.x;
+            o->y = at.y;
+        }
+        return id;
+    }
+
+    void preview() {
+        if(!m_open || !m_text) return;
+        SketchEditor &ed = editor();
+        ed.previewLines.clear();
+        ed.previewSnap.reset();
+        ed.previewHidden.clear();
+        if(m_editing) ed.previewHidden.insert(m_editing);
+        SkEntity e;
+        Vec2 at;
+        QString why;
+        if(!gather(e, at, why)) {
+            panel()->setMessage(why, cad::Severity::Error);
+            ed.refreshView();
+            return;
+        }
+        cad::Sketch s = ed.sketch();
+        const int id = trial(s, e, at);
+        const cad::SketchTextLetters letters = cad::sketchTextLetters(s, *s.find(id));
+        for(const auto &piece : letters.pieces)
+            for(const auto &loop : piece)
+                for(size_t i = 0; i < loop.size(); ++i) ed.previewLines.push_back({loop[i], loop[(i + 1) % loop.size()]});
+        ed.previewPoints = {at};
+        if(e.text.find_first_not_of(" \t\r\n") == std::string::npos) panel()->setMessage(tr("Type the text."));
+        else if(!letters.ok) panel()->setMessage(QString::fromStdString(letters.error), cad::Severity::Error);
+        else if(!letters.warning.empty()) panel()->setMessage(QString::fromStdString(letters.warning), cad::Severity::Warning);
+        else panel()->setMessage({});
+        ed.refreshView();
+    }
+
+    void place() {
+        if(!m_open) return;
+        SkEntity e;
+        Vec2 at;
+        QString why;
+        if(!gather(e, at, why)) {
+            panel()->setMessage(why, cad::Severity::Error);
+            return;
+        }
+        if(e.text.find_first_not_of(" \t\r\n") == std::string::npos) {
+            panel()->setMessage(tr("Type the text first."), cad::Severity::Error);
+            m_text->setFocus();
+            return;
+        }
+        TextDefaults &d = textDefaults();
+        d.font = QString::fromStdString(e.font);
+        d.bold = e.bold;
+        d.italic = e.italic;
+        d.size = e.size;
+        const int editing = m_editing;
+        const bool ok = editor().edit(editing ? tr("Edit Text") : tr("Text"),
+                                      [&](cad::Sketch &s) { trial(s, e, at); }, false);
+        close();
+        m_editing = 0;
+        m_mode.showStatus(ok ? (editing ? tr("Text changed.") : tr("Text placed. Click to place more text."))
+                             : tr("The text could not be placed there."));
+    }
+
+    bool m_open = false, m_paletteShown = false;
+    int m_editing = 0;
+    SketchSnap m_snap;
+    QPointF m_cursor;
+    QPlainTextEdit *m_text = nullptr;
+    QComboBox *m_font = nullptr;
+    QCheckBox *m_bold = nullptr, *m_italic = nullptr, *m_mirror = nullptr;
+    ValueField *m_size = nullptr, *m_x = nullptr, *m_y = nullptr, *m_angle = nullptr;
+    std::vector<QMetaObject::Connection> m_connections;
+};
+
+// ---------------------------------------------------------------------------
 // Sketch Dimension: pick one or two entities, then click to place the label;
 // the value box opens right away, as in Fusion 360.
 
@@ -1639,6 +1915,7 @@ std::unique_ptr<SketchTool> createSketchTool(SketchMode &mode, SketchToolKind ki
     case SketchToolKind::Dimension: return std::make_unique<DimensionTool>(mode);
     case SketchToolKind::Move: return std::make_unique<MoveTool>(mode);
     case SketchToolKind::Offset: return std::make_unique<OffsetTool>(mode);
+    case SketchToolKind::Text: return std::make_unique<TextTool>(mode);
     default: return std::make_unique<ConstraintTool>(mode, kind);
     }
 }

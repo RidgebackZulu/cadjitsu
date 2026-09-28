@@ -41,7 +41,7 @@ std::vector<ProfileSeg> mergeSegments(const std::vector<ProfileSeg> &segs, bool 
     bool allSame = true;
     for(const auto &s : segs)
         if(s.curveId != segs[0].curveId || s.isArc != segs[0].isArc) allSame = false;
-    if(allSame && segs[0].isArc) {
+    if(allSame && segs[0].isArc && segs[0].curveId != 0) {
         fullCircle = true;
         ProfileSeg one = segs[0];
         for(const auto &s : segs) one.key = std::min(one.key, s.key);
@@ -60,7 +60,8 @@ std::vector<ProfileSeg> mergeSegments(const std::vector<ProfileSeg> &segs, bool 
     std::vector<ProfileSeg> out;
     for(size_t k = 0; k < n; ++k) {
         const ProfileSeg &s = segs[(start + k) % n];
-        if(!out.empty() && out.back().curveId == s.curveId && out.back().isArc == s.isArc &&
+        // (Pieces of no sketch curve, id 0 - text outlines - stay apart.)
+        if(!out.empty() && s.curveId != 0 && out.back().curveId == s.curveId && out.back().isArc == s.isArc &&
            out.back().ccw == s.ccw) {
             out.back().p1 = s.p1; // extend
             out.back().key = std::min(out.back().key, s.key);

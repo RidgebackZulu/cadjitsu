@@ -1,5 +1,6 @@
 #include "model/ModelView.h"
 
+#include "sketch/SketchText.h"
 #include "sketch/ProfileMesh.h"
 #include "viewport/Camera.h"
 #include "viewport/Viewport.h"
@@ -327,6 +328,14 @@ void ModelView::refresh() {
                     lb.segments.push_back(P(c + cad::Vec2(std::cos(t0), std::sin(t0)) * r));
                     lb.segments.push_back(P(c + cad::Vec2(std::cos(t1), std::sin(t1)) * r));
                 }
+            } else if(e.isText()) {
+                onCurves.insert(e.a);
+                for(const auto &piece : cad::sketchTextLetters(sk->sketch, e).pieces)
+                    for(const auto &loop : piece)
+                        for(size_t i = 0; i < loop.size(); ++i) {
+                            lb.segments.push_back(P(loop[i]));
+                            lb.segments.push_back(P(loop[(i + 1) % loop.size()]));
+                        }
             }
         }
         // Sketch points: standalone ones always; all of them while points can be picked.

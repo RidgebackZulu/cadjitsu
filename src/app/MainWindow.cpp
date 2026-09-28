@@ -81,6 +81,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
     m_recompute = new RecomputeService(m_document->sharedCache(), this);
     m_sketch = new SketchMode(*m_document, m_viewport, m_modelView, this);
     m_commandPanel = new CommandPanel(m_viewport);
+    m_sketch->setCommandPanel(m_commandPanel);
     m_commands = new CommandController({m_document.get(), m_modelView, m_viewport, m_commandPanel}, m_recompute, this);
     m_marking = new MarkingMenu(m_viewport);
     // The shown section's depth can be dragged at any time (Fusion's section
@@ -672,6 +673,7 @@ void MainWindow::buildActions() {
         {"sketchDimension", SketchToolKind::Dimension, IconId::Dimension, QKeySequence(Qt::Key_D)},
         {"sketchMove", SketchToolKind::Move, IconId::Move, QKeySequence(Qt::Key_M)},
         {"sketchOffset", SketchToolKind::Offset, IconId::Offset, QKeySequence(Qt::Key_O)},
+        {"sketchText", SketchToolKind::Text, IconId::Text, QKeySequence(Qt::Key_T)},
         {"constraintCoincident", SketchToolKind::Coincident, IconId::Coincident, {}},
         {"constraintHorizontalVertical", SketchToolKind::HorizontalVertical, IconId::HorizontalVertical, {}},
         {"constraintParallel", SketchToolKind::Parallel, IconId::Parallel, {}},
@@ -694,6 +696,9 @@ void MainWindow::buildActions() {
     m_actions[QStringLiteral("sketchSelect")]->setToolTip(
         tr("<b>Select (Esc)</b><p>Puts down the drawing tool, so you can pick sketch geometry and dimensions: drag "
            "points and curves, double-click a line, circle or dimension to change its size.</p>"));
+    m_actions[QStringLiteral("sketchText")]->setToolTip(
+        tr("<b>Text (T)</b><p>Click where the text goes and type. Set the font, size, angle and where it sits in "
+           "the panel; Reverse mirrors the letters.</p><p>Each letter is a region you can extrude.</p>"));
     m_actions[QStringLiteral("sketchOffset")]->setToolTip(
         tr("<b>Offset (O)</b><p>Copies the selected sketch curves a specified distance from the original curves.</p>"
            "<p>Select the curves to offset then specify the offset distance.</p>"));
@@ -766,6 +771,7 @@ void MainWindow::buildRibbon() {
         draw->addAction(action(QString::fromLatin1(name)));
     draw->addAction(action(QStringLiteral("sketchCenterRectangle")), false);
     draw->addAction(action(QStringLiteral("sketchPoint")), false);
+    draw->addAction(action(QStringLiteral("sketchText")), false);
     draw->addSeparator();
     draw->addAction(action(QStringLiteral("sketchConstruction")), false);
     RibbonGroup *modifySketch = m_sketchTab->addGroup(tr("MODIFY"));
