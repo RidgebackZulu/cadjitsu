@@ -416,13 +416,20 @@ void CommandPanel::reposition() {
 bool CommandPanel::eventFilter(QObject *o, QEvent *e) {
     if(o == parentWidget() && e->type() == QEvent::Resize) reposition();
     if(e->type() == QEvent::KeyPress && qobject_cast<QPlainTextEdit *>(o)) {
+        // Handled once the text box's key event is over: accepting hides the
+        // panel, and with it the text box (macOS's text input does not take
+        // its focus widget going away inside its own key press).
         auto *k = static_cast<QKeyEvent *>(e);
         if((k->key() == Qt::Key_Return || k->key() == Qt::Key_Enter) && !(k->modifiers() & Qt::ShiftModifier)) {
-            emit accepted();
+            QTimer::singleShot(0, this, [this] {
+                if(isVisible()) emit accepted();
+            });
             return true;
         }
         if(k->key() == Qt::Key_Escape) {
-            emit cancelled();
+            QTimer::singleShot(0, this, [this] {
+                if(isVisible()) emit cancelled();
+            });
             return true;
         }
     }

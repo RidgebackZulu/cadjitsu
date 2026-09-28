@@ -556,6 +556,8 @@ private slots:
         // The origin is where it was clicked.
         auto *x = panel->findChild<ValueField *>(QStringLiteral("sketchTextX"));
         auto *y = panel->findChild<ValueField *>(QStringLiteral("sketchTextY"));
+        auto *size = panel->findChild<ValueField *>(QStringLiteral("sketchTextSize"));
+        QVERIFY(x && y && size && x->value() && y->value());
         QVERIFY(std::fabs(*x->value() - 10) < 0.5 && std::fabs(*y->value() - 5) < 0.5);
         x->enterExpression(QStringLiteral("10"));
         y->enterExpression(QStringLiteral("5"));
@@ -563,14 +565,16 @@ private slots:
         QTest::keyClicks(text, QStringLiteral("HI"));
         QVERIFY(!ed()->previewLines.empty());
         QCOMPARE(countType(sk(), SkType::Text), 0);
-        panel->findChild<ValueField *>(QStringLiteral("sketchTextSize"))->enterExpression(QStringLiteral("10"));
+        size->enterExpression(QStringLiteral("10"));
         const size_t hiLines = ed()->previewLines.size();
+        qInfo("text: typed, placing");
         QTest::keyClick(text, Qt::Key_Return);
-        QVERIFY(!panel->isVisible());
+        QTRY_VERIFY(!panel->isVisible());
         QCOMPARE(countType(sk(), SkType::Text), 1);
         const cad::SkEntity *t = nullptr;
         for(const auto &e : sk().entities)
             if(e.isText()) t = &e;
+        QVERIFY(t);
         QCOMPARE(QString::fromStdString(t->text), QStringLiteral("HI"));
         QCOMPARE(t->size, 10.0);
         QVERIFY(sk().pointPos(t->a).x == 10.0 && sk().pointPos(t->a).y == 5.0);
@@ -581,35 +585,48 @@ private slots:
         // Esc drops a text not placed yet.
         click(at(40, 5));
         QVERIFY(panel->isVisible());
-        QTest::keyClicks(panel->findChild<QPlainTextEdit *>(QStringLiteral("sketchTextText")), QStringLiteral("X"));
-        QTest::keyClick(panel->findChild<QPlainTextEdit *>(QStringLiteral("sketchTextText")), Qt::Key_Escape);
-        QVERIFY(!panel->isVisible());
+        auto *second = panel->findChild<QPlainTextEdit *>(QStringLiteral("sketchTextText"));
+        QVERIFY(second);
+        QTest::keyClicks(second, QStringLiteral("X"));
+        QTest::keyClick(second, Qt::Key_Escape);
+        QTRY_VERIFY(!panel->isVisible());
+        qInfo("text: cancelled, editing");
         QCOMPARE(countType(sk(), SkType::Text), 1);
 
         // Double-clicking the text (inside a letter) opens it again; Reverse mirrors it.
         trigger("sketchSelect");
+        QCOMPARE(int(ed()->profiles().size()), 2);
         const cad::Vec2 inH = ed()->profiles()[0].sample;
         doubleClick(at(inH.x, inH.y));
         QCOMPARE(mode()->tool(), SketchToolKind::Text);
         QVERIFY(panel->isVisible());
         text = panel->findChild<QPlainTextEdit *>(QStringLiteral("sketchTextText"));
+        QVERIFY(text);
         QCOMPARE(text->toPlainText(), QStringLiteral("HI"));
         text->setPlainText(QStringLiteral("HI!"));
-        panel->findChild<QCheckBox *>(QStringLiteral("sketchTextReverse"))->setChecked(true);
+        auto *reverse = panel->findChild<QCheckBox *>(QStringLiteral("sketchTextReverse"));
+        QVERIFY(reverse);
+        reverse->setChecked(true);
         panel->okButton()->click();
+        qInfo("text: edited");
         QCOMPARE(countType(sk(), SkType::Text), 1);
+        QVERIFY(sk().find(textId));
         QCOMPARE(QString::fromStdString(sk().find(textId)->text), QStringLiteral("HI!"));
         QVERIFY(sk().find(textId)->mirror);
         QCOMPARE(int(ed()->profiles().size()), 4); // H, I and the two pieces of '!'
         // One undo step back to "HI".
         QVERIFY(mode()->undo());
+        QVERIFY(sk().find(textId));
         QCOMPARE(QString::fromStdString(sk().find(textId)->text), QStringLiteral("HI"));
 
+        qInfo("text: dragging");
         // Dragging the text moves its origin.
         trigger("sketchSelect");
         const cad::Vec2 before = sk().pointPos(sk().find(textId)->a);
+        QCOMPARE(int(ed()->profiles().size()), 2);
         const cad::Vec2 inI = ed()->profiles()[1].sample;
         dragLeft(at(inI.x, inI.y), at(inI.x + 5, inI.y + 3));
+        QVERIFY(sk().find(textId));
         const cad::Vec2 after = sk().pointPos(sk().find(textId)->a);
         QVERIFY2(std::fabs(after.x - before.x - 5) < 0.3 && std::fabs(after.y - before.y - 3) < 0.3,
                  qPrintable(QStringLiteral("%1,%2").arg(after.x).arg(after.y)));

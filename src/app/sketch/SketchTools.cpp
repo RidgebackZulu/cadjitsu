@@ -1362,13 +1362,19 @@ private:
         m_mirror->setChecked(style.mirror);
         m_text->setPlainText(QString::fromStdString(style.text));
         m_text->selectAll();
+        // Connected through an object of this tool's own, so nothing calls
+        // into it once it is closed or gone.
+        m_link = std::make_unique<QObject>();
+        QObject *ctx = m_link.get();
         auto changed = [this] { preview(); };
-        QObject::connect(m_text, &QPlainTextEdit::textChanged, p, changed);
-        QObject::connect(m_font, &QComboBox::currentTextChanged, p, changed);
-        for(QCheckBox *c : {m_bold, m_italic, m_mirror}) QObject::connect(c, &QCheckBox::toggled, p, changed);
-        for(ValueField *f : {m_size, m_x, m_y, m_angle}) QObject::connect(f, &ValueField::revalidated, p, changed);
-        m_connections = {QObject::connect(p, &CommandPanel::accepted, p, [this] { place(); }),
-                         QObject::connect(p, &CommandPanel::cancelled, p, [this] { cancel(); })};
+        m_connections.push_back(QObject::connect(m_text, &QPlainTextEdit::textChanged, ctx, changed));
+        m_connections.push_back(QObject::connect(m_font, &QComboBox::currentTextChanged, ctx, changed));
+        for(QCheckBox *c : {m_bold, m_italic, m_mirror})
+            m_connections.push_back(QObject::connect(c, &QCheckBox::toggled, ctx, changed));
+        for(ValueField *f : {m_size, m_x, m_y, m_angle})
+            m_connections.push_back(QObject::connect(f, &ValueField::revalidated, ctx, changed));
+        m_connections.push_back(QObject::connect(p, &CommandPanel::accepted, ctx, [this] { place(); }));
+        m_connections.push_back(QObject::connect(p, &CommandPanel::cancelled, ctx, [this] { cancel(); }));
         m_text->setFocus();
         preview();
         m_mode.showStatus(prompt());
@@ -1377,6 +1383,8 @@ private:
     void close() {
         for(const auto &c : m_connections) QObject::disconnect(c);
         m_connections.clear();
+        // Deleted from the event loop: close() may run inside one of its handlers.
+        if(m_link) m_link.release()->deleteLater();
         if(m_open && panel()) panel()->end();
         if(m_open && m_paletteShown)
             if(SketchPalette *pal = m_mode.palette()) pal->show();
@@ -1491,6 +1499,7 @@ private:
     QComboBox *m_font = nullptr;
     QCheckBox *m_bold = nullptr, *m_italic = nullptr, *m_mirror = nullptr;
     ValueField *m_size = nullptr, *m_x = nullptr, *m_y = nullptr, *m_angle = nullptr;
+    std::unique_ptr<QObject> m_link;
     std::vector<QMetaObject::Connection> m_connections;
 };
 

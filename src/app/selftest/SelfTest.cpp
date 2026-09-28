@@ -374,6 +374,7 @@ bool sketchScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     check(ed->previewLines.size() > 40, QStringLiteral("Text previews the letters as they are typed"));
     shot("sketch_text.png");
     sendKey(w, Qt::Key_Return);
+    processEventsFor(30); // (Enter in the text box is handled from the event loop)
     sendKey(w, Qt::Key_Escape);
     const size_t regionsAfter = ed->profiles().size();
     check(regionsAfter >= regionsBefore + 10,
