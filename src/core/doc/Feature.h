@@ -14,7 +14,7 @@
 
 namespace cad {
 
-enum class FeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Combine, ConstructionPlane, Split, Draft, Pattern, Thread };
+enum class FeatureType { Sketch, Extrude, Fillet, Chamfer, Hole, Combine, ConstructionPlane, Split, Draft, Pattern, Thread, Text };
 
 const char *toString(FeatureType t);
 bool featureTypeFromString(const std::string &s, FeatureType &out);

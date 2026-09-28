@@ -14,6 +14,7 @@
 #include "command/PlaneCommand.h"
 #include "command/SectionCommand.h"
 #include "command/SplitCommand.h"
+#include "command/TextCommand.h"
 #include "command/ThreadCommand.h"
 #include "mcp/McpButton.h"
 #include "mcp/McpDialog.h"
@@ -381,7 +382,7 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
+    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "embossText", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
         action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
@@ -510,6 +511,7 @@ void MainWindow::editFeature(cad::FeatureId id) {
     case cad::FeatureType::Split: m_commands->start(std::make_unique<SplitCommand>(ctx, id)); return;
     case cad::FeatureType::Draft: m_commands->start(std::make_unique<DraftCommand>(ctx, id)); return;
     case cad::FeatureType::Thread: m_commands->start(std::make_unique<ThreadCommand>(ctx, id)); return;
+    case cad::FeatureType::Text: m_commands->start(std::make_unique<TextCommand>(ctx, id)); return;
     case cad::FeatureType::Pattern:
         m_commands->start(std::make_unique<PatternCommand>(
             ctx, std::static_pointer_cast<const cad::PatternFeature>(f)->kind, id));
@@ -636,6 +638,8 @@ void MainWindow::buildActions() {
                [this, ctx] { startCommand(QStringLiteral("combine"), std::make_unique<CombineCommand>(ctx)); });
     makeAction("thread", tr("Thread"), IconId::Thread, {},
                [this, ctx] { startCommand(QStringLiteral("thread"), std::make_unique<ThreadCommand>(ctx)); });
+    makeAction("embossText", tr("Emboss Text"), IconId::Emboss, {},
+               [this, ctx] { startCommand(QStringLiteral("embossText"), std::make_unique<TextCommand>(ctx)); });
     makeAction("mirror", tr("Mirror"), IconId::Mirror, {}, [this, ctx] {
         startCommand(QStringLiteral("mirror"), std::make_unique<PatternCommand>(ctx, cad::PatternKind::Mirror));
     });
@@ -696,6 +700,10 @@ void MainWindow::buildActions() {
     m_actions[QStringLiteral("sketchSelect")]->setToolTip(
         tr("<b>Select (Esc)</b><p>Puts down the drawing tool, so you can pick sketch geometry and dimensions: drag "
            "points and curves, double-click a line, circle or dimension to change its size.</p>"));
+    m_actions[QStringLiteral("embossText")]->setToolTip(
+        tr("<b>Emboss Text</b><p>Engraves text into a face, or raises it from the face. Click the face where the "
+           "text goes and type; drag the knob to move it, the ring to turn it and the arrow for its depth.</p>"
+           "<p>On a curved face the letters follow the surface.</p>"));
     m_actions[QStringLiteral("sketchText")]->setToolTip(
         tr("<b>Text (T)</b><p>Click where the text goes and type. Set the font, size, angle and where it sits in "
            "the panel; Reverse mirrors the letters.</p><p>Each letter is a region you can extrude.</p>"));
@@ -744,6 +752,7 @@ void MainWindow::buildRibbon() {
     create->addAction(action(QStringLiteral("extrude")));
     create->addAction(action(QStringLiteral("hole")));
     create->addAction(action(QStringLiteral("thread")));
+    create->addAction(action(QStringLiteral("embossText")));
     create->addAction(action(QStringLiteral("patternRect")), false);
     create->addAction(action(QStringLiteral("patternCircular")), false);
     create->addAction(action(QStringLiteral("mirror")), false);

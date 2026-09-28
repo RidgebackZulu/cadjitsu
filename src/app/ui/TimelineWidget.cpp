@@ -40,6 +40,7 @@ IconId iconFor(cad::FeatureType t) {
     case cad::FeatureType::Draft: return IconId::Draft;
     case cad::FeatureType::Pattern: return IconId::PatternRect;
     case cad::FeatureType::Thread: return IconId::Thread;
+    case cad::FeatureType::Text: return IconId::Emboss;
     }
     return IconId::Body;
 }

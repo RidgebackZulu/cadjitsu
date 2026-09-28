@@ -16,6 +16,7 @@
 #include "ui/AngleDial.h"
 #include "command/SectionCommand.h"
 #include "command/SplitCommand.h"
+#include "command/TextCommand.h"
 #include "command/ThreadCommand.h"
 #include "model/ModelView.h"
 #include "selftest/DemoModels.h"
@@ -1243,10 +1244,69 @@ bool featuresScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     cad::SectionAnalysis cutOpen;
     cutOpen.plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XZ);
     cutOpen.offset = 50;
-    doc.addSection(cutOpen);
+    const int sectionId = doc.addSection(cutOpen);
     w.refresh();
     settle();
     shot("features_16_thread_section.png");
+    doc.deleteSection(sectionId);
+
+    // Emboss Text: a name plate, and text wrapped round a cylinder.
+    auto plateSketch = std::make_shared<cad::SketchFeature>();
+    plateSketch->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+    plateSketch->sketch.addRectangle({100, 0}, {170, 30});
+    plateSketch->sketch.addCircle(cad::Vec2{135, 70}, 15);
+    const cad::FeatureId psid = doc.addFeature(plateSketch);
+    for(const auto &p : doc.stateAt(doc.marker())->sketches.at(psid)->profiles) {
+        auto ex = std::make_shared<cad::ExtrudeFeature>();
+        ex->profiles.push_back({psid, p.key, p.sample});
+        ex->distance = doc.makeSlot(std::fabs(p.area) > 1000 ? "6 mm" : "40 mm");
+        ex->operation = cad::BodyOperation::NewBody;
+        doc.addFeature(ex);
+    }
+    w.refresh();
+    cam.setOrientation(QVector3D(-0.35f, 0.75f, -0.56f).normalized(), QVector3D(0, 0, 1));
+    cam.target = QVector3D(135, 35, 12);
+    cam.distance = 190;
+    waitForFrames(vp, 2);
+    settle();
+    const double beforeText = shown();
+    w.action(QStringLiteral("embossText"))->trigger();
+    auto *text = qobject_cast<TextCommand *>(w.commands()->command());
+    if(!text) return false;
+    clickAt(vp, at(135, 15, 6));
+    typeText(w, QStringLiteral("Cadjitsu"));
+    text->sizeField()->enterExpression(QStringLiteral("10"));
+    text->xField()->enterExpression(QStringLiteral("135"));
+    text->yField()->enterExpression(QStringLiteral("15"));
+    text->directionBox()->setCurrentIndex(1);
+    text->depthField()->enterExpression(QStringLiteral("1.5"));
+    settle();
+    check(text->hasFace() && text->laidOut().ok && shown() > beforeText + 50.0 && lastOk(),
+          QStringLiteral("Emboss Text: raised letters on the plate (%1 mm3 added; '%2')")
+              .arg(shown() - beforeText, 0, 'f', 1)
+              .arg(w.commandPanel()->message()));
+    shot("features_17_emboss_text.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(lastOk(), QStringLiteral("Emboss Text committed"));
+    const double beforeWrap = shown();
+    w.action(QStringLiteral("embossText"))->trigger();
+    text = qobject_cast<TextCommand *>(w.commands()->command());
+    if(!text) return false;
+    clickAt(vp, at(135, 55, 20));
+    typeText(w, QStringLiteral("WRAP"));
+    text->sizeField()->enterExpression(QStringLiteral("9"));
+    text->depthField()->enterExpression(QStringLiteral("1"));
+    settle();
+    check(text->hasFace() && shown() < beforeWrap - 10.0 && shown() > beforeWrap - 500.0 && lastOk(),
+          QStringLiteral("Emboss Text: engraved round the cylinder (%1 mm3 cut; '%2')")
+              .arg(beforeWrap - shown(), 0, 'f', 1)
+              .arg(w.commandPanel()->message()));
+    shot("features_18_text_cylinder.png");
+    w.commandPanel()->okButton()->click();
+    settle();
+    check(lastOk(), QStringLiteral("the wrapped text committed"));
+    shot("features_19_text_done.png");
     return ok;
 }
 

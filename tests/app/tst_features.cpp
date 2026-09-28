@@ -15,6 +15,7 @@
 #include "command/PatternCommand.h"
 #include "command/PlaneCommand.h"
 #include "command/SplitCommand.h"
+#include "command/TextCommand.h"
 #include "command/ThreadCommand.h"
 #include "ui/AngleDial.h"
 #include "model/ModelView.h"
@@ -23,6 +24,7 @@
 #include "viewport/Viewport.h"
 
 #include "features/ChamferFeature.h"
+#include "features/TextFeature.h"
 #include "features/CombineFeature.h"
 #include "features/DraftFeature.h"
 #include "features/ConstructionPlaneFeature.h"
@@ -36,6 +38,8 @@
 #include "geom/OcctUtil.h"
 #include "topo/Resolver.h"
 
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
 #include <gp_Pln.hxx>
 
 #include <QAction>
@@ -43,6 +47,7 @@
 #include <QComboBox>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QtTest>
 
@@ -275,6 +280,111 @@ private slots:
         QCOMPARE(hole->typeBox()->currentIndex(), 1);
         QCOMPARE(hole->extentBox()->currentIndex(), 1);
         panel()->cancelButton()->click();
+    }
+
+    // Emboss Text: click a face, type; the knob moves it, a typed angle turns it,
+    // Engrave / Emboss picks the side; Edit Feature reopens it.
+    void embossTextOnAFace() {
+        box(0, 0, 60, 30, 10);
+        showHome();
+        trigger("embossText");
+        auto *cmd = command<TextCommand>();
+        QVERIFY(cmd);
+        click(at(30, 15, 10));
+        QVERIFY(cmd->hasFace());
+        QVERIFY(std::fabs(*cmd->xField()->value() - 30) < 0.5 && std::fabs(*cmd->yField()->value() - 15) < 0.5);
+        // The text box has the keyboard, its placeholder text selected; the outline shows at once.
+        QCOMPARE(m_window->focusWidget(), static_cast<QWidget *>(cmd->textBox()));
+        QVERIFY(cmd->laidOut().ok);
+        QTest::keyClicks(cmd->textBox(), QStringLiteral("AB"));
+        QCOMPARE(cmd->textBox()->toPlainText(), QStringLiteral("AB"));
+        QCOMPARE(int(cmd->gizmo().outlines().size()), 5); // A and its counter, B and its two
+        cmd->xField()->enterExpression(QStringLiteral("30"));
+        cmd->yField()->enterExpression(QStringLiteral("15"));
+        cmd->sizeField()->enterExpression(QStringLiteral("8"));
+        cmd->depthField()->enterExpression(QStringLiteral("1"));
+        settle();
+        cad::TextStyle st;
+        st.size = 8;
+        GProp_GProps g;
+        BRepGProp::SurfaceProperties(cad::buildText("AB", st)->faces, g);
+        const double letters = std::fabs(g.Mass());
+        QVERIFY2(std::fabs(shown() - (18000.0 - letters)) < 0.05, qPrintable(QString::number(18000.0 - shown())));
+        QVERIFY(view()->evaluation()->tool); // the letters are shown translucent
+
+        // Dragging the knob moves the text over the face.
+        QVERIFY(cmd->gizmo().knobVisible());
+        const QPointF knob = cmd->gizmo().knobOnScreen();
+        QVERIFY(QLineF(knob, at(30, 15, 10)).length() < 2.0);
+        send(vp(), QEvent::MouseMove, knob, Qt::NoButton, Qt::NoButton);
+        send(vp(), QEvent::MouseButtonPress, knob, Qt::LeftButton, Qt::LeftButton);
+        for(int i = 1; i <= 6; ++i)
+            send(vp(), QEvent::MouseMove, knob + (at(20, 12, 10) - knob) * (i / 6.0), Qt::NoButton, Qt::LeftButton);
+        send(vp(), QEvent::MouseButtonRelease, at(20, 12, 10), Qt::LeftButton, Qt::NoButton);
+        QVERIFY2(std::fabs(*cmd->xField()->value() - 20) < 0.3 && std::fabs(*cmd->yField()->value() - 12) < 0.3,
+                 qPrintable(cmd->xField()->text() + QLatin1Char(' ') + cmd->yField()->text()));
+        // A quarter turn: the text now runs up the face.
+        cmd->rotationField()->enterExpression(QStringLiteral("90"));
+        double x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+        for(const auto &loop : cmd->gizmo().outlines())
+            for(const QVector3D &p : loop) {
+                x0 = std::min(x0, double(p.x()));
+                x1 = std::max(x1, double(p.x()));
+                y0 = std::min(y0, double(p.y()));
+                y1 = std::max(y1, double(p.y()));
+            }
+        QVERIFY(y1 - y0 > x1 - x0);
+        QVERIFY(std::fabs(cmd->gizmo().plane().ring(0).angle - M_PI / 2) < 1e-9);
+        settle();
+        QVERIFY(std::fabs(shown() - (18000.0 - letters)) < 0.05);
+        // Raised instead.
+        cmd->directionBox()->setCurrentIndex(1);
+        settle();
+        QVERIFY2(std::fabs(shown() - (18000.0 + letters)) < 0.05, qPrintable(QString::number(shown() - 18000.0)));
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::TextFeature>(doc().features().back());
+        QVERIFY(f);
+        QCOMPARE(QString::fromStdString(f->text), QStringLiteral("AB"));
+        QCOMPARE(f->direction, cad::TextDirection::Emboss);
+        QCOMPARE(QString::fromStdString(f->name), QStringLiteral("Text1"));
+        m_window->editFeature(f->id);
+        cmd = command<TextCommand>();
+        QVERIFY(cmd && cmd->isEditing());
+        QCOMPARE(cmd->textBox()->toPlainText(), QStringLiteral("AB"));
+        QCOMPARE(cmd->directionBox()->currentIndex(), 1);
+        panel()->cancelButton()->click();
+    }
+
+    // On a cylinder's side the letters wrap around it.
+    void embossTextWrapsACylinder() {
+        auto s = std::make_shared<cad::SketchFeature>();
+        s->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+        s->sketch.addCircle(cad::Vec2{0, 0}, 15);
+        const cad::FeatureId sid = doc().addFeature(s);
+        auto e = std::make_shared<cad::ExtrudeFeature>();
+        for(const auto &p : doc().stateAt(doc().marker())->sketches.at(sid)->profiles) e->profiles.push_back({sid, p.key, p.sample});
+        e->distance = doc().makeSlot("30 mm");
+        doc().addFeature(e);
+        m_window->refresh();
+        vp()->setStandardView(StandardView::Front, false);
+        vp()->fitAll(false);
+        QVERIFY(waitForFrames(vp(), 1));
+        const double before = shown();
+        trigger("embossText");
+        auto *cmd = command<TextCommand>();
+        click(at(0, -15, 15));
+        QVERIFY(cmd->hasFace());
+        QTest::keyClicks(cmd->textBox(), QStringLiteral("WRAP"));
+        cmd->sizeField()->enterExpression(QStringLiteral("6"));
+        // Every outline point is on the cylinder.
+        for(const auto &loop : cmd->gizmo().outlines())
+            for(const QVector3D &p : loop) QVERIFY(std::fabs(std::hypot(p.x(), p.y()) - 15.02) < 0.01);
+        settle();
+        QVERIFY(shown() < before - 5.0);
+        panel()->okButton()->click();
+        settle();
+        QVERIFY(doc().statusOf(doc().features().back()->id).isOk());
     }
 
     void holesAtSketchPoints() {
