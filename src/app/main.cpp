@@ -3,6 +3,7 @@
 #include "selftest/SelfTest.h"
 #include "mcp/McpTools.h"
 #include "ui/AppIcon.h"
+#include "ui/Fonts.h"
 #include "ui/Theme.h"
 #include "viewport/Viewport.h"
 
@@ -67,6 +68,7 @@ int main(int argc, char *argv[]) {
     QApplication::setApplicationVersion(QString::fromLatin1(cad::version()));
     QApplication::setOrganizationName(QStringLiteral("Cadjitsu"));
     cadjitsu::migrateSettingsFromCadly();
+    cadjitsu::registerBundledFonts();
     QApplication::setWindowIcon(cadjitsu::appIcon());
 
     QCommandLineParser parser;

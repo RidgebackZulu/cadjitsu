@@ -29,8 +29,21 @@ qt_add_resources(cadjitsu_ui "cadjitsu_icons"
     BASE ${PROJECT_SOURCE_DIR}/resources/icons
     FILES ${CADJITSU_ICON_SVGS})
 
+# Fonts for text (DejaVu, free to redistribute): in the macOS bundle's
+# Resources/fonts, next to the binary elsewhere, and the source tree as the
+# last resort for development builds.
+file(GLOB CADJITSU_FONTS CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/resources/fonts/*.ttf
+                                           ${PROJECT_SOURCE_DIR}/resources/fonts/*.txt)
+target_compile_definitions(cadjitsu_ui PRIVATE CADJITSU_FONT_DIR="${PROJECT_SOURCE_DIR}/resources/fonts")
+
 qt_add_executable(Cadjitsu MACOSX_BUNDLE WIN32 main.cpp)
 target_link_libraries(Cadjitsu PRIVATE cadjitsu_ui)
+if(APPLE)
+    target_sources(Cadjitsu PRIVATE ${CADJITSU_FONTS})
+    set_source_files_properties(${CADJITSU_FONTS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources/fonts)
+else()
+    file(COPY ${CADJITSU_FONTS} DESTINATION ${CMAKE_CURRENT_BINARY_DIR}/fonts)
+endif()
 set_target_properties(Cadjitsu PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER "app.cadjitsu.Cadjitsu"
     MACOSX_BUNDLE_BUNDLE_NAME "Cadjitsu"

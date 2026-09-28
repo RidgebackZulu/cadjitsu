@@ -1,4 +1,5 @@
 #include "TestRegistry.h"
+#include "ui/Fonts.h"
 
 #include "ui/Theme.h"
 
@@ -27,6 +28,7 @@ int main(int argc, char **argv) {
     // Settings the tests touch stay out of the user's own Cadjitsu settings.
     QStandardPaths::setTestModeEnabled(true);
     QCoreApplication::setOrganizationName(QStringLiteral("Cadjitsu Tests"));
+    cadjitsu::registerBundledFonts();
     // CADJITSU_TEST_CLASS=SketchTests runs one test class (other arguments go to QtTest).
     const QByteArray only = qgetenv("CADJITSU_TEST_CLASS");
     int failures = 0;

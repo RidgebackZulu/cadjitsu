@@ -8,7 +8,8 @@ message(STATUS "OpenCASCADE ${OpenCASCADE_VERSION} at ${OpenCASCADE_INSTALL_PREF
 set(_cadjitsu_occt_toolkits
     TKernel TKMath TKG2d TKG3d TKGeomBase TKBRep TKGeomAlgo TKTopAlgo
     TKPrim TKBO TKBool TKShHealing TKFillet TKOffset TKFeat TKMesh
-    TKCDF TKLCAF TKCAF TKXCAF TKXSBase)
+    TKCDF TKLCAF TKCAF TKXCAF TKXSBase
+    TKService TKV3d) # fonts: text outlines (Font_FontMgr, StdPrs_BRepFont)
 
 if(TARGET TKDESTEP)
     list(APPEND _cadjitsu_occt_toolkits TKDESTEP)
