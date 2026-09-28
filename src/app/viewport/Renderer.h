@@ -20,7 +20,7 @@ class QRhiSampler;
 class QRhiShaderResourceBindings;
 class QRhiTexture;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Draws a RenderScene with Qt RHI (Metal / OpenGL / Vulkan / D3D).
 class Renderer {
@@ -60,4 +60,4 @@ private:
     std::unordered_map<const cad::MeshData *, std::unique_ptr<GpuMesh>> m_meshes;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

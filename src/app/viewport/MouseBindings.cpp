@@ -3,12 +3,12 @@
 #include <QCoreApplication>
 #include <QSettings>
 
-namespace cadly {
+namespace cadjitsu {
 
 MouseBindings MouseBindings::preset(Preset p) {
     MouseBindings b;
     switch(p) {
-    case Preset::Cadly:
+    case Preset::Cadjitsu:
     case Preset::Custom: break; // right drag orbits, middle drag pans (Shift + middle orbits too)
     case Preset::Fusion:
         b.orbit = Drag::ShiftMiddle;
@@ -26,7 +26,7 @@ MouseBindings MouseBindings::preset(Preset p) {
 }
 
 MouseBindings::Preset MouseBindings::matchingPreset() const {
-    for(Preset p : {Preset::Cadly, Preset::Fusion, Preset::SolidWorks})
+    for(Preset p : {Preset::Cadjitsu, Preset::Fusion, Preset::SolidWorks})
         if(*this == preset(p)) return p;
     return Preset::Custom;
 }
@@ -48,7 +48,7 @@ QStringList MouseBindings::dragNames() {
 }
 
 QStringList MouseBindings::presetNames() {
-    return {QCoreApplication::translate("MouseBindings", "Cadly (right drag orbits)"),
+    return {QCoreApplication::translate("MouseBindings", "Cadjitsu (right drag orbits)"),
             QCoreApplication::translate("MouseBindings", "Fusion 360"),
             QCoreApplication::translate("MouseBindings", "SolidWorks"),
             QCoreApplication::translate("MouseBindings", "Custom")};
@@ -99,4 +99,4 @@ void MouseBindings::save() const {
     s.setValue(QStringLiteral("mouse/trackpadOrbits"), trackpadOrbits);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

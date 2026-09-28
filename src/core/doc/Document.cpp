@@ -36,7 +36,7 @@ std::shared_ptr<ParamTable> buildParamTable(const std::vector<FeaturePtr> &featu
 std::vector<uint64_t> timelineKeys(const std::vector<FeaturePtr> &features, const ParamTable &params) {
     std::vector<uint64_t> keys;
     keys.reserve(features.size());
-    uint64_t k = hashString("cadly-timeline-v1");
+    uint64_t k = hashString("cadjitsu-timeline-v1");
     for(const auto &f : features) {
         uint64_t h = hashString(f->dataToJson().dump());
         h = hashCombine(h, hashString(toString(f->type())));
@@ -489,20 +489,22 @@ bool Document::redo() {
 
 json Document::toJson() const {
     json j = snapshot();
-    j["format"] = "cadly";
+    j["format"] = "cadjitsu";
     j["version"] = kFormatVersion;
-    j["generator"] = std::string("Cadly ") + version();
+    j["generator"] = std::string("Cadjitsu ") + version();
     j["units"] = "mm";
     return j;
 }
 
 bool Document::fromJson(const json &j, std::string &error) {
-    if(!j.is_object() || jget<std::string>(j, "format", "") != "cadly") {
-        error = "not a Cadly document";
+    // "cadly": designs saved before the app was renamed Cadjitsu (the same format).
+    const std::string format = j.is_object() ? jget<std::string>(j, "format", "") : std::string();
+    if(format != "cadjitsu" && format != "cadly") {
+        error = "not a Cadjitsu document";
         return false;
     }
     if(jget<int>(j, "version", 0) > kFormatVersion) {
-        error = "this document was made by a newer version of Cadly";
+        error = "this document was made by a newer version of Cadjitsu";
         return false;
     }
     restore(j);

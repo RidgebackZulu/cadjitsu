@@ -64,7 +64,7 @@ bool writeStepFile(const std::string &path, const std::vector<NamedSolid> &solid
 
     Interface_Static::SetCVal("write.step.schema", schema == StepSchema::AP242 ? "AP242DIS" : "AP214IS");
     Interface_Static::SetCVal("write.step.unit", "MM");
-    Interface_Static::SetCVal("write.step.product.name", "Cadly part");
+    Interface_Static::SetCVal("write.step.product.name", "Cadjitsu part");
 
     STEPCAFControl_Writer writer;
     writer.SetNameMode(Standard_True);

@@ -20,7 +20,7 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
-namespace cadly {
+namespace cadjitsu {
 
 // --- ValueField ------------------------------------------------------------------
 
@@ -163,9 +163,9 @@ void SelectionField::mousePressEvent(QMouseEvent *e) {
 void SelectionField::restyle() {
     m_text->setText(m_count > 0 ? tr("%n selected", nullptr, m_count) : m_hint);
     m_clear->setVisible(m_count > 0);
-    setStyleSheet(m_active ? QStringLiteral("cadly--SelectionField { border: 1px solid #1a66c9; border-radius: 3px;"
+    setStyleSheet(m_active ? QStringLiteral("cadjitsu--SelectionField { border: 1px solid #1a66c9; border-radius: 3px;"
                                             " background: #e3efff; }")
-                           : QStringLiteral("cadly--SelectionField { border: 1px solid #b9c1cc; border-radius: 3px;"
+                           : QStringLiteral("cadjitsu--SelectionField { border: 1px solid #b9c1cc; border-radius: 3px;"
                                             " background: white; }"));
 }
 
@@ -183,11 +183,11 @@ CommandPanel::CommandPanel(QWidget *canvas) : QFrame(canvas) {
         "#commandOk { background: #1a66c9; color: white; border-radius: 3px; padding: 4px 16px; border: none; }"
         "#commandOk:disabled { background: #9db6d8; }"
         "#commandCancel { border-radius: 3px; padding: 4px 12px; }"
-        "cadly--ValueField { border: 1px solid #b9c0ca; border-radius: 3px; padding: 2px 4px; background: white;"
+        "cadjitsu--ValueField { border: 1px solid #b9c0ca; border-radius: 3px; padding: 2px 4px; background: white;"
         " color: #10161f; selection-background-color: #9cc6ff; selection-color: #10161f; font-size: 12px; }"
         "QComboBox, QCheckBox, QPushButton { color: #1c2128; font-size: 11px; }"
-        "cadly--ValueField:focus { border: 1px solid #1a66c9; }"
-        "cadly--ValueField[invalid=\"true\"] { border: 1px solid #d23c3c; background: #fff3f2; }"));
+        "cadjitsu--ValueField:focus { border: 1px solid #1a66c9; }"
+        "cadjitsu--ValueField[invalid=\"true\"] { border: 1px solid #d23c3c; background: #fff3f2; }"));
     auto *v = new QVBoxLayout(this);
     v->setContentsMargins(10, 8, 10, 10);
     v->setSpacing(6);
@@ -419,4 +419,4 @@ void CommandPanel::keyPressEvent(QKeyEvent *e) {
     else QFrame::keyPressEvent(e);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

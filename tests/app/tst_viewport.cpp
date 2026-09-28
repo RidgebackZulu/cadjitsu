@@ -14,7 +14,7 @@
 #include <QLabel>
 #include <QtTest>
 
-using namespace cadly;
+using namespace cadjitsu;
 
 namespace {
 
@@ -302,6 +302,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(ViewportTests)
+CADJITSU_REGISTER_TEST(ViewportTests)
 
 #include "tst_viewport.moc"

@@ -8,7 +8,7 @@
 #include <cmath>
 #include <cstring>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -252,9 +252,9 @@ void Renderer::createPipelines() {
         if(depthWrite && QString::fromLatin1(vs) == QLatin1String("mesh.vert")) {
             // Push opaque faces back slightly so coplanar edges and overlays draw on top.
             // The constant part does next to nothing on Apple GPUs (a float depth
-            // buffer), so nothing may rely on it; CADLY_NO_CONSTANT_DEPTH_BIAS
+            // buffer), so nothing may rely on it; CADJITSU_NO_CONSTANT_DEPTH_BIAS
             // leaves it out to check that on other GPUs.
-            if(!qEnvironmentVariableIsSet("CADLY_NO_CONSTANT_DEPTH_BIAS")) pl->setDepthBias(2);
+            if(!qEnvironmentVariableIsSet("CADJITSU_NO_CONSTANT_DEPTH_BIAS")) pl->setDepthBias(2);
             pl->setSlopeScaledDepthBias(1.5f);
         }
         pl->setSampleCount(m_sampleCount);
@@ -804,4 +804,4 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
     evictMeshes();
 }
 
-} // namespace cadly
+} // namespace cadjitsu

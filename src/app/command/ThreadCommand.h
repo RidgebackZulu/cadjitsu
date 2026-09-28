@@ -11,7 +11,7 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Thread: pick the round faces of holes (internal threads) or bosses
 // (external). The size is found from the diameter, or chosen; small threads
@@ -57,4 +57,4 @@ private:
     QCheckBox *m_full = nullptr, *m_left = nullptr;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -8,7 +8,7 @@
 #include <array>
 #include <functional>
 
-namespace cadly {
+namespace cadjitsu {
 
 // The Offset Plane command's canvas controls: the distance arrow plus up to
 // two rotation rings, each a protractor about one axis through the plane's
@@ -74,4 +74,4 @@ private:
     double m_grab = 0.0;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

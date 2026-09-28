@@ -8,7 +8,7 @@ class QCheckBox;
 class QPushButton;
 class QToolButton;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Fusion 360's SKETCH PALETTE: a panel on the right of the canvas with the
 // sketch display options (grid, snap, profiles, points, dimensions,
@@ -24,7 +24,7 @@ public:
     void reposition();
 
 signals:
-    void optionsChanged(const cadly::SketchDisplayOptions &o);
+    void optionsChanged(const cadjitsu::SketchDisplayOptions &o);
     void lookAtRequested();
     void constructionRequested();
     void finishRequested();
@@ -38,4 +38,4 @@ private:
     QPushButton *m_finish;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

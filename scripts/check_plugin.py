@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Checks the Cadly plugin for both clients:
+"""Checks the Cadjitsu plugin for both clients:
 
 - Claude Code: the marketplace and .claude-plugin/plugin.json, .mcp.json;
-- Hermes Agent: plugins/cadly as a portable Agent Plugin (plugin.json, skills/), with the
+- Hermes Agent: plugins/cadjitsu as a portable Agent Plugin (plugin.json, skills/), with the
   rules Hermes' hermes_cli/agent_plugins.py applies, and nothing in the folder that Hermes'
   install-time scanner (tools/skills_guard.py) rates high or critical (a community plugin
   with such findings is blocked)."""
@@ -33,10 +33,10 @@ for p in market.get("plugins", []):
     if plugin.get("name") != p.get("name"):
         errors.append(f"plugin.json name {plugin.get('name')!r} != marketplace entry {p.get('name')!r}")
     mcp = load(os.path.join(p.get("source", ""), ".mcp.json"))
-    if "cadly" not in mcp.get("mcpServers", {}):
-        errors.append(".mcp.json does not declare the cadly server")
+    if "cadjitsu" not in mcp.get("mcpServers", {}):
+        errors.append(".mcp.json does not declare the cadjitsu server")
 
-skill = os.path.join(root, "plugins/cadly/skills/cadly-cad/SKILL.md")
+skill = os.path.join(root, "plugins/cadjitsu/skills/cadjitsu-cad/SKILL.md")
 text = open(skill).read()
 m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
 if not m:
@@ -47,8 +47,8 @@ else:
         if not re.search(rf"^{key}: \S", front, re.M):
             errors.append(f"SKILL.md frontmatter lacks {key}")
     name = re.search(r"^name: (\S+)", front, re.M)
-    if name and name.group(1) != "cadly-cad":
-        errors.append("SKILL.md name must be cadly-cad (its folder name)")
+    if name and name.group(1) != "cadjitsu-cad":
+        errors.append("SKILL.md name must be cadjitsu-cad (its folder name)")
     desc = re.search(r"^description: (.+)$", front, re.M)
     if desc and len(desc.group(1)) > 1024:
         errors.append("SKILL.md description is longer than 1024 characters")
@@ -58,18 +58,18 @@ else:
         for line in meta.group(1).splitlines():
             if not re.match(r'^  [\w.-]+: (?:"[^"]*"|[^\s\[{][^\[{]*)$', line):
                 errors.append(f"SKILL.md metadata must map strings to strings: {line.strip()!r}")
-if not os.path.exists(os.path.join(root, "plugins/cadly/skills/cadly-cad/references/tools.md")):
+if not os.path.exists(os.path.join(root, "plugins/cadjitsu/skills/cadjitsu-cad/references/tools.md")):
     errors.append("references/tools.md is missing")
 
-# --- Hermes Agent: plugins/cadly as a portable Agent Plugin (Agent Plugins v1) ----------------
+# --- Hermes Agent: plugins/cadjitsu as a portable Agent Plugin (Agent Plugins v1) ----------------
 PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
 PLUGIN_FIELDS = {"$schema", "name", "version", "description", "author", "homepage", "repository", "license",
                  "keywords", "extensions"}
 PLUGIN_NAME_RE = re.compile(r"^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$")
 SKILL_NAME_RE = re.compile(r"^(?!.*--)[a-z0-9]+(?:-[a-z0-9]+)*$")
-plugin_dir = os.path.join(root, "plugins/cadly")
-portable = load("plugins/cadly/plugin.json")
-claude = load("plugins/cadly/.claude-plugin/plugin.json")
+plugin_dir = os.path.join(root, "plugins/cadjitsu")
+portable = load("plugins/cadjitsu/plugin.json")
+claude = load("plugins/cadjitsu/.claude-plugin/plugin.json")
 if set(portable) - PLUGIN_FIELDS:
     errors.append(f"plugin.json has fields Agent Plugins v1 does not allow: {sorted(set(portable) - PLUGIN_FIELDS)}")
 if portable.get("$schema") != PLUGIN_SCHEMA:
@@ -92,7 +92,7 @@ for field in ("name", "version", "description"):
 # Hermes does not expand ${VAR} in a portable plugin's MCP servers, so the token cannot come
 # from the environment there: the server is added with `hermes mcp add` instead.
 if os.path.exists(os.path.join(plugin_dir, "mcp.json")):
-    errors.append("plugins/cadly/mcp.json: Hermes would send its ${...} header literally; "
+    errors.append("plugins/cadjitsu/mcp.json: Hermes would send its ${...} header literally; "
                   "document `hermes mcp add` instead")
 skills_dir = os.path.join(plugin_dir, "skills")
 for d in sorted(os.listdir(skills_dir)):

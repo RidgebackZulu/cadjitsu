@@ -9,7 +9,7 @@
 
 #include <memory>
 
-std::vector<std::function<QObject *()>> &cadlyTestFactories() {
+std::vector<std::function<QObject *()>> &cadjitsuTestFactories() {
     static std::vector<std::function<QObject *()>> f;
     return f;
 }
@@ -23,14 +23,14 @@ int main(int argc, char **argv) {
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QApplication app(argc, argv);
-    cadly::applyLightTheme(app);
-    // Settings the tests touch stay out of the user's own Cadly settings.
+    cadjitsu::applyLightTheme(app);
+    // Settings the tests touch stay out of the user's own Cadjitsu settings.
     QStandardPaths::setTestModeEnabled(true);
-    QCoreApplication::setOrganizationName(QStringLiteral("Cadly Tests"));
-    // CADLY_TEST_CLASS=SketchTests runs one test class (other arguments go to QtTest).
-    const QByteArray only = qgetenv("CADLY_TEST_CLASS");
+    QCoreApplication::setOrganizationName(QStringLiteral("Cadjitsu Tests"));
+    // CADJITSU_TEST_CLASS=SketchTests runs one test class (other arguments go to QtTest).
+    const QByteArray only = qgetenv("CADJITSU_TEST_CLASS");
     int failures = 0;
-    for(const auto &make : cadlyTestFactories()) {
+    for(const auto &make : cadjitsuTestFactories()) {
         std::unique_ptr<QObject> t(make());
         if(!only.isEmpty() && only != t->metaObject()->className()) continue;
         failures += QTest::qExec(t.get(), argc, argv);

@@ -7,7 +7,7 @@
 
 #include <QtTest>
 
-using namespace cadly;
+using namespace cadjitsu;
 
 class AppTests : public QObject {
     Q_OBJECT
@@ -28,6 +28,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(AppTests)
+CADJITSU_REGISTER_TEST(AppTests)
 
 #include "tst_app.moc"

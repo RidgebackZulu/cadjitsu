@@ -6,7 +6,7 @@ class QKeyEvent;
 class QMouseEvent;
 class QPainter;
 
-namespace cadly {
+namespace cadjitsu {
 
 struct RenderScene;
 
@@ -28,4 +28,4 @@ public:
     virtual Qt::CursorShape cursor() const { return Qt::ArrowCursor; }
 };
 
-} // namespace cadly
+} // namespace cadjitsu

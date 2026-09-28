@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(Cadly
+project(Cadjitsu
     VERSION 0.1.0
     DESCRIPTION "Parametric CAD for 3D-printable parts"
     LANGUAGES C CXX)
@@ -12,8 +12,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
-option(CADLY_BUILD_APP   "Build the Qt application" ON)
-option(CADLY_BUILD_TESTS "Build unit tests" ON)
+option(CADJITSU_BUILD_APP   "Build the Qt application" ON)
+option(CADJITSU_BUILD_TESTS "Build unit tests" ON)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
@@ -26,7 +26,7 @@ if(CCACHE_PROGRAM)
 endif()
 
 find_package(Eigen3 REQUIRED NO_MODULE)
-include(CadlyOcct)
+include(CadjitsuOcct)
 
 add_subdirectory(third_party/slvs)
 
@@ -37,7 +37,7 @@ target_include_directories(nlohmann_json SYSTEM INTERFACE third_party/nlohmann)
 
 add_subdirectory(src/core)
 
-if(CADLY_BUILD_APP)
+if(CADJITSU_BUILD_APP)
     set(QT_NO_PRIVATE_MODULE_WARNING ON)
     find_package(Qt6 6.7 REQUIRED COMPONENTS Core Gui Widgets Network Svg ShaderTools Test)
     # QRhi (<rhi/qrhi.h>) is semi-public API: its headers come with the GuiPrivate target.
@@ -46,10 +46,10 @@ if(CADLY_BUILD_APP)
     add_subdirectory(src/app)
 endif()
 
-if(CADLY_BUILD_TESTS)
+if(CADJITSU_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests/core)
-    if(CADLY_BUILD_APP)
+    if(CADJITSU_BUILD_APP)
         add_subdirectory(tests/app)
     endif()
 endif()

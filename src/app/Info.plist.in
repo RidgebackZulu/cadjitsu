@@ -36,7 +36,7 @@
     <array>
         <dict>
             <key>CFBundleTypeName</key>
-            <string>Cadly Design</string>
+            <string>Cadjitsu Design</string>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
             <key>LSHandlerRank</key>
@@ -45,6 +45,7 @@
             <string>${MACOSX_BUNDLE_ICON_FILE}</string>
             <key>LSItemContentTypes</key>
             <array>
+                <string>app.cadjitsu.design</string>
                 <string>app.cadly.design</string>
             </array>
         </dict>
@@ -53,9 +54,35 @@
     <array>
         <dict>
             <key>UTTypeIdentifier</key>
+            <string>app.cadjitsu.design</string>
+            <key>UTTypeDescription</key>
+            <string>Cadjitsu Design</string>
+            <key>UTTypeIconFile</key>
+            <string>${MACOSX_BUNDLE_ICON_FILE}</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+                <string>public.content</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>cadjitsu</string>
+                </array>
+                <key>public.mime-type</key>
+                <string>application/x-cadjitsu</string>
+            </dict>
+        </dict>
+    </array>
+    <!-- Designs saved before the app was renamed Cadjitsu (.cadly): the same format. -->
+    <key>UTImportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
             <string>app.cadly.design</string>
             <key>UTTypeDescription</key>
-            <string>Cadly Design</string>
+            <string>Cadjitsu Design (Cadly)</string>
             <key>UTTypeIconFile</key>
             <string>${MACOSX_BUNDLE_ICON_FILE}</string>
             <key>UTTypeConformsTo</key>

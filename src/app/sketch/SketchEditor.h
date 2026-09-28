@@ -26,7 +26,7 @@
 
 class QPainter;
 
-namespace cadly {
+namespace cadjitsu {
 
 class Viewport;
 
@@ -283,4 +283,4 @@ private:
     std::vector<std::pair<int, QRectF>> m_glyphRects;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

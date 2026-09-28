@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "cadjitsu": {
+      "type": "http",
+      "url": "${CADJITSU_MCP_URL:-http://127.0.0.1:7823/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${CADJITSU_MCP_TOKEN}"
+      }
+    }
+  }
+}

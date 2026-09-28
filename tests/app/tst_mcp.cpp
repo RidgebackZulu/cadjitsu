@@ -32,7 +32,7 @@
 
 #include <nlohmann/json.hpp>
 
-using namespace cadly;
+using namespace cadjitsu;
 using json = nlohmann::json;
 
 namespace {
@@ -98,9 +98,9 @@ class McpTests : public QObject {
     }
     void initialize() {
         const json r = rpc("initialize", {{"protocolVersion", "2025-06-18"},
-                                          {"clientInfo", {{"name", "cadly-test"}, {"version", "1.0"}}},
+                                          {"clientInfo", {{"name", "cadjitsu-test"}, {"version", "1.0"}}},
                                           {"capabilities", json::object()}});
-        QCOMPARE(QString::fromStdString(r["result"]["serverInfo"]["name"]), QStringLiteral("cadly"));
+        QCOMPARE(QString::fromStdString(r["result"]["serverInfo"]["name"]), QStringLiteral("cadjitsu"));
     }
 
 private slots:
@@ -149,7 +149,7 @@ private slots:
         QVERIFY(!m_session.isEmpty());
         QCOMPARE(m_window->mcpServer()->state(), McpServer::State::Connected);
         QCOMPARE(m_window->mcpButton()->state(), McpServer::State::Connected);
-        QCOMPARE(m_window->mcpServer()->clientName(), QStringLiteral("cadly-test 1.0"));
+        QCOMPARE(m_window->mcpServer()->clientName(), QStringLiteral("cadjitsu-test 1.0"));
         QTRY_VERIFY(m_window->mcpButton()->glow() > 0.05); // it pulses
         const json tools = rpc("tools/list")["result"]["tools"];
         std::set<std::string> names;
@@ -180,7 +180,7 @@ private slots:
         QVERIFY2(!err, design.dump().c_str());
         QCOMPARE(m_window->mcpServer()->state(), McpServer::State::Connected);
         QCOMPARE(m_window->mcpButton()->state(), McpServer::State::Connected);
-        QCOMPARE(m_window->mcpServer()->clientName(), QStringLiteral("cadly-test 1.0")); // remembered
+        QCOMPARE(m_window->mcpServer()->clientName(), QStringLiteral("cadjitsu-test 1.0")); // remembered
     }
 
     // Connected and idle: the button does not repaint at all; a request makes it
@@ -603,9 +603,9 @@ private slots:
         QVERIFY(dlg->snippet().contains(token));
         // Hermes: the plugin folder (not the repository) and `hermes mcp add` with this port.
         dlg->clientBox()->setCurrentIndex(dlg->clientBox()->findText(QStringLiteral("Hermes Agent")));
-        QVERIFY(dlg->snippet().contains(QStringLiteral("hermes plugins install RidgebackZulu/cadly/plugins/cadly")));
+        QVERIFY(dlg->snippet().contains(QStringLiteral("hermes plugins install RidgebackZulu/cadjitsu/plugins/cadjitsu")));
         QVERIFY(dlg->snippet().contains(
-            QStringLiteral("hermes mcp add cadly --url http://127.0.0.1:%1/mcp").arg(dlg->portBox()->value())));
+            QStringLiteral("hermes mcp add cadjitsu --url http://127.0.0.1:%1/mcp").arg(dlg->portBox()->value())));
         QVERIFY(dlg->snippet().contains(token));
         dlg->clientBox()->setCurrentIndex(0);
         dlg->applyButton()->click();
@@ -617,15 +617,15 @@ private slots:
         dlg->close();
     }
 
-    // The skill's tool reference (plugins/cadly/skills/cadly-cad/references/tools.md)
+    // The skill's tool reference (plugins/cadjitsu/skills/cadjitsu-cad/references/tools.md)
     // is generated from the tool list; it must name every tool and argument.
     void theSkillDocumentsEveryTool() {
-        QFile f(QStringLiteral(CADLY_SOURCE_DIR "/plugins/cadly/skills/cadly-cad/references/tools.md"));
+        QFile f(QStringLiteral(CADJITSU_SOURCE_DIR "/plugins/cadjitsu/skills/cadjitsu-cad/references/tools.md"));
         QVERIFY(f.open(QIODevice::ReadOnly));
         const QString doc = QString::fromUtf8(f.readAll());
-        QFile skill(QStringLiteral(CADLY_SOURCE_DIR "/plugins/cadly/skills/cadly-cad/SKILL.md"));
+        QFile skill(QStringLiteral(CADJITSU_SOURCE_DIR "/plugins/cadjitsu/skills/cadjitsu-cad/SKILL.md"));
         QVERIFY(skill.open(QIODevice::ReadOnly));
-        QVERIFY(QString::fromUtf8(skill.readAll()).startsWith(QStringLiteral("---\nname: cadly-cad\n")));
+        QVERIFY(QString::fromUtf8(skill.readAll()).startsWith(QStringLiteral("---\nname: cadjitsu-cad\n")));
         initialize();
         const json tools = rpc("tools/list")["result"]["tools"];
         for(const auto &t : tools) {
@@ -637,6 +637,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(McpTests)
+CADJITSU_REGISTER_TEST(McpTests)
 
 #include "tst_mcp.moc"

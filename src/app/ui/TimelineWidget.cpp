@@ -18,7 +18,7 @@
 
 #include <algorithm>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -388,4 +388,4 @@ bool TimelineWidget::event(QEvent *e) {
     return QWidget::event(e);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

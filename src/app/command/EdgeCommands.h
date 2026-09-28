@@ -11,7 +11,7 @@
 class QCheckBox;
 class QComboBox;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Fillet and Chamfer: edges, or faces (all of their edges), added and removed
 // by clicking them. Edges the preview has rounded away stay drawn where they
@@ -89,4 +89,4 @@ private:
     QCheckBox *m_flip = nullptr;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

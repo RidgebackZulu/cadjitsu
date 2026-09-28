@@ -31,7 +31,7 @@
 #include <QToolButton>
 #include <QtTest>
 
-using namespace cadly;
+using namespace cadjitsu;
 
 namespace {
 
@@ -530,7 +530,7 @@ private slots:
         extrudeBase(QStringLiteral("12"));
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
-        const QString path = dir.filePath(QStringLiteral("bracket.cadly"));
+        const QString path = dir.filePath(QStringLiteral("bracket.cadjitsu"));
         QVERIFY(m_window->saveFile(path));
         QVERIFY(m_window->windowTitle().startsWith(QStringLiteral("bracket")));
         m_window->newDocument();
@@ -570,6 +570,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(ModelingTests)
+CADJITSU_REGISTER_TEST(ModelingTests)
 
 #include "tst_modeling.moc"

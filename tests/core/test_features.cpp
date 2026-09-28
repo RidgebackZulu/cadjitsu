@@ -393,7 +393,7 @@ TEST_CASE("construction planes tilt about both of their axes, around their centr
 
 TEST_CASE("construction planes saved before two-axis tilts keep their geometry") {
     Document doc;
-    // A LocalY plane, as older Cadly wrote it (no pivot, no angleY).
+    // A LocalY plane, as older Cadjitsu wrote it (no pivot, no angleY).
     json j = json::parse(R"({"type":"plane","id":1,"name":"Plane1","data":{
         "base":{"kind":"xy"},"offset":{"name":"d1","expr":"10"},
         "angle":{"name":"d2","expr":"90 deg"},"axis":"localY"}})");

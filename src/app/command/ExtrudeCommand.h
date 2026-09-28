@@ -18,7 +18,7 @@ class QCheckBox;
 class QComboBox;
 class QLabel;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Fusion 360's Extrude: profiles and / or planar faces, one side / two sides
 // / symmetric, Distance / To Object / All extents with taper angles, and the
@@ -102,4 +102,4 @@ private:
     DistanceManipulator m_arrow;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

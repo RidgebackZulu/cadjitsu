@@ -11,7 +11,7 @@
 class QCheckBox;
 class QComboBox;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Mirror, Rectangular Pattern and Circular Pattern (one command, three
 // kinds): repeat bodies, or features (holes and extrudes: click one of their
@@ -71,4 +71,4 @@ private:
     QCheckBox *m_second = nullptr, *m_symmetric = nullptr, *m_join = nullptr;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

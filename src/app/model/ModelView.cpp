@@ -19,7 +19,7 @@
 #include <cmath>
 #include <limits>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -990,4 +990,4 @@ void ModelView::updateStats() {
     }
 }
 
-} // namespace cadly
+} // namespace cadjitsu

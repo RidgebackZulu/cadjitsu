@@ -14,7 +14,7 @@
 class QCheckBox;
 class QComboBox;
 
-namespace cadly {
+namespace cadjitsu {
 
 class Viewport;
 
@@ -78,4 +78,4 @@ private:
     CurveMarks m_curveMarks;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -1,34 +1,34 @@
 ---
-name: cadly-cad
-description: Design 3D-printable parts in the Cadly parametric CAD app through its MCP server - sketch, extrude, fillet, chamfer, drill holes, combine bodies, change parameters, and export a checked watertight STL or a STEP file. Use when the user wants to model, modify, inspect or export a part in Cadly, or asks for a 3D-printable part and Cadly's MCP tools (get_design, create_sketch, extrude...) are available.
+name: cadjitsu-cad
+description: Design 3D-printable parts in the Cadjitsu parametric CAD app through its MCP server - sketch, extrude, fillet, chamfer, drill holes, combine bodies, change parameters, and export a checked watertight STL or a STEP file. Use when the user wants to model, modify, inspect or export a part in Cadjitsu, or asks for a 3D-printable part and Cadjitsu's MCP tools (get_design, create_sketch, extrude...) are available.
 version: 1.0.0
-author: Cadly
+author: Cadjitsu
 license: GPL-3.0-or-later
 metadata:
   category: design
   tags: "cad, 3d-printing, parametric, mcp, design, stl"
 ---
 
-# Designing printable parts with Cadly
+# Designing printable parts with Cadjitsu
 
-Cadly is a native, Fusion 360-style parametric CAD app for 3D-printable parts. Its MCP server lets you drive the
+Cadjitsu is a native, Fusion 360-style parametric CAD app for 3D-printable parts. Its MCP server lets you drive the
 open design: every tool call edits the same timeline the user sees, is one undo step, and recomputes the model
 before answering. Work like a careful CAD user: small steps, check the result after each one, keep the design
 parametric.
 
 ## 1. Connect
 
-Cadly must be running with its MCP server switched on: click the **MCP** button at the top right of Cadly's
+Cadjitsu must be running with its MCP server switched on: click the **MCP** button at the top right of Cadjitsu's
 toolbar (or File > MCP Server...), tick **Enable the MCP server**, click **Apply**. The same dialog shows the port
 (default 7823), the auth token (Generate / Copy) and ready-made snippets for each client:
 
-- **Claude Code plugin** (this repository): `/plugin marketplace add RidgebackZulu/cadly`, then
-  `/plugin install cadly@cadly`, and start Claude Code with `CADLY_MCP_TOKEN=<token>` in the environment
-  (`CADLY_MCP_URL` too if the port is not 7823).
+- **Claude Code plugin** (this repository): `/plugin marketplace add RidgebackZulu/cadjitsu`, then
+  `/plugin install cadjitsu@cadjitsu`, and start Claude Code with `CADJITSU_MCP_TOKEN=<token>` in the environment
+  (`CADJITSU_MCP_URL` too if the port is not 7823).
 - **Claude Code without the plugin:**
-  `claude mcp add --transport http cadly http://127.0.0.1:7823/mcp --header "Authorization: Bearer <token>"`
-- **Hermes Agent:** `hermes plugins install RidgebackZulu/cadly/plugins/cadly --enable` (the plugin folder,
-  not the whole repository) for this skill, then `hermes mcp add cadly --url http://127.0.0.1:7823/mcp --auth
+  `claude mcp add --transport http cadjitsu http://127.0.0.1:7823/mcp --header "Authorization: Bearer <token>"`
+- **Hermes Agent:** `hermes plugins install RidgebackZulu/cadjitsu/plugins/cadjitsu --enable` (the plugin folder,
+  not the whole repository) for this skill, then `hermes mcp add cadjitsu --url http://127.0.0.1:7823/mcp --auth
   header` and paste the token when asked.
 - **Claude Desktop:** use the "Claude Desktop (config)" snippet from the dialog (it runs `npx mcp-remote`).
 
@@ -69,7 +69,7 @@ port. Start every session with `get_design`.
 6. **Verify** - `get_design` (volumes, bounding boxes, every feature `ok`), `measure` (distances, wall
    thicknesses, hole spacing, angles), `screenshot` (view `home`, `top`, `front`...), `section` to look inside.
 7. **Export** - `export_stl` (report must say `printable: true`, `shells: 1` for a single part) and/or
-   `export_step`. `save_design` keeps the editable history as a `.cadly` file.
+   `export_step`. `save_design` keeps the editable history as a `.cadjitsu` file.
 
 **Batch the steps.** Agents often have a limited number of tool calls per turn, so use `batch` to run several
 calls in one: `{"calls": [{"tool": "create_sketch", "arguments": {...}}, {"tool": "extrude", "arguments":

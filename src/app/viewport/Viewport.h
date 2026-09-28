@@ -18,7 +18,7 @@
 class QToolButton;
 class QVariantAnimation;
 
-namespace cadly {
+namespace cadjitsu {
 
 class NavBar;
 class ViewportOverlay;
@@ -98,17 +98,17 @@ public:
     void pressCubeControl(CubeControl c);
 
 signals:
-    void hoverChanged(const cadly::PickHit &hit);
+    void hoverChanged(const cadjitsu::PickHit &hit);
     // Every cursor move over the canvas (hit.screen is the position), for
     // hover effects that are not bodies (sketch profiles).
-    void hoverMoved(const cadly::PickHit &hit);
-    void clicked(const cadly::PickHit &hit, Qt::KeyboardModifiers modifiers);
-    void doubleClicked(const cadly::PickHit &hit);
+    void hoverMoved(const cadjitsu::PickHit &hit);
+    void clicked(const cadjitsu::PickHit &hit, Qt::KeyboardModifiers modifiers);
+    void doubleClicked(const cadjitsu::PickHit &hit);
     void boxSelected(const QRectF &rect, bool crossing, Qt::KeyboardModifiers modifiers);
-    void contextMenuRequested(const QPoint &globalPos, const cadly::PickHit &hit);
+    void contextMenuRequested(const QPoint &globalPos, const cadjitsu::PickHit &hit);
     void escapePressed();
     void cameraChanged();
-    void displayStyleChanged(cadly::DisplayStyle style);
+    void displayStyleChanged(cadjitsu::DisplayStyle style);
 
 protected:
     void initialize(QRhiCommandBuffer *cb) override;
@@ -171,4 +171,4 @@ private:
     QVariantAnimation *m_anim = nullptr;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

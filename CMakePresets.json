@@ -9,8 +9,8 @@
       "binaryDir": "${sourceDir}/build/linux",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
-        "CMAKE_PREFIX_PATH": "$env{CADLY_ENV}",
-        "CMAKE_BUILD_RPATH": "$env{CADLY_ENV}/lib"
+        "CMAKE_PREFIX_PATH": "$env{CADJITSU_ENV}",
+        "CMAKE_BUILD_RPATH": "$env{CADJITSU_ENV}/lib"
       }
     },
     {

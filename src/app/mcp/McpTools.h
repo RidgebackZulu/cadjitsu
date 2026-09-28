@@ -8,7 +8,7 @@
 #include <map>
 #include <string>
 
-namespace cadly {
+namespace cadjitsu {
 
 class MainWindow;
 
@@ -38,4 +38,4 @@ private:
     std::map<std::string, Tool> m_tools;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

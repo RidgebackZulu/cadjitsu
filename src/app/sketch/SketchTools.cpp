@@ -14,7 +14,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 using cad::SkCon;
 using cad::SkEntity;
@@ -1643,4 +1643,4 @@ std::unique_ptr<SketchTool> createSketchTool(SketchMode &mode, SketchToolKind ki
     }
 }
 
-} // namespace cadly
+} // namespace cadjitsu

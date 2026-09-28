@@ -10,7 +10,7 @@
 
 class QCheckBox;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Fusion 360's Section Analysis: cut the model by an origin plane, a
 // construction plane or a planar face, moved along its normal (type it or
@@ -65,4 +65,4 @@ private:
     DistanceManipulator m_arrow;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

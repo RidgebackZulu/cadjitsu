@@ -21,7 +21,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -524,4 +524,4 @@ bool SketchMode::cancelOperation() {
     return m_tool && m_tool->cancel();
 }
 
-} // namespace cadly
+} // namespace cadjitsu

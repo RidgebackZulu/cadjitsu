@@ -4,7 +4,7 @@
 #include <QPalette>
 #include <QStyleHints>
 
-namespace cadly {
+namespace cadjitsu {
 
 void applyLightTheme(QApplication &app) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
@@ -38,4 +38,4 @@ void applyLightTheme(QApplication &app) {
     QApplication::setPalette(p);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

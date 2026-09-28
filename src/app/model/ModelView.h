@@ -23,7 +23,7 @@
 #include <set>
 #include <vector>
 
-namespace cadly {
+namespace cadjitsu {
 
 class Viewport;
 
@@ -156,7 +156,7 @@ public:
 
 signals:
     // Command input mode: the user clicked something (or empty space) / a mark.
-    void picked(const std::optional<cadly::SelectionItem> &item, const cadly::PickHit &hit, Qt::KeyboardModifiers modifiers);
+    void picked(const std::optional<cadjitsu::SelectionItem> &item, const cadjitsu::PickHit &hit, Qt::KeyboardModifiers modifiers);
     void markClicked(int tag);
     // A sketch in the canvas was double-clicked (edit it).
     void editSketchRequested(cad::FeatureId sketch);
@@ -209,4 +209,4 @@ private:
     std::map<std::shared_ptr<const cad::SketchResult>, std::vector<std::vector<QVector3D>>> m_profileCache;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

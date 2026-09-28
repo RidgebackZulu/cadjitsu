@@ -18,6 +18,7 @@
 #include "sketch/SketchMode.h"
 #include "ui/BrowserTree.h"
 #include "ui/MarkingMenu.h"
+#include "SettingsMigration.h"
 #include "ui/SettingsDialog.h"
 #include "ui/Units.h"
 #include "viewport/Viewport.h"
@@ -31,11 +32,12 @@
 #include <QToolButton>
 #include <QPushButton>
 #include <QSettings>
+#include <QTemporaryDir>
 #include <QtTest>
 
 #include <cmath>
 
-using namespace cadly;
+using namespace cadjitsu;
 
 namespace {
 
@@ -168,6 +170,40 @@ private slots:
         m_window->commandPanel()->cancelButton()->click();
     }
 
+    // Renamed from Cadly: old settings are taken over once, old designs open.
+    void cadlySettingsAndDesignsCarryOver() {
+        QTemporaryDir dir;
+        QSettings from(dir.filePath(QStringLiteral("cadly.ini")), QSettings::IniFormat);
+        from.setValue(QStringLiteral("mcp/token"), QStringLiteral("secret"));
+        from.setValue(QStringLiteral("units/length"), QStringLiteral("in"));
+        from.sync();
+        QSettings to(dir.filePath(QStringLiteral("cadjitsu.ini")), QSettings::IniFormat);
+        QVERIFY(copySettingsIfEmpty(from, to));
+        QCOMPARE(to.value(QStringLiteral("mcp/token")).toString(), QStringLiteral("secret"));
+        QCOMPARE(to.value(QStringLiteral("units/length")).toString(), QStringLiteral("in"));
+        // Only once: settings of its own are never overwritten.
+        from.setValue(QStringLiteral("mcp/token"), QStringLiteral("other"));
+        QVERIFY(!copySettingsIfEmpty(from, to));
+        QCOMPARE(to.value(QStringLiteral("mcp/token")).toString(), QStringLiteral("secret"));
+        // A design saved by Cadly (.cadly, format "cadly") opens.
+        sketch();
+        const QString saved = dir.filePath(QStringLiteral("part.cadjitsu"));
+        QVERIFY(m_window->saveFile(saved));
+        QFile f(saved);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        QByteArray data = f.readAll();
+        f.close();
+        QVERIFY(data.contains("\"format\": \"cadjitsu\""));
+        data.replace("\"format\": \"cadjitsu\"", "\"format\": \"cadly\"");
+        QFile old(dir.filePath(QStringLiteral("part.cadly")));
+        QVERIFY(old.open(QIODevice::WriteOnly));
+        old.write(data);
+        old.close();
+        m_window->newDocument();
+        QVERIFY(m_window->openFile(old.fileName()));
+        QCOMPARE(int(doc().features().size()), 1);
+    }
+
     void theDefaultLengthUnitIsASetting() {
         units::setDefaultLengthUnit(QStringLiteral("cm"));
         struct Restore {
@@ -274,10 +310,10 @@ private slots:
 
     void settingsRebindTheMouse() {
         QSettings().remove(QStringLiteral("mouse"));
-        QCOMPARE(MouseBindings::load().matchingPreset(), MouseBindings::Preset::Cadly);
+        QCOMPARE(MouseBindings::load().matchingPreset(), MouseBindings::Preset::Cadjitsu);
         SettingsDialog *dlg = m_window->openSettings();
         QVERIFY(dlg);
-        QCOMPARE(dlg->presetBox()->currentIndex(), int(MouseBindings::Preset::Cadly));
+        QCOMPARE(dlg->presetBox()->currentIndex(), int(MouseBindings::Preset::Cadjitsu));
         // SolidWorks-style: middle drag orbits.
         dlg->presetBox()->setCurrentIndex(int(MouseBindings::Preset::SolidWorks));
         emit dlg->presetBox()->activated(int(MouseBindings::Preset::SolidWorks));
@@ -443,6 +479,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(UsabilityTests)
+CADJITSU_REGISTER_TEST(UsabilityTests)
 
 #include "tst_usability.moc"

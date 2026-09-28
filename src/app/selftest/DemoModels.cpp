@@ -9,7 +9,7 @@
 
 #include <TopoDS.hxx>
 
-namespace cadly {
+namespace cadjitsu {
 
 using namespace cad;
 
@@ -95,4 +95,4 @@ void buildDemoBracket(Document &doc) {
     doc.addFeature(f);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

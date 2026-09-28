@@ -6,7 +6,7 @@
 #include <QJsonObject>
 #include <QStandardPaths>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -114,4 +114,4 @@ void McpLog::loadRecent() {
     while(m_events.size() > kKeepInView) m_events.pop_front();
 }
 
-} // namespace cadly
+} // namespace cadjitsu

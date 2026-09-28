@@ -8,7 +8,7 @@
 
 #include <functional>
 
-namespace cadly {
+namespace cadjitsu {
 
 class Viewport;
 
@@ -57,4 +57,4 @@ private:
     double m_grab = 0.0;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

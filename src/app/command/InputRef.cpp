@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -216,4 +216,4 @@ bool markInput(ModelView &view, const cad::ModelState &base, const InputRef &r, 
     return false;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

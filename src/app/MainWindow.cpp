@@ -52,7 +52,7 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-namespace cadly {
+namespace cadjitsu {
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::make_unique<cad::Document>()) {
     resize(1400, 900);
@@ -367,7 +367,7 @@ void MainWindow::onEvaluation(const EvaluationPtr &e) {
 
 void MainWindow::updateTitle() {
     const QString name = m_path.isEmpty() ? tr("Untitled") : QFileInfo(m_path).completeBaseName();
-    setWindowTitle(name + QStringLiteral(" — Cadly"));
+    setWindowTitle(name + QStringLiteral(" — Cadjitsu"));
     m_browser->setDocumentName(name);
 }
 
@@ -580,19 +580,19 @@ ExportDialog *MainWindow::openExportDialog(ExportJob::Format format) {
 void MainWindow::buildActions() {
     makeAction("newDocument", tr("New Design"), IconId::New, QKeySequence::New, [this] { newDocument(); });
     makeAction("open", tr("Open..."), IconId::Open, QKeySequence::Open, [this] {
-        const QString p = QFileDialog::getOpenFileName(this, tr("Open"), {}, tr("Cadly designs (*.cadly)"));
+        const QString p = QFileDialog::getOpenFileName(this, tr("Open"), {}, tr("Cadjitsu designs (*.cadjitsu *.cadly)"));
         if(!p.isEmpty()) openFile(p);
     });
     makeAction("save", tr("Save"), IconId::Save, QKeySequence::Save, [this] {
         QString p = m_path;
         if(p.isEmpty())
-            p = QFileDialog::getSaveFileName(this, tr("Save"), QStringLiteral("design.cadly"), tr("Cadly designs (*.cadly)"));
+            p = QFileDialog::getSaveFileName(this, tr("Save"), QStringLiteral("design.cadjitsu"), tr("Cadjitsu designs (*.cadjitsu)"));
         if(!p.isEmpty()) saveFile(p);
     });
     makeAction("saveAs", tr("Save As..."), IconId::Save, QKeySequence::SaveAs, [this] {
         const QString p =
-            QFileDialog::getSaveFileName(this, tr("Save As"), m_path.isEmpty() ? QStringLiteral("design.cadly") : m_path,
-                                         tr("Cadly designs (*.cadly)"));
+            QFileDialog::getSaveFileName(this, tr("Save As"), m_path.isEmpty() ? QStringLiteral("design.cadjitsu") : m_path,
+                                         tr("Cadjitsu designs (*.cadjitsu)"));
         if(!p.isEmpty()) saveFile(p);
     });
     makeAction("export", tr("Export..."), IconId::ExportStep, {}, [this] { openExportDialog(ExportJob::Format::Step); });
@@ -856,4 +856,4 @@ void MainWindow::onSketchTool(SketchToolKind kind) {
     }
 }
 
-} // namespace cadly
+} // namespace cadjitsu

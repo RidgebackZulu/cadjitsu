@@ -7,9 +7,9 @@
 class QCheckBox;
 class QComboBox;
 
-namespace cadly {
+namespace cadjitsu {
 
-// Cadly > Settings: which mouse drags orbit, pan and zoom the view.
+// Cadjitsu > Settings: which mouse drags orbit, pan and zoom the view.
 class SettingsDialog : public QDialog {
     Q_OBJECT
 
@@ -34,4 +34,4 @@ private:
     bool m_updating = false;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -15,7 +15,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -334,4 +334,4 @@ std::shared_ptr<cad::Feature> HoleCommand::build(QString &why) {
     return f;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

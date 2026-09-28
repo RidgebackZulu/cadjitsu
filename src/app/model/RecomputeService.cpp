@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-namespace cadly {
+namespace cadjitsu {
 
 RecomputeService::RecomputeService(std::shared_ptr<cad::ResultCache> cache, QObject *parent)
     : QObject(parent), m_cache(std::move(cache)) {
@@ -122,4 +122,4 @@ bool RecomputeService::waitIdle(int timeoutMs) {
     return !m_busy;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

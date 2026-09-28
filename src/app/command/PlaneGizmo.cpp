@@ -9,7 +9,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -332,4 +332,4 @@ void PlaneGizmo::paintOverlay(QPainter &p) {
     p.restore();
 }
 
-} // namespace cadly
+} // namespace cadjitsu

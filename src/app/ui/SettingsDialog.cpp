@@ -15,7 +15,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
-namespace cadly {
+namespace cadjitsu {
 
 SettingsDialog::SettingsDialog(const MouseBindings &current, QWidget *parent) : QDialog(parent) {
     setWindowTitle(tr("Settings"));
@@ -148,4 +148,4 @@ MouseBindings SettingsDialog::bindings() const {
     return b;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

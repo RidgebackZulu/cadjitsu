@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 std::vector<QVector3D> triangulateProfile(const cad::Profile &profile, const gp_Ax3 &frame) {
     std::vector<QVector3D> out;
@@ -35,4 +35,4 @@ std::vector<QVector3D> triangulateProfile(const cad::Profile &profile, const gp_
     return out;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

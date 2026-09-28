@@ -13,7 +13,7 @@
 
 #include <QComboBox>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -297,4 +297,4 @@ std::shared_ptr<cad::Feature> PlaneCommand::build(QString &why) {
     return f;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

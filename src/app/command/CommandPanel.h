@@ -18,7 +18,7 @@ class QLabel;
 class QPushButton;
 class QToolButton;
 
-namespace cadly {
+namespace cadjitsu {
 
 enum class IconId;
 class AngleDial;
@@ -158,4 +158,4 @@ private:
     int m_nextRow = 0;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

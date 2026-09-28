@@ -15,7 +15,7 @@ class QTcpServer;
 class QTcpSocket;
 class QTimer;
 
-namespace cadly {
+namespace cadjitsu {
 
 class McpLog;
 
@@ -40,7 +40,7 @@ public:
     virtual nlohmann::json callTool(const std::string &name, const nlohmann::json &args) = 0;
 };
 
-// Cadly's MCP server: the "Streamable HTTP" transport (JSON-RPC 2.0 over
+// Cadjitsu's MCP server: the "Streamable HTTP" transport (JSON-RPC 2.0 over
 // POST /mcp, answered with plain JSON) on 127.0.0.1. Every request needs
 // "Authorization: Bearer <token>". Requests are handled one at a time on the
 // UI thread (tools edit the open design like the user does).
@@ -67,7 +67,7 @@ public:
     int requestCount() const { return m_requests; }
 
 signals:
-    void stateChanged(cadly::McpServer::State state);
+    void stateChanged(cadjitsu::McpServer::State state);
     // A request was handled (the button pulses once).
     void activity();
 
@@ -109,4 +109,4 @@ private:
     int m_requests = 0;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

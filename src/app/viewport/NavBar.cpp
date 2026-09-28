@@ -11,7 +11,7 @@
 #include <QPainterPath>
 #include <QToolButton>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -21,7 +21,7 @@ namespace {
 class NavButton : public QToolButton {
 public:
     NavButton(QWidget *parent, IconId id, const QString &tip, bool checkable) : QToolButton(parent) {
-        setIcon(cadly::icon(id));
+        setIcon(cadjitsu::icon(id));
         setIconSize(QSize(20, 20));
         setToolTip(tip);
         setCheckable(checkable);
@@ -206,4 +206,4 @@ void ViewportOverlay::paintEvent(QPaintEvent *) {
     m_viewport->paintOverlay(p);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

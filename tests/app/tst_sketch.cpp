@@ -24,7 +24,7 @@
 
 #include <algorithm>
 
-using namespace cadly;
+using namespace cadjitsu;
 using cad::SkCon;
 using cad::SkType;
 using cad::Vec2;
@@ -684,6 +684,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(SketchTests)
+CADJITSU_REGISTER_TEST(SketchTests)
 
 #include "tst_sketch.moc"

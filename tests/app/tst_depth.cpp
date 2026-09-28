@@ -1,7 +1,7 @@
 // Depth precision: highlights and edges must win cleanly against the faces
 // they lie on, on every GPU. Apple GPUs (a float depth buffer) ignore the
 // constant depth bias of the body pipeline, which showed as dark streaks
-// through a highlighted cylinder; CADLY_NO_CONSTANT_DEPTH_BIAS reproduces that
+// through a highlighted cylinder; CADJITSU_NO_CONSTANT_DEPTH_BIAS reproduces that
 // on any GPU.
 #include "TestRegistry.h"
 
@@ -20,7 +20,7 @@
 
 #include <cmath>
 
-using namespace cadly;
+using namespace cadjitsu;
 
 namespace {
 
@@ -75,7 +75,7 @@ class DepthTests : public QObject {
 
 private slots:
     void initTestCase() {
-        qputenv("CADLY_NO_CONSTANT_DEPTH_BIAS", "1");
+        qputenv("CADJITSU_NO_CONSTANT_DEPTH_BIAS", "1");
         m_mesh = cylinderMesh();
         QVERIFY(m_mesh && faceWhere(*m_mesh, true) && faceWhere(*m_mesh, false));
     }
@@ -88,7 +88,7 @@ private slots:
     }
 
     void cleanup() { m_vp.reset(); }
-    void cleanupTestCase() { qunsetenv("CADLY_NO_CONSTANT_DEPTH_BIAS"); }
+    void cleanupTestCase() { qunsetenv("CADJITSU_NO_CONSTANT_DEPTH_BIAS"); }
 
     // A normal view keeps the near plane close to the model, not to the grid
     // around it: depth precision is what keeps overlays on top.
@@ -106,8 +106,8 @@ private slots:
         for(DisplayStyle style : {DisplayStyle::Shaded, DisplayStyle::ShadedWithEdges, DisplayStyle::Rendered}) {
             show(style, QColor(30, 115, 230, 255)); // opaque: any body pixel showing through stands out
             const QImage img = m_vp->grabFramebuffer();
-            if(qEnvironmentVariableIsSet("CADLY_DEPTH_SHOTS"))
-                img.save(qEnvironmentVariable("CADLY_DEPTH_SHOTS") + QStringLiteral("/depth_style%1.png").arg(int(style)));
+            if(qEnvironmentVariableIsSet("CADJITSU_DEPTH_SHOTS"))
+                img.save(qEnvironmentVariable("CADJITSU_DEPTH_SHOTS") + QStringLiteral("/depth_style%1.png").arg(int(style)));
             const QVector3D toEye = -m_vp->camera().forward();
             const float facing = std::atan2(toEye.y(), toEye.x());
             int bad = 0, total = 0;
@@ -138,6 +138,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(DepthTests)
+CADJITSU_REGISTER_TEST(DepthTests)
 
 #include "tst_depth.moc"

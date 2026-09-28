@@ -7,7 +7,7 @@
 
 class QPainter;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Small drawing helpers shared by canvas overlays (sketch dimensions, the
 // measure tool): a filled arrow head and a value on a light rounded plate.
@@ -16,4 +16,4 @@ void drawArrow(QPainter &p, QPointF tip, QPointF dir, const QColor &color);
 QRectF drawLabelPlate(QPainter &p, QPointF centre, const QString &text, const QColor &border, const QColor &textColor,
                       int pixelSize = 12);
 
-} // namespace cadly
+} // namespace cadjitsu

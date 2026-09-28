@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace cadly {
+namespace cadjitsu {
 
 SelectionItem SelectionItem::fromPick(const PickHit &hit) {
     SelectionItem it;
@@ -39,4 +39,4 @@ std::vector<SelectionItem> SelectionSet::ofKind(SelectionItem::Kind k) const {
     return out;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

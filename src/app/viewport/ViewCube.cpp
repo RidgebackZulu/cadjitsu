@@ -8,7 +8,7 @@
 #include <array>
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -276,4 +276,4 @@ QImage ViewCube::labelAtlas(qreal dpr) {
     return img;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

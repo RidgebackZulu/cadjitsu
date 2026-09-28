@@ -12,7 +12,7 @@
 #include <optional>
 #include <vector>
 
-namespace cadly {
+namespace cadjitsu {
 
 // How bodies are drawn (Fusion's "Visual Style").
 enum class DisplayStyle { ShadedWithEdges, Shaded, Wireframe, Rendered };
@@ -86,4 +86,4 @@ struct RenderScene {
     std::optional<QVector3D> viewCubeHover;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -3,7 +3,7 @@
 #include <QFile>
 #include <QHash>
 
-namespace cadly {
+namespace cadjitsu {
 
 QShader loadShader(const QString &name) {
     static QHash<QString, QShader> cache;
@@ -12,11 +12,11 @@ QShader loadShader(const QString &name) {
 
     const QString path = QStringLiteral(":/shaders/%1.qsb").arg(name);
     QFile f(path);
-    if(!f.open(QIODevice::ReadOnly)) qFatal("Cadly: missing shader resource %s", qPrintable(path));
+    if(!f.open(QIODevice::ReadOnly)) qFatal("Cadjitsu: missing shader resource %s", qPrintable(path));
     QShader shader = QShader::fromSerialized(f.readAll());
-    if(!shader.isValid()) qFatal("Cadly: invalid shader %s", qPrintable(path));
+    if(!shader.isValid()) qFatal("Cadjitsu: invalid shader %s", qPrintable(path));
     cache.insert(name, shader);
     return shader;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

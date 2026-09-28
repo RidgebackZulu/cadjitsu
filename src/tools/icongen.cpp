@@ -1,5 +1,5 @@
 // Writes the app icon as a macOS .iconset (every size iconutil wants), or one
-// PNG. Used by the macOS build to make Cadly.icns; needs no QGuiApplication.
+// PNG. Used by the macOS build to make Cadjitsu.icns; needs no QGuiApplication.
 #include "ui/AppIcon.h"
 
 #include <QDir>
@@ -9,13 +9,13 @@
 
 int main(int argc, char **argv) {
     if(argc < 2) {
-        std::fprintf(stderr, "usage: cadly_icongen <dir.iconset> | <file.png> [size]\n");
+        std::fprintf(stderr, "usage: cadjitsu_icongen <dir.iconset> | <file.png> [size]\n");
         return 2;
     }
     const QString out = QString::fromLocal8Bit(argv[1]);
     if(out.endsWith(QLatin1String(".png"))) {
         const int size = argc > 2 ? QString::fromLocal8Bit(argv[2]).toInt() : 1024;
-        return cadly::appIconImage(size > 0 ? size : 1024).save(out) ? 0 : 1;
+        return cadjitsu::appIconImage(size > 0 ? size : 1024).save(out) ? 0 : 1;
     }
     if(!QDir().mkpath(out)) return 1;
     const struct {
@@ -27,8 +27,8 @@ int main(int argc, char **argv) {
                   {1024, "icon_512x512@2x.png"}};
     for(const auto &im : images) {
         const QString path = QDir(out).filePath(QString::fromLatin1(im.name));
-        if(!cadly::appIconImage(im.size).save(path)) {
-            std::fprintf(stderr, "cadly_icongen: could not write %s\n", qPrintable(path));
+        if(!cadjitsu::appIconImage(im.size).save(path)) {
+            std::fprintf(stderr, "cadjitsu_icongen: could not write %s\n", qPrintable(path));
             return 1;
         }
     }

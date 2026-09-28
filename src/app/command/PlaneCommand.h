@@ -10,7 +10,7 @@
 
 class QComboBox;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Fusion 360's Offset Plane, which can also turn the plane: a construction
 // plane off an origin plane, a construction plane or a planar face, moved
@@ -70,4 +70,4 @@ private:
     PlaneGizmo m_gizmo;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

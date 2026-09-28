@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Writes the Cadly skill's tool reference from the app's own tool list.
+"""Writes the Cadjitsu skill's tool reference from the app's own tool list.
 
-    Cadly --mcp-tools > tools.json
-    scripts/gen_mcp_tool_docs.py tools.json plugins/cadly/skills/cadly-cad/references/tools.md
+    Cadjitsu --mcp-tools > tools.json
+    scripts/gen_mcp_tool_docs.py tools.json plugins/cadjitsu/skills/cadjitsu-cad/references/tools.md
 
 With --check it fails (exit 1) if the file is out of date instead of writing it.
 """
@@ -26,11 +26,11 @@ def type_of(schema):
 
 def render(tools):
     out = [
-        "# Cadly MCP tools",
+        "# Cadjitsu MCP tools",
         "",
-        "Generated from the app (`Cadly --mcp-tools`); do not edit by hand.",
+        "Generated from the app (`Cadjitsu --mcp-tools`); do not edit by hand.",
         "Lengths are millimetres, angles degrees. Numeric arguments also take expressions such as `\"d1 * 2\"` or",
-        "`\"0.5 in\"`. Every tool that changes the design is one undo step and shows in Cadly's timeline.",
+        "`\"0.5 in\"`. Every tool that changes the design is one undo step and shows in Cadjitsu's timeline.",
         "",
     ]
     for t in tools:

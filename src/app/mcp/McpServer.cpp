@@ -15,7 +15,7 @@
 
 using json = nlohmann::json;
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -247,7 +247,7 @@ void McpServer::handle(QTcpSocket *socket, const Request &r) {
         m_log->add(McpEvent::Kind::Auth, {}, given.isEmpty() ? tr("Refused a request without a token")
                                                              : tr("Refused a request with a wrong token"));
         respond(socket, 401, R"({"error":"missing or wrong bearer token"})", "application/json",
-                {{"WWW-Authenticate", "Bearer realm=\"cadly\""}});
+                {{"WWW-Authenticate", "Bearer realm=\"cadjitsu\""}});
         return;
     }
     QString sessionId = header("mcp-session-id");
@@ -343,9 +343,9 @@ json McpServer::dispatch(const json &msg, QString &sessionId, bool &isNotificati
         m_log->add(McpEvent::Kind::Connect, client, tr("Connected (MCP %1)").arg(QString::fromStdString(version)));
         return ok({{"protocolVersion", version},
                    {"capabilities", {{"tools", {{"listChanged", false}}}}},
-                   {"serverInfo", {{"name", "cadly"}, {"title", "Cadly CAD"}, {"version", cad::version()}}},
+                   {"serverInfo", {{"name", "cadjitsu"}, {"title", "Cadjitsu CAD"}, {"version", cad::version()}}},
                    {"instructions",
-                    "Cadly is a parametric CAD app for 3D-printable parts. Units are millimetres and degrees; Z is up "
+                    "Cadjitsu is a parametric CAD app for 3D-printable parts. Units are millimetres and degrees; Z is up "
                     "(the print direction). Call get_design first. Sketch, extrude (new bodies by default), combine, "
                     "fillet/chamfer/hole, then export_stl and check the printability report."}});
     }
@@ -392,4 +392,4 @@ void McpServer::respond(QTcpSocket *socket, int code, const QByteArray &body, co
     socket->flush();
 }
 
-} // namespace cadly
+} // namespace cadjitsu

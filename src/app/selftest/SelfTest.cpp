@@ -79,7 +79,7 @@
 #include <functional>
 #include <map>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -1681,7 +1681,7 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
 
     // 11. Save, start over, and open it again.
-    const QString designPath = out.filePath(QStringLiteral("acceptance.cadly"));
+    const QString designPath = out.filePath(QStringLiteral("acceptance.cadjitsu"));
     check(w.saveFile(designPath), QStringLiteral("saved %1").arg(QFileInfo(designPath).fileName()));
     const size_t features = doc.features().size();
     w.newDocument();
@@ -1746,7 +1746,7 @@ bool mcpScenario(MainWindow &w, const QDir &out, QTextStream &log) {
         if(r["result"].value("isError", false)) log << "         " << QString::fromStdString(name) << ": " << QString::fromStdString(text) << "\n";
         return j.is_discarded() ? json(text) : j;
     };
-    const json init = rpc("initialize", {{"protocolVersion", "2025-06-18"}, {"clientInfo", {{"name", "Cadly selftest agent"}, {"version", "1"}}}});
+    const json init = rpc("initialize", {{"protocolVersion", "2025-06-18"}, {"clientInfo", {{"name", "Cadjitsu selftest agent"}, {"version", "1"}}}});
     check(init.contains("result"), QStringLiteral("an agent connects (initialize)"));
     check(w.mcpButton()->state() == McpServer::State::Connected, QStringLiteral("the MCP button turns green"));
     json rect = {{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {70, 40}}};
@@ -1954,7 +1954,7 @@ int runSelfTest(MainWindow &window, const QString &name, const QString &outDir) 
     QDir out(outDir.isEmpty() ? QDir::currentPath() : outDir);
     if(!out.exists()) out.mkpath(QStringLiteral("."));
 
-    log << "Cadly " << cad::version() << " (OCCT " << QString::fromStdString(cad::occtVersion())
+    log << "Cadjitsu " << cad::version() << " (OCCT " << QString::fromStdString(cad::occtVersion())
         << ") selftest '" << name << "'\n";
     const bool ok = it->second(window, out, log);
     log << "selftest '" << name << "': " << (ok ? "PASS" : "FAIL") << "\n";
@@ -1962,4 +1962,4 @@ int runSelfTest(MainWindow &window, const QString &name, const QString &outDir) 
     return ok ? 0 : 1;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

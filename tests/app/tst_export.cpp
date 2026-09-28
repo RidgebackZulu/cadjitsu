@@ -31,7 +31,7 @@
 
 #include <cmath>
 
-using namespace cadly;
+using namespace cadjitsu;
 
 class ExportTests : public QObject {
     Q_OBJECT
@@ -236,6 +236,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(ExportTests)
+CADJITSU_REGISTER_TEST(ExportTests)
 
 #include "tst_export.moc"

@@ -8,7 +8,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 constexpr double kSteadyGlow = 0.35; // connected, idle
@@ -43,7 +43,7 @@ void McpButton::setState(McpServer::State s, const QString &client) {
     m_state = s;
     switch(s) {
     case McpServer::State::Off:
-        setToolTip(tr("MCP server off: click to set it up and let AI agents use Cadly"));
+        setToolTip(tr("MCP server off: click to set it up and let AI agents use Cadjitsu"));
         break;
     case McpServer::State::Listening:
         setToolTip(tr("MCP server listening, no agent connected: click for settings and the event log"));
@@ -148,4 +148,4 @@ void McpButton::paintEvent(QPaintEvent *) {
     p.drawText(pill.adjusted(r * 2 + 2, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft, QStringLiteral("MCP"));
 }
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -41,4 +41,4 @@ std::optional<float> rayQuad(const QVector3D &origin, const QVector3D &direction
     return t;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

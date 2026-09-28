@@ -35,7 +35,7 @@ std::vector<uint64_t> timelineKeys(const std::vector<FeaturePtr> &features, cons
 // Builds and evaluates the parameter table of a timeline.
 std::shared_ptr<ParamTable> buildParamTable(const std::vector<FeaturePtr> &features);
 
-// A Cadly document: the feature timeline with its history marker, body display
+// A Cadjitsu document: the feature timeline with its history marker, body display
 // settings, undo/redo, and (lazily computed, cached) model states.
 class Document {
 public:

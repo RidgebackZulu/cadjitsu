@@ -6,7 +6,7 @@
 
 #include <QTreeWidget>
 
-namespace cadly {
+namespace cadjitsu {
 
 class ModelView;
 
@@ -59,4 +59,4 @@ private:
     bool m_rebuilding = false;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -9,11 +9,11 @@
   - `src/platform/platformbase.cpp`, `src/slvs/lib.cpp`
   - the headers they include: `src/{defs,dsc,expr,handle,param,polygon,resource,sketch,solvespace,ttf,ui,util}.h`,
     `src/srf/surface.h`, `src/render/render.h`, `src/platform/{platform,gui}.h`
-- Added by Cadly: `shim/mimalloc.h` — a tiny stand-in for the three mimalloc heap
+- Added by Cadjitsu: `shim/mimalloc.h` — a tiny stand-in for the three mimalloc heap
   functions used by SolveSpace's temporary arena (`mi_heap_new`, `mi_heap_zalloc`,
   `mi_heap_destroy`), because the `+dfsg` tarball strips the bundled mimalloc.
 
-Note: libslvs keeps global solver state (`static System SYS`, `Sketch SK`), so Cadly
+Note: libslvs keeps global solver state (`static System SYS`, `Sketch SK`), so Cadjitsu
 serializes every call through a single mutex (`cad::SlvsSolver`).
 
 ## Patches
@@ -25,5 +25,5 @@ serializes every call through a single mutex (`cad::SlvsSolver`).
   system. Upstream never initialised it (`Slvs_CanInitiallySatisfy()` excludes
   `PT_ON_LINE`) and copied it first anyway, so it started at 0 and a point that
   was already on a line got pulled halfway towards the line's first point.
-  Marked "Cadly patch" in the source; covered by
+  Marked "Cadjitsu patch" in the source; covered by
   `tests/core/test_sketch_solver.cpp` ("points on lines stay where they are").

@@ -16,7 +16,7 @@ class QTabWidget;
 class QTreeWidget;
 class QTreeWidgetItem;
 
-namespace cadly {
+namespace cadjitsu {
 
 // The MCP server dialog (the toolbar's MCP button, File > MCP Server):
 // Settings (on / off, port, token, how to connect an agent) and the live
@@ -61,4 +61,4 @@ private:
     QLineEdit *m_filter;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

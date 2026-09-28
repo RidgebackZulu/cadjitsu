@@ -5,7 +5,7 @@
 
 #include <Qt>
 
-namespace cadly {
+namespace cadjitsu {
 
 // Which mouse drag orbits, pans and zooms the view. Each action can have two
 // drags (for example right drag and Shift + middle drag both orbit). A plain
@@ -13,7 +13,7 @@ namespace cadly {
 struct MouseBindings {
     // The drags that can be bound (the order of the settings menus).
     enum class Drag { Off, Right, ShiftRight, Middle, ShiftMiddle, CtrlMiddle, AltLeft, AltRight };
-    enum class Preset { Cadly, Fusion, SolidWorks, Custom };
+    enum class Preset { Cadjitsu, Fusion, SolidWorks, Custom };
 
     Drag orbit = Drag::Right, orbit2 = Drag::ShiftMiddle;
     Drag pan = Drag::Middle, pan2 = Drag::Off;
@@ -30,10 +30,10 @@ struct MouseBindings {
     // Does a press of `button` with `mods` start this drag?
     static bool matches(Drag d, Qt::MouseButton button, Qt::KeyboardModifiers mods);
 
-    static MouseBindings load();  // from the user's settings (the Cadly preset by default)
+    static MouseBindings load();  // from the user's settings (the Cadjitsu preset by default)
     void save() const;
 
     bool operator==(const MouseBindings &) const = default;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

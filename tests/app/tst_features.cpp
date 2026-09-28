@@ -48,7 +48,7 @@
 
 #include <cmath>
 
-using namespace cadly;
+using namespace cadjitsu;
 
 namespace {
 
@@ -867,6 +867,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(FeatureTests)
+CADJITSU_REGISTER_TEST(FeatureTests)
 
 #include "tst_features.moc"

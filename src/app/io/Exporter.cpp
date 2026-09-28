@@ -8,7 +8,7 @@
 
 #include <set>
 
-namespace cadly {
+namespace cadjitsu {
 
 ExportJob makeExportJob(const ModelView &view, const cad::Document &doc, ExportJob::Format format, bool selectedOnly) {
     ExportJob job;
@@ -53,7 +53,7 @@ ExportResult runExport(const ExportJob &job, const std::string &path, bool write
             r.error = "the mesh is not printable: " + stl.report.summary();
             return r;
         }
-        const std::string name = job.solids.size() == 1 ? job.solids.front().name : std::string("Cadly");
+        const std::string name = job.solids.size() == 1 ? job.solids.front().name : std::string("Cadjitsu");
         r.ok = cad::writeStlFile(path, stl.mesh, job.stl.binary, name, r.error);
         return r;
     }
@@ -69,4 +69,4 @@ ExportResult runExport(const ExportJob &job, const std::string &path, bool write
     return r;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -1,4 +1,5 @@
 #include "MainWindow.h"
+#include "SettingsMigration.h"
 #include "selftest/SelfTest.h"
 #include "mcp/McpTools.h"
 #include "ui/AppIcon.h"
@@ -29,11 +30,11 @@ QRhiWidget::Api parseApi(const QString &name, bool *ok) {
     return QRhiWidget::Api::OpenGL;
 }
 
-// Finder opens .cadly documents (double-click, drop on the Dock icon) with a
+// Finder opens .cadjitsu (and older .cadly) documents (double-click, drop on the Dock icon) with a
 // FileOpen event to the application.
 class FileOpenFilter : public QObject {
 public:
-    explicit FileOpenFilter(cadly::MainWindow &window) : m_window(window) {}
+    explicit FileOpenFilter(cadjitsu::MainWindow &window) : m_window(window) {}
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override {
@@ -46,7 +47,7 @@ protected:
     }
 
 private:
-    cadly::MainWindow &m_window;
+    cadjitsu::MainWindow &m_window;
 };
 
 } // namespace
@@ -61,11 +62,12 @@ int main(int argc, char *argv[]) {
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QApplication app(argc, argv);
-    cadly::applyLightTheme(app);
-    QApplication::setApplicationName(QStringLiteral("Cadly"));
+    cadjitsu::applyLightTheme(app);
+    QApplication::setApplicationName(QStringLiteral("Cadjitsu"));
     QApplication::setApplicationVersion(QString::fromLatin1(cad::version()));
-    QApplication::setOrganizationName(QStringLiteral("Cadly"));
-    QApplication::setWindowIcon(cadly::appIcon());
+    QApplication::setOrganizationName(QStringLiteral("Cadjitsu"));
+    cadjitsu::migrateSettingsFromCadly();
+    QApplication::setWindowIcon(cadjitsu::appIcon());
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("Parametric CAD for 3D-printable parts"));
@@ -85,15 +87,15 @@ int main(int argc, char *argv[]) {
     QCommandLineOption toolsOpt(QStringLiteral("mcp-tools"),
                                 QStringLiteral("Print the MCP server's tool list (JSON) and exit."));
     parser.addOptions({selfTestOpt, outOpt, rhiOpt, listOpt, toolsOpt});
-    parser.addPositionalArgument(QStringLiteral("file"), QStringLiteral("A .cadly design to open."), QStringLiteral("[file]"));
+    parser.addPositionalArgument(QStringLiteral("file"), QStringLiteral("A .cadjitsu (or .cadly) design to open."), QStringLiteral("[file]"));
     parser.process(app);
 
     if(parser.isSet(listOpt)) {
-        for(const QString &name : cadly::selfTestNames()) printf("%s\n", qPrintable(name));
+        for(const QString &name : cadjitsu::selfTestNames()) printf("%s\n", qPrintable(name));
         return 0;
     }
 
-    cadly::MainWindow window;
+    cadjitsu::MainWindow window;
     if(parser.isSet(toolsOpt)) {
         printf("%s\n", window.mcpTools()->toolList().dump(2).c_str());
         return 0;
@@ -116,7 +118,7 @@ int main(int argc, char *argv[]) {
     if(parser.isSet(selfTestOpt)) {
         int code = 0;
         QTimer::singleShot(0, &app, [&] {
-            code = cadly::runSelfTest(window, parser.value(selfTestOpt), parser.value(outOpt));
+            code = cadjitsu::runSelfTest(window, parser.value(selfTestOpt), parser.value(outOpt));
             app.exit(code);
         });
         app.exec();

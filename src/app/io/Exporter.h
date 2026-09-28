@@ -10,7 +10,7 @@ namespace cad {
 class Document;
 }
 
-namespace cadly {
+namespace cadjitsu {
 
 class ModelView;
 
@@ -45,4 +45,4 @@ struct ExportResult {
 // passes (or `writeInvalid`). STEP: writes and reads the file back.
 ExportResult runExport(const ExportJob &job, const std::string &path, bool writeInvalid = false);
 
-} // namespace cadly
+} // namespace cadjitsu

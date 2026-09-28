@@ -47,7 +47,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace cadly {
+namespace cadjitsu {
 
 using json = nlohmann::json;
 
@@ -1564,7 +1564,7 @@ void McpTools::define() {
             settle();
             return json{{"design", "new"}};
         });
-    add("open_design", "Opens a .cadly design.", {{"path", str("absolute path of a .cadly file")}}, {"path"},
+    add("open_design", "Opens a .cadjitsu design (or an older .cadly one).", {{"path", str("absolute path of a .cadjitsu or .cadly file")}}, {"path"},
         [this, &doc, settle, path, bodiesJson](const json &a) {
             const QString p = path(a.at("path"));
             cad::Document probe;
@@ -1573,10 +1573,10 @@ void McpTools::define() {
             m_w.openFile(p);
             return json{{"opened", p.toStdString()}, {"features", doc.features().size()}, {"bodies", bodiesJson(settle())}};
         });
-    add("save_design", "Saves the design as a .cadly file (the whole history).", {{"path", str("absolute path, ending .cadly")}},
+    add("save_design", "Saves the design as a .cadjitsu file (the whole history).", {{"path", str("absolute path, ending .cadjitsu")}},
         {"path"}, [this, path](const json &a) {
             QString p = path(a.at("path"));
-            if(!p.endsWith(QLatin1String(".cadly"))) p += QStringLiteral(".cadly");
+            if(!p.endsWith(QLatin1String(".cadjitsu")) && !p.endsWith(QLatin1String(".cadly"))) p += QStringLiteral(".cadjitsu");
             if(!m_w.saveFile(p)) fail("could not save " + p.toStdString());
             return json{{"saved", p.toStdString()}};
         });
@@ -1704,4 +1704,4 @@ void McpTools::define() {
         });
 }
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -268,4 +268,4 @@ void InlineValueEditor::finish(bool applied) {
     deleteLater();
 }
 
-} // namespace cadly
+} // namespace cadjitsu

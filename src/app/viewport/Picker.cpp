@@ -4,7 +4,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -245,4 +245,4 @@ std::vector<cad::BodyId> bodiesInRect(const Camera &cam, const QRectF &rect, boo
     return out;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

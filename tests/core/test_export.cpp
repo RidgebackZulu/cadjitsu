@@ -43,8 +43,8 @@ TopoDS_Shape plateWithHoles() {
 }
 
 std::string outPath(const std::string &name) {
-    std::filesystem::create_directories(CADLY_TEST_OUT_DIR);
-    return std::string(CADLY_TEST_OUT_DIR) + "/" + name;
+    std::filesystem::create_directories(CADJITSU_TEST_OUT_DIR);
+    return std::string(CADJITSU_TEST_OUT_DIR) + "/" + name;
 }
 
 } // namespace

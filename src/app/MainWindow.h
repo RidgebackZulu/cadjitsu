@@ -18,7 +18,7 @@ class QAction;
 class QActionGroup;
 class QLabel;
 
-namespace cadly {
+namespace cadjitsu {
 
 class BrowserTree;
 class Command;
@@ -97,7 +97,7 @@ public:
     // File > Export and MAKE > 3D Print: opens the export dialog (window-modal,
     // deleted when closed) for the model as it is now.
     ExportDialog *openExportDialog(ExportJob::Format format);
-    // Cadly > Settings (mouse bindings).
+    // Cadjitsu > Settings (mouse bindings).
     SettingsDialog *openSettings();
     // The MCP server (AI agents), its event log, status button and dialog.
     McpServer *mcpServer() const { return m_mcp; }
@@ -166,4 +166,4 @@ private:
     QElapsedTimer m_liveClock;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

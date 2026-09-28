@@ -11,7 +11,7 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-namespace cadly {
+namespace cadjitsu {
 
 SketchPalette::SketchPalette(QWidget *canvas) : QFrame(canvas) {
     setObjectName(QStringLiteral("sketchPalette"));
@@ -117,4 +117,4 @@ bool SketchPalette::eventFilter(QObject *o, QEvent *e) {
     return QFrame::eventFilter(o, e);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

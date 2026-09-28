@@ -9,7 +9,7 @@
 class QPainter;
 class QRectF;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Shaded, Fusion 360-style icons. Each one is an SVG in resources/icons
 // (made by scripts/icons/gen_icons.py), rendered sharp at whatever size and
@@ -43,4 +43,4 @@ QImage iconImage(IconId id, int size, const QColor &accent = kIconAccent);
 // tile with a soft shadow and the icon inside.
 void paintGlyphChip(QPainter &p, const QRectF &r, const QIcon &icon, const QColor &border, bool hot = false);
 
-} // namespace cadly
+} // namespace cadjitsu

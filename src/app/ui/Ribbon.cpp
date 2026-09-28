@@ -12,7 +12,7 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-namespace cadly {
+namespace cadjitsu {
 
 MenuButton::MenuButton(const QString &text, Style style, QWidget *parent) : QToolButton(parent), m_style(style) {
     setText(text);
@@ -248,4 +248,4 @@ void Ribbon::setCurrentTab(RibbonTab *tab) {
 
 RibbonTab *Ribbon::currentTab() const { return static_cast<RibbonTab *>(m_stack->currentWidget()); }
 
-} // namespace cadly
+} // namespace cadjitsu

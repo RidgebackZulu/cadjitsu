@@ -12,7 +12,7 @@
 #include <mutex>
 #include <vector>
 
-namespace cadly {
+namespace cadjitsu {
 
 // One evaluated timeline, ready to display: the document's own, or a
 // command's preview with a candidate feature in it.
@@ -59,7 +59,7 @@ public:
     void supersedeRequests() { m_superseded = m_requested; }
 
 signals:
-    void finished(cadly::EvaluationPtr result);
+    void finished(cadjitsu::EvaluationPtr result);
     void busyChanged(bool busy);
 
 private:
@@ -91,6 +91,6 @@ private:
     bool m_busy = false;      // UI thread
 };
 
-} // namespace cadly
+} // namespace cadjitsu
 
-Q_DECLARE_METATYPE(cadly::EvaluationPtr)
+Q_DECLARE_METATYPE(cadjitsu::EvaluationPtr)

@@ -21,7 +21,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -410,4 +410,4 @@ std::shared_ptr<cad::Feature> ExtrudeCommand::build(QString &why) {
     return f;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

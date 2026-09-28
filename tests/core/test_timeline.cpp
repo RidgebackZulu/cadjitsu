@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 
 using namespace cadtest;
 
@@ -177,12 +178,24 @@ TEST_CASE("document JSON round trip is byte-identical and reproduces the model")
 
     // Through a file.
     namespace fs = std::filesystem;
-    fs::create_directories(CADLY_TEST_OUT_DIR);
-    const std::string path = std::string(CADLY_TEST_OUT_DIR) + "/roundtrip.cadly";
+    fs::create_directories(CADJITSU_TEST_OUT_DIR);
+    const std::string path = std::string(CADJITSU_TEST_OUT_DIR) + "/roundtrip.cadjitsu";
     REQUIRE(m.doc.save(path, err));
     Document d3;
     REQUIRE(d3.load(path, err));
     CHECK(d3.toJson().dump(2) == a);
+
+    // A design saved before the rename to Cadjitsu (a .cadly file) still opens.
+    json old = json::parse(a);
+    CHECK(old["format"] == "cadjitsu");
+    old["format"] = "cadly";
+    const std::string oldPath = std::string(CADJITSU_TEST_OUT_DIR) + "/roundtrip.cadly";
+    {
+        std::ofstream(oldPath) << old.dump(2);
+    }
+    Document d4;
+    REQUIRE(d4.load(oldPath, err));
+    CHECK(d4.toJson().dump(2) == a); // the same design (saved again as "cadjitsu")
 
     Document bad;
     CHECK_FALSE(bad.fromJson(json{{"format", "other"}}, err));

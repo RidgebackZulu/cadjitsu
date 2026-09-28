@@ -16,7 +16,7 @@ namespace cad {
 class Document;
 }
 
-namespace cadly {
+namespace cadjitsu {
 
 class ModelView;
 
@@ -71,4 +71,4 @@ private:
     ExportResult m_result;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

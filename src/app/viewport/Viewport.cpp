@@ -18,7 +18,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -277,7 +277,7 @@ PickHit Viewport::pickAt(QPointF px) const {
 std::optional<QVector3D> Viewport::raycast(QPointF px) const {
     Camera c = m_camera;
     c.viewport = size();
-    return cadly::raycast(c, px, m_targets, m_clip);
+    return cadjitsu::raycast(c, px, m_targets, m_clip);
 }
 
 QVector3D Viewport::anchorAt(QPointF px) const {
@@ -709,4 +709,4 @@ void Viewport::paintOverlay(QPainter &p) {
     if(ViewportTool *t = activeTool()) t->paintOverlay(p);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -10,7 +10,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace units {
 
@@ -208,4 +208,4 @@ void UnitSuffix::paintEvent(QPaintEvent *) {
     p.drawPath(v);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

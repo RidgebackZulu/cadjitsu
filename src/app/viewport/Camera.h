@@ -8,7 +8,7 @@
 
 #include <vector>
 
-namespace cadly {
+namespace cadjitsu {
 
 struct Box3 {
     QVector3D min{1e30f, 1e30f, 1e30f};
@@ -86,4 +86,4 @@ public:
     static QQuaternion orientationFor(StandardView v);
 };
 
-} // namespace cadly
+} // namespace cadjitsu

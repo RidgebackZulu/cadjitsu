@@ -12,7 +12,7 @@
 
 #include <QCheckBox>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -174,4 +174,4 @@ void SectionCommand::updateArrow() {
     m_ctx.viewport->refreshOverlay();
 }
 
-} // namespace cadly
+} // namespace cadjitsu

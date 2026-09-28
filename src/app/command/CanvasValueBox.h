@@ -6,7 +6,7 @@
 #include <QLineEdit>
 #include <QPointer>
 
-namespace cadly {
+namespace cadjitsu {
 
 class UnitSuffix;
 class ValueField;
@@ -46,4 +46,4 @@ private:
     QColor m_accent;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

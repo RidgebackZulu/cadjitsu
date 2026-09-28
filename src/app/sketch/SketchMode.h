@@ -12,7 +12,7 @@
 
 #include <memory>
 
-namespace cadly {
+namespace cadjitsu {
 
 class ModelView;
 class PlanePickTool;
@@ -72,7 +72,7 @@ public:
 signals:
     void activeChanged(bool active);
     void pickingPlaneChanged(bool picking);
-    void toolChanged(cadly::SketchToolKind tool);
+    void toolChanged(cadjitsu::SketchToolKind tool);
     void statsChanged(const QString &text);
     void message(const QString &text);
     void finished(cad::FeatureId id);
@@ -103,4 +103,4 @@ private:
     bool m_isNew = false;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

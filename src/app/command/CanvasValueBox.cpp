@@ -6,7 +6,7 @@
 #include <QKeyEvent>
 #include <QTimer>
 
-namespace cadly {
+namespace cadjitsu {
 
 CanvasValueBox::CanvasValueBox(QWidget *canvas) : QLineEdit(canvas) {
     setObjectName(QStringLiteral("canvasValue"));
@@ -103,4 +103,4 @@ void CanvasValueBox::focusInEvent(QFocusEvent *e) {
     });
 }
 
-} // namespace cadly
+} // namespace cadjitsu

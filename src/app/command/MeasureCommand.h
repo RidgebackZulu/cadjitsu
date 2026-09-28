@@ -15,7 +15,7 @@ class QComboBox;
 class QLabel;
 class QPushButton;
 
-namespace cadly {
+namespace cadjitsu {
 
 class Viewport;
 
@@ -103,4 +103,4 @@ private:
     MeasureOverlay m_overlay;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

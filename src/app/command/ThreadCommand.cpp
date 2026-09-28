@@ -13,7 +13,7 @@
 #include <QComboBox>
 #include <QLabel>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 const QColor kFace(230, 140, 40);
@@ -170,4 +170,4 @@ std::shared_ptr<cad::Feature> ThreadCommand::build(QString &why) {
     return f;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

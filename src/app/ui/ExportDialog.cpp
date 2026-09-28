@@ -26,7 +26,7 @@
 
 #include <memory>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -250,4 +250,4 @@ void ExportDialog::done(const ExportJob &job, const QString &path, const ExportR
     emit exportFinished(r.ok);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

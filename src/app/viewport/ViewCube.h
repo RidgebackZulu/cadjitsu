@@ -12,7 +12,7 @@
 #include <optional>
 #include <vector>
 
-namespace cadly {
+namespace cadjitsu {
 
 // The navigation cube in the top-right corner of the viewport (Z up):
 // FRONT is -Y, RIGHT is +X, TOP is +Z. A chamfered cube: clicking a face,
@@ -47,4 +47,4 @@ public:
     static QImage labelAtlas(qreal devicePixelRatio = 4.0);
 };
 
-} // namespace cadly
+} // namespace cadjitsu

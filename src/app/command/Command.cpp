@@ -10,7 +10,7 @@
 #include <QPushButton>
 #include <QTimer>
 
-namespace cadly {
+namespace cadjitsu {
 
 Command::Command(const CommandContext &ctx, cad::FeatureId editing) : m_ctx(ctx), m_editing(editing) {}
 
@@ -236,4 +236,4 @@ void CommandController::finish() {
     emit activeChanged(false);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -11,7 +11,7 @@
 
 #include <set>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -261,4 +261,4 @@ void BrowserTree::onChanged(QTreeWidgetItem *item, int column) {
     if(b && !name.empty() && name != m_doc.bodyName(*b)) m_doc.renameBody(id, name);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

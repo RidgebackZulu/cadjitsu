@@ -6,7 +6,7 @@
 
 class QTimer;
 
-namespace cadly {
+namespace cadjitsu {
 
 // The "MCP" pill in the toolbar: grey when the server is off, blue when it
 // listens, green with a steady soft glow while an agent is connected. Each
@@ -42,4 +42,4 @@ private:
     bool m_hover = false;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

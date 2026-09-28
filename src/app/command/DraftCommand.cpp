@@ -13,7 +13,7 @@
 
 #include <QCheckBox>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 const QColor kFace(230, 140, 40);
@@ -209,4 +209,4 @@ std::shared_ptr<cad::Feature> DraftCommand::build(QString &why) {
     return f;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

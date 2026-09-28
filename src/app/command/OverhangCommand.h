@@ -4,7 +4,7 @@
 
 class QLabel;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Inspect > Overhangs: colours the shown bodies by how printable their
 // surfaces are when printed upwards: faint green where fine, amber close to
@@ -39,4 +39,4 @@ private:
     QLabel *m_support = nullptr, *m_bridges = nullptr, *m_near = nullptr, *m_legend = nullptr;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -8,7 +8,7 @@
 
 class QToolButton;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Fusion 360's timeline along the bottom of the window: one icon per feature
 // in order, and the history marker after the last active feature. Dragging
@@ -68,4 +68,4 @@ private:
     cad::json m_dragSnapshot;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -10,7 +10,7 @@
 class QCheckBox;
 class QComboBox;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Fusion 360's Combine: join, cut or intersect a target body with tool bodies;
 // Keep Tools leaves the tools in the model.
@@ -48,4 +48,4 @@ private:
     QCheckBox *m_keep = nullptr;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

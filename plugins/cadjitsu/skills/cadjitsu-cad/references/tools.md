@@ -1,8 +1,8 @@
-# Cadly MCP tools
+# Cadjitsu MCP tools
 
-Generated from the app (`Cadly --mcp-tools`); do not edit by hand.
+Generated from the app (`Cadjitsu --mcp-tools`); do not edit by hand.
 Lengths are millimetres, angles degrees. Numeric arguments also take expressions such as `"d1 * 2"` or
-`"0.5 in"`. Every tool that changes the design is one undo step and shows in Cadly's timeline.
+`"0.5 in"`. Every tool that changes the design is one undo step and shows in Cadjitsu's timeline.
 
 ## `get_design`
 
@@ -361,19 +361,19 @@ No arguments.
 
 ## `open_design`
 
-Opens a .cadly design.
+Opens a .cadjitsu design (or an older .cadly one).
 
 | Argument | Type | Description |
 |---|---|---|
-| `path` **(required)** | string | absolute path of a .cadly file |
+| `path` **(required)** | string | absolute path of a .cadjitsu or .cadly file |
 
 ## `save_design`
 
-Saves the design as a .cadly file (the whole history).
+Saves the design as a .cadjitsu file (the whole history).
 
 | Argument | Type | Description |
 |---|---|---|
-| `path` **(required)** | string | absolute path, ending .cadly |
+| `path` **(required)** | string | absolute path, ending .cadjitsu |
 
 ## `export_stl`
 

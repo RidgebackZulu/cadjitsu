@@ -10,7 +10,7 @@
 
 #include <set>
 
-using namespace cadly;
+using namespace cadjitsu;
 
 namespace {
 
@@ -35,7 +35,7 @@ private slots:
             QVERIFY2(names.insert(name).second, qPrintable(name + " is used twice"));
             QVERIFY2(QFile::exists(QStringLiteral(":/icons/%1.svg").arg(name)), qPrintable(name));
             // The file in the source tree matches (the generator was run).
-            QVERIFY2(QFile::exists(QStringLiteral(CADLY_SOURCE_DIR "/resources/icons/%1.svg").arg(name)), qPrintable(name));
+            QVERIFY2(QFile::exists(QStringLiteral(CADJITSU_SOURCE_DIR "/resources/icons/%1.svg").arg(name)), qPrintable(name));
         }
         QCOMPARE(int(names.size()), int(IconId::Repeat) + 1);
     }
@@ -87,6 +87,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(IconTests)
+CADJITSU_REGISTER_TEST(IconTests)
 
 #include "tst_icons.moc"

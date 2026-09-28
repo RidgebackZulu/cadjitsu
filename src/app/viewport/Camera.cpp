@@ -6,7 +6,7 @@
 #include <cmath>
 #include <limits>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -185,4 +185,4 @@ void Camera::updateClipPlanes(const Box3 &solid, const std::vector<QVector3D> &g
     nearPlane = std::min(nearPlane, std::max(distance * 0.5f, farPlane / 100000.0f));
 }
 
-} // namespace cadly
+} // namespace cadjitsu

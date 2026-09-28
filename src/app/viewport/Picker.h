@@ -15,7 +15,7 @@
 #include <optional>
 #include <vector>
 
-namespace cadly {
+namespace cadjitsu {
 
 // A body as seen by the picker.
 struct PickTarget {
@@ -59,4 +59,4 @@ std::vector<cad::BodyId> bodiesInRect(const Camera &camera, const QRectF &rect, 
 
 Box3 meshBounds(const cad::MeshData &mesh);
 
-} // namespace cadly
+} // namespace cadjitsu

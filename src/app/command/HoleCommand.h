@@ -11,7 +11,7 @@
 class QComboBox;
 class QLabel;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Fusion 360's Hole: click a planar face to place a hole (each click adds
 // one; click a centre mark to remove it; X / Y set the last one exactly), or
@@ -78,4 +78,4 @@ private:
                *m_tipAngleField = nullptr;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

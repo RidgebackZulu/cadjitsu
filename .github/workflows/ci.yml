@@ -22,7 +22,7 @@ jobs:
       - uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: env/environment.yml
-          environment-name: cadly
+          environment-name: cadjitsu
           cache-environment: true
 
       - name: Install Xvfb and Mesa
@@ -32,7 +32,7 @@ jobs:
           sudo apt-get install -y -qq xvfb x11-utils libgl1-mesa-dri libglx-mesa0 libegl-mesa0
 
       - name: Configure
-        run: CADLY_ENV="$CONDA_PREFIX" cmake --preset linux-conda
+        run: CADJITSU_ENV="$CONDA_PREFIX" cmake --preset linux-conda
 
       - name: Build
         run: cmake --build --preset linux-conda
@@ -49,13 +49,13 @@ jobs:
           python3 scripts/icons/gen_icons.py
           git diff --exit-code --stat resources/icons
           python3 scripts/check_plugin.py
-          scripts/run_xvfb.sh build/linux/src/app/Cadly --mcp-tools > out-tools.json
-          python3 scripts/gen_mcp_tool_docs.py --check out-tools.json plugins/cadly/skills/cadly-cad/references/tools.md
+          scripts/run_xvfb.sh build/linux/src/app/Cadjitsu --mcp-tools > out-tools.json
+          python3 scripts/gen_mcp_tool_docs.py --check out-tools.json plugins/cadjitsu/skills/cadjitsu-cad/references/tools.md
 
       - name: Self tests
         run: |
-          for t in $(scripts/run_xvfb.sh build/linux/src/app/Cadly --list-selftests); do
-            scripts/run_xvfb.sh build/linux/src/app/Cadly --selftest=$t --out out/linux
+          for t in $(scripts/run_xvfb.sh build/linux/src/app/Cadjitsu --list-selftests); do
+            scripts/run_xvfb.sh build/linux/src/app/Cadjitsu --selftest=$t --out out/linux
           done
 
       - uses: actions/upload-artifact@v4
@@ -94,24 +94,24 @@ jobs:
 
       - name: Self tests (Metal)
         run: |
-          for t in $(build/macos/src/app/Cadly.app/Contents/MacOS/Cadly --list-selftests); do
-            build/macos/src/app/Cadly.app/Contents/MacOS/Cadly --selftest=$t --out out/macos
+          for t in $(build/macos/src/app/Cadjitsu.app/Contents/MacOS/Cadjitsu --list-selftests); do
+            build/macos/src/app/Cadjitsu.app/Contents/MacOS/Cadjitsu --selftest=$t --out out/macos
           done
 
-      - name: Bundle Cadly.app
+      - name: Bundle Cadjitsu.app
         run: |
-          cp -R build/macos/src/app/Cadly.app out/Cadly.app
-          "$(brew --prefix qtbase)/bin/macdeployqt" out/Cadly.app -always-overwrite
+          cp -R build/macos/src/app/Cadjitsu.app out/Cadjitsu.app
+          "$(brew --prefix qtbase)/bin/macdeployqt" out/Cadjitsu.app -always-overwrite
           # Whatever macdeployqt left pointing at Homebrew is copied in and re-pointed;
           # fails if anything still resolves outside the bundle.
-          python3 scripts/macos_bundle_fix.py out/Cadly.app
-          codesign --force --deep --sign - out/Cadly.app
-          plutil -lint out/Cadly.app/Contents/Info.plist
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' out/Cadly.app/Contents/Info.plist)" = Cadly.icns
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:CFBundleTypeName' out/Cadly.app/Contents/Info.plist
-          test -s out/Cadly.app/Contents/Resources/Cadly.icns
-          test -d out/Cadly.app/Contents/Frameworks/QtSvg.framework
-          vtool -show-build out/Cadly.app/Contents/MacOS/Cadly | grep -E 'minos|sdk' || true
+          python3 scripts/macos_bundle_fix.py out/Cadjitsu.app
+          codesign --force --deep --sign - out/Cadjitsu.app
+          plutil -lint out/Cadjitsu.app/Contents/Info.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' out/Cadjitsu.app/Contents/Info.plist)" = Cadjitsu.icns
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleDocumentTypes:0:CFBundleTypeName' out/Cadjitsu.app/Contents/Info.plist
+          test -s out/Cadjitsu.app/Contents/Resources/Cadjitsu.icns
+          test -d out/Cadjitsu.app/Contents/Frameworks/QtSvg.framework
+          vtool -show-build out/Cadjitsu.app/Contents/MacOS/Cadjitsu | grep -E 'minos|sdk' || true
 
       - name: Acceptance test of the bundled app (Homebrew hidden)
         run: |
@@ -119,13 +119,13 @@ jobs:
           sudo mv /opt/homebrew /opt/homebrew.hidden
           trap 'sudo mv /opt/homebrew.hidden /opt/homebrew' EXIT
           status=0
-          out/Cadly.app/Contents/MacOS/Cadly --selftest=acceptance --out out/macos-bundled || status=$?
+          out/Cadjitsu.app/Contents/MacOS/Cadjitsu --selftest=acceptance --out out/macos-bundled || status=$?
           # The icons (QtSvg) render from the bundle too.
-          out/Cadly.app/Contents/MacOS/Cadly --selftest=icons --out out/macos-bundled || status=$?
+          out/Cadjitsu.app/Contents/MacOS/Cadjitsu --selftest=icons --out out/macos-bundled || status=$?
           if [ "$status" -ne 0 ]; then
             echo "::group::Backtrace and loaded images"
             lldb --batch -o run -k "thread backtrace all" -k "image list" -- \
-              out/Cadly.app/Contents/MacOS/Cadly --selftest=acceptance --out out/macos-bundled-lldb || true
+              out/Cadjitsu.app/Contents/MacOS/Cadjitsu --selftest=acceptance --out out/macos-bundled-lldb || true
             echo "::endgroup::"
           fi
           exit "$status"
@@ -133,23 +133,23 @@ jobs:
       # A disk image, not a zip: upload-artifact zips every artifact itself (a
       # zip inside would come out double-zipped), and an app bundle uploaded
       # as loose files loses its symlinks and executable bits.
-      - name: Make Cadly.dmg
+      - name: Make Cadjitsu.dmg
         run: |
           mkdir -p out/dmg
-          cp -R out/Cadly.app out/dmg/
+          cp -R out/Cadjitsu.app out/dmg/
           ln -s /Applications out/dmg/Applications
-          hdiutil create -volname Cadly -srcfolder out/dmg -format UDZO -ov out/Cadly.dmg
+          hdiutil create -volname Cadjitsu -srcfolder out/dmg -format UDZO -ov out/Cadjitsu.dmg
 
-      - name: Test the app from Cadly.dmg (Homebrew hidden)
+      - name: Test the app from Cadjitsu.dmg (Homebrew hidden)
         run: |
           mnt=$(mktemp -d)
-          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" out/Cadly.dmg
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" out/Cadjitsu.dmg
           test -L "$mnt/Applications"
-          cp -R "$mnt/Cadly.app" out/from-dmg.app
+          cp -R "$mnt/Cadjitsu.app" out/from-dmg.app
           hdiutil detach "$mnt"
           sudo mv /opt/homebrew /opt/homebrew.hidden
           trap 'sudo mv /opt/homebrew.hidden /opt/homebrew' EXIT
-          out/from-dmg.app/Contents/MacOS/Cadly --selftest=smoke --out out/macos-dmg
+          out/from-dmg.app/Contents/MacOS/Cadjitsu --selftest=smoke --out out/macos-dmg
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -162,5 +162,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Cadly-macOS-dmg
-          path: out/Cadly.dmg
+          name: Cadjitsu-macOS-dmg
+          path: out/Cadjitsu.dmg

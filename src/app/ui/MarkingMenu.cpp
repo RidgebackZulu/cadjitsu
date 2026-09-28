@@ -8,7 +8,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -186,4 +186,4 @@ void MarkingMenu::trigger(QAction *a) {
     });
 }
 
-} // namespace cadly
+} // namespace cadjitsu

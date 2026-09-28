@@ -1,6 +1,6 @@
 # Linux development / CI environment (conda-forge). Mac builds use Homebrew instead:
 #   brew install qtbase qtsvg qtshadertools opencascade eigen ninja cmake
-name: cadly
+name: cadjitsu
 channels:
   - conda-forge
 dependencies:

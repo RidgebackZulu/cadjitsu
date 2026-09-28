@@ -6,7 +6,7 @@
 #include <QLabel>
 #include <QSettings>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 const char *kLimitKey = "overhang/limit";
@@ -57,4 +57,4 @@ void OverhangCommand::showPreview() {
 
 void OverhangCommand::end() { m_ctx.view->setOverhangAnalysis(std::nullopt); }
 
-} // namespace cadly
+} // namespace cadjitsu

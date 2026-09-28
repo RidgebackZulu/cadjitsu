@@ -30,7 +30,7 @@
 
 #include <cmath>
 
-using namespace cadly;
+using namespace cadjitsu;
 
 namespace {
 
@@ -331,6 +331,6 @@ private slots:
     }
 };
 
-CADLY_REGISTER_TEST(SectionTests)
+CADJITSU_REGISTER_TEST(SectionTests)
 
 #include "tst_section.moc"

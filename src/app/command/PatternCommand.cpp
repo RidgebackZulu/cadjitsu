@@ -13,7 +13,7 @@
 #include <algorithm>
 #include <regex>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 const QColor kObject(230, 140, 40);
@@ -386,4 +386,4 @@ std::shared_ptr<cad::Feature> PatternCommand::build(QString &why) {
     return f;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

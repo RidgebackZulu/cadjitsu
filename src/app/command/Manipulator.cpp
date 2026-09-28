@@ -8,7 +8,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -171,4 +171,4 @@ void DistanceManipulator::paintOverlay(QPainter &p) {
     p.drawText(r, Qt::AlignCenter, label);
 }
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace cadly {
+namespace cadjitsu {
 
 // Something the user has selected in the canvas or browser.
 struct SelectionItem {
@@ -42,4 +42,4 @@ private:
     std::vector<SelectionItem> m_items;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

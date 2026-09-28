@@ -9,7 +9,7 @@
 
 #include <algorithm>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 const QColor kActive(20, 100, 225);
@@ -224,4 +224,4 @@ std::shared_ptr<cad::Feature> SplitCommand::build(QString &why) {
     return f;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

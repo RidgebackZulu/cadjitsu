@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-namespace cadly {
+namespace cadjitsu {
 
 class UnitSuffix;
 
@@ -115,4 +115,4 @@ private:
     bool m_done = false;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -16,7 +16,7 @@
 #include <optional>
 #include <set>
 
-namespace cadly {
+namespace cadjitsu {
 
 class CanvasValueBox;
 class ModelView;
@@ -146,4 +146,4 @@ private:
     bool m_previewPending = false;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

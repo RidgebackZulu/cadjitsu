@@ -8,7 +8,7 @@
 
 #include <cstdlib>
 
-namespace cadly {
+namespace cadjitsu {
 
 bool waitForFrames(QRhiWidget *widget, int frames, int timeoutMs) {
     int submitted = 0;
@@ -43,4 +43,4 @@ bool colorNear(const QColor &a, const QColor &b, int tolerance) {
            std::abs(a.blue() - b.blue()) <= tolerance;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

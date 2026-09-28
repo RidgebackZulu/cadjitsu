@@ -22,7 +22,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -107,7 +107,7 @@ McpDialog::McpDialog(McpServer &server, McpLog &log, QWidget *parent)
     auto *sv = new QVBoxLayout(settings);
     sv->setContentsMargins(16, 14, 16, 14);
     auto *intro = new QLabel(tr("Let AI agents (Claude Code, Claude Desktop, Hermes...) build and edit designs in "
-                                "Cadly through the Model Context Protocol. The server only listens on this computer "
+                                "Cadjitsu through the Model Context Protocol. The server only listens on this computer "
                                 "(127.0.0.1) and every request must carry the token."),
                              settings);
     intro->setWordWrap(true);
@@ -167,9 +167,9 @@ McpDialog::McpDialog(McpServer &server, McpLog &log, QWidget *parent)
     m_snippet->setFont(mono);
     m_snippet->setMaximumHeight(96);
     sv->addWidget(m_snippet);
-    auto *skillHint = new QLabel(tr("The Cadly skill (how to model printable parts with these tools) installs from "
-                                    "GitHub: Claude Code <code>/plugin marketplace add RidgebackZulu/cadly</code>; Hermes "
-                                    "<code>hermes plugins install RidgebackZulu/cadly/plugins/cadly</code>."),
+    auto *skillHint = new QLabel(tr("The Cadjitsu skill (how to model printable parts with these tools) installs from "
+                                    "GitHub: Claude Code <code>/plugin marketplace add RidgebackZulu/cadjitsu</code>; Hermes "
+                                    "<code>hermes plugins install RidgebackZulu/cadjitsu/plugins/cadjitsu</code>."),
                                  settings);
     skillHint->setWordWrap(true);
     skillHint->setObjectName(QStringLiteral("mcpHint"));
@@ -313,30 +313,30 @@ void McpDialog::updateSnippet() {
     QString text;
     switch(m_client->currentIndex()) {
     case 0:
-        text = QStringLiteral("claude mcp add --transport http cadly %1 --header \"Authorization: Bearer %2\"").arg(url, token);
+        text = QStringLiteral("claude mcp add --transport http cadjitsu %1 --header \"Authorization: Bearer %2\"").arg(url, token);
         break;
     case 1:
-        text = QStringLiteral("# With the Cadly plugin (/plugin install cadly@cadly), set before starting Claude Code:\n"
-                              "export CADLY_MCP_TOKEN=%1\nexport CADLY_MCP_URL=%2")
+        text = QStringLiteral("# With the Cadjitsu plugin (/plugin install cadjitsu@cadjitsu), set before starting Claude Code:\n"
+                              "export CADJITSU_MCP_TOKEN=%1\nexport CADJITSU_MCP_URL=%2")
                    .arg(token, url);
         break;
     case 2:
-        text = QStringLiteral("{\n  \"mcpServers\": {\n    \"cadly\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", "
+        text = QStringLiteral("{\n  \"mcpServers\": {\n    \"cadjitsu\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", "
                               "\"mcp-remote\", \"%1\", \"--header\", \"Authorization: Bearer %2\"]\n    }\n  }\n}")
                    .arg(url, token);
         break;
     case 3:
         // The plugin brings the skill; `hermes mcp add` connects, stores the token in Hermes' secrets
         // and enables the tools.
-        text = QStringLiteral("hermes plugins install RidgebackZulu/cadly/plugins/cadly --enable\n"
-                              "hermes mcp add cadly --url %1 --auth header\n"
+        text = QStringLiteral("hermes plugins install RidgebackZulu/cadjitsu/plugins/cadjitsu --enable\n"
+                              "hermes mcp add cadjitsu --url %1 --auth header\n"
                               "# When asked for the Bearer token, paste: %2\n"
                               "# No tool-call cap per turn (Hermes' own limit):\n"
                               "hermes config set agent.max_turns unlimited")
                    .arg(url, token);
         break;
     case 4:
-        text = QStringLiteral("# ~/.hermes/config.yaml\nmcp_servers:\n  cadly:\n    url: \"%1\"\n    headers:\n"
+        text = QStringLiteral("# ~/.hermes/config.yaml\nmcp_servers:\n  cadjitsu:\n    url: \"%1\"\n    headers:\n"
                               "      Authorization: \"Bearer %2\"")
                    .arg(url, token);
         break;
@@ -375,4 +375,4 @@ void McpDialog::applyFilter() {
     }
 }
 
-} // namespace cadly
+} // namespace cadjitsu

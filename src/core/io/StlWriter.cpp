@@ -108,7 +108,7 @@ bool writeStlFile(const std::string &path, const TriMesh &mesh, bool binary, con
     };
     if(binary) {
         char header[80] = {};
-        std::snprintf(header, sizeof header, "Cadly STL %s", name.c_str());
+        std::snprintf(header, sizeof header, "Cadjitsu STL %s", name.c_str());
         f.write(header, 80);
         const uint32_t count = uint32_t(mesh.triangles.size());
         f.write(reinterpret_cast<const char *>(&count), 4);

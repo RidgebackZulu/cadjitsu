@@ -6,7 +6,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 void drawArrow(QPainter &p, QPointF tip, QPointF dir, const QColor &color) {
     const double l = std::hypot(dir.x(), dir.y());
@@ -41,4 +41,4 @@ QRectF drawLabelPlate(QPainter &p, QPointF centre, const QString &text, const QC
     return r;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

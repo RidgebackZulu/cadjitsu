@@ -8,7 +8,7 @@
 #include <array>
 #include <optional>
 
-namespace cadly {
+namespace cadjitsu {
 
 using Quad = std::array<QVector3D, 4>;
 
@@ -19,4 +19,4 @@ Quad originPlaneQuad(cad::PlaneRef::Kind kind, float size);
 // Where a ray (origin, direction) meets a flat convex quad, as a ray parameter.
 std::optional<float> rayQuad(const QVector3D &origin, const QVector3D &direction, const Quad &quad, bool orthographic);
 
-} // namespace cadly
+} // namespace cadjitsu

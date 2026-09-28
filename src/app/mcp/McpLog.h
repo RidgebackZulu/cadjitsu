@@ -6,7 +6,7 @@
 
 #include <deque>
 
-namespace cadly {
+namespace cadjitsu {
 
 // One thing that happened on the MCP server.
 struct McpEvent {
@@ -41,7 +41,7 @@ public:
     static constexpr qint64 maxBytes() { return 1024 * 1024; }
 
 signals:
-    void eventAdded(const cadly::McpEvent &e);
+    void eventAdded(const cadjitsu::McpEvent &e);
     void cleared();
 
 private:
@@ -52,4 +52,4 @@ private:
     std::deque<McpEvent> m_events;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

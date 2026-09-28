@@ -20,7 +20,7 @@
 #include <iomanip>
 #include <sstream>
 
-namespace cadly {
+namespace cadjitsu {
 
 using cad::SkCon;
 using cad::SkConstraint;
@@ -1779,4 +1779,4 @@ void SketchEditor::paintGlyphs(QPainter &p) {
     }
 }
 
-} // namespace cadly
+} // namespace cadjitsu

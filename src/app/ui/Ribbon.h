@@ -12,7 +12,7 @@ class QStackedWidget;
 class QTabBar;
 class QToolButton;
 
-namespace cadly {
+namespace cadjitsu {
 
 // A button that drops down a menu (ribbon group captions, the File button):
 // its label (and icon, if any) followed by a small drawn chevron, a soft
@@ -28,7 +28,7 @@ public:
     QSize minimumSizeHint() const override { return sizeHint(); }
     bool isOpen() const { return m_open; }
 
-    // The style sheet every Cadly drop-down menu uses.
+    // The style sheet every Cadjitsu drop-down menu uses.
     static QString menuStyleSheet();
 
 protected:
@@ -102,4 +102,4 @@ private:
     void rebuildTabs();
 };
 
-} // namespace cadly
+} // namespace cadjitsu

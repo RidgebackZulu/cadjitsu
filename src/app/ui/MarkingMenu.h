@@ -7,7 +7,7 @@
 
 class QAction;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Fusion 360's right-click marking menu: up to eight commands on a ring
 // around the cursor (click one, or move towards it and click) and a list of
@@ -48,4 +48,4 @@ private:
     int m_hotSlot = -1, m_hotRow = -1;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

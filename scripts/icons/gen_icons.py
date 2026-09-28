@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generates Cadly's icon set: resources/icons/*.svg.
+"""Generates Cadjitsu's icon set: resources/icons/*.svg.
 
 Every icon is drawn here from a few shared primitives (isometric boxes with
 light/mid/dark faces, orange "operated-on" faces, blue action arrows, soft

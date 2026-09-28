@@ -8,7 +8,7 @@
 
 class QLineEdit;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Value boxes show just a number; the unit it is in sits beside it in a small
 // drop-down (mm, cm, m, in, ft for lengths; deg, rad for angles). A number
@@ -72,4 +72,4 @@ private:
     bool m_active = true;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

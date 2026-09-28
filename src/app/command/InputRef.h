@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace cadly {
+namespace cadjitsu {
 
 // A model entity picked for a command input. It is stored by name or id (not
 // by index), so it survives the preview changing the model around it, and it
@@ -52,4 +52,4 @@ bool toggleRef(std::vector<InputRef> &refs, const InputRef &r);
 bool markInput(ModelView &view, const cad::ModelState &base, const InputRef &r, int tag, const QColor &color,
                ModelView::InputMarks &marks);
 
-} // namespace cadly
+} // namespace cadjitsu

@@ -22,7 +22,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -351,4 +351,4 @@ QString MeasureCommand::resultText() const {
     return out.join(QLatin1Char('\n'));
 }
 
-} // namespace cadly
+} // namespace cadjitsu

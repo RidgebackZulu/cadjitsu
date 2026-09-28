@@ -8,7 +8,7 @@
 
 #include <algorithm>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -122,4 +122,4 @@ std::shared_ptr<cad::Feature> CombineCommand::build(QString &why) {
     return f;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

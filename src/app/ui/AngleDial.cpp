@@ -7,7 +7,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 double wrapDegrees(double d) {
     d = std::fmod(d, 360.0);
@@ -179,4 +179,4 @@ void AngleDial::leaveEvent(QEvent *) {
     update();
 }
 
-} // namespace cadly
+} // namespace cadjitsu

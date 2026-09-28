@@ -8,7 +8,7 @@
 
 #include <cmath>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -142,4 +142,4 @@ QIcon appIcon() {
     return ic;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

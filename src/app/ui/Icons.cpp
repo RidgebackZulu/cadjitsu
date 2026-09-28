@@ -10,7 +10,7 @@
 #include <array>
 #include <memory>
 
-namespace cadly {
+namespace cadjitsu {
 
 namespace {
 
@@ -147,7 +147,7 @@ public:
     SvgIconEngine(IconId id, QColor accent) : m_id(id), m_accent(accent) {}
 
     QIconEngine *clone() const override { return new SvgIconEngine(m_id, m_accent); }
-    QString key() const override { return QStringLiteral("cadly-svg"); }
+    QString key() const override { return QStringLiteral("cadjitsu-svg"); }
 
     QList<QSize> availableSizes(QIcon::Mode, QIcon::State) override {
         return {QSize(16, 16), QSize(24, 24), QSize(32, 32), QSize(64, 64), QSize(128, 128)};
@@ -166,7 +166,7 @@ public:
     QPixmap scaledPixmap(const QSize &size, QIcon::Mode mode, QIcon::State, qreal scale) override {
         const QSize px = (QSizeF(size) * scale).toSize();
         if(px.isEmpty()) return {};
-        const QString cacheKey = QStringLiteral("cadly-icon-%1-%2-%3x%4-%5")
+        const QString cacheKey = QStringLiteral("cadjitsu-icon-%1-%2-%3x%4-%5")
                                      .arg(int(m_id))
                                      .arg(m_accent.rgba())
                                      .arg(px.width())
@@ -230,4 +230,4 @@ QIcon icon(IconId id, const QColor &accent) {
     return ic;
 }
 
-} // namespace cadly
+} // namespace cadjitsu

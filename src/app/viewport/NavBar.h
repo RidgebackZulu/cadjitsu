@@ -4,7 +4,7 @@
 
 class QToolButton;
 
-namespace cadly {
+namespace cadjitsu {
 
 class Viewport;
 
@@ -35,4 +35,4 @@ private:
     Viewport *m_viewport;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

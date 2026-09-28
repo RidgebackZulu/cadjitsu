@@ -13,7 +13,7 @@
 
 class QKeyEvent;
 
-namespace cadly {
+namespace cadjitsu {
 
 class HeadsUpInput;
 class SketchMode;
@@ -82,4 +82,4 @@ protected:
 
 std::unique_ptr<SketchTool> createSketchTool(SketchMode &mode, SketchToolKind kind);
 
-} // namespace cadly
+} // namespace cadjitsu

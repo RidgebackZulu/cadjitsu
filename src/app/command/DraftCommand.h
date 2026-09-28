@@ -11,7 +11,7 @@
 
 class QCheckBox;
 
-namespace cadly {
+namespace cadjitsu {
 
 // Draft: tilt flat faces about a hinge edge. Pick the faces, then the hinge
 // (the straight edges of the first face are offered); set the angle by typing,
@@ -66,4 +66,4 @@ private:
     PlaneGizmo m_gizmo;
 };
 
-} // namespace cadly
+} // namespace cadjitsu

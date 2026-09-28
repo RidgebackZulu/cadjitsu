@@ -3,7 +3,7 @@
 #include <QColor>
 #include <QWidget>
 
-namespace cadly {
+namespace cadjitsu {
 
 // A small circular angle meter (a protractor dial) beside an angle value box:
 // a track with ticks every 15 degrees, an accent arc from 0 to the angle, a
@@ -59,4 +59,4 @@ private:
 // Wraps degrees to (-180, 180].
 double wrapDegrees(double degrees);
 
-} // namespace cadly
+} // namespace cadjitsu

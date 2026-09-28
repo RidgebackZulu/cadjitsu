@@ -1,0 +1,18 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "cadjitsu",
+  "version": "1.0.0",
+  "description": "Design 3D-printable parts in the Cadjitsu CAD app through its MCP server, with a skill for printable-part design.",
+  "author": {
+    "name": "RidgebackZulu"
+  },
+  "homepage": "https://github.com/RidgebackZulu/cadjitsu",
+  "repository": "https://github.com/RidgebackZulu/cadjitsu",
+  "license": "GPL-3.0-or-later",
+  "keywords": [
+    "cad",
+    "3d-printing",
+    "mcp",
+    "parametric"
+  ]
+}
