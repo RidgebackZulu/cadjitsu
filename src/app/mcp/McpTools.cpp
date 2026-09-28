@@ -20,12 +20,14 @@
 #include "features/PatternFeature.h"
 #include "features/SketchFeature.h"
 #include "features/SplitFeature.h"
+#include "features/TextFeature.h"
 #include "features/ThreadFeature.h"
 #include "geom/OcctUtil.h"
 #include "measure/Measure.h"
 #include "measure/MeasureBetween.h"
 #include "measure/Overhang.h"
 #include "sketch/SketchOffset.h"
+#include "sketch/SketchText.h"
 #include "topo/Resolver.h"
 
 #include <BRepAdaptor_Curve.hxx>
@@ -420,8 +422,26 @@ void McpTools::define() {
             } else if(type == "point") {
                 const cad::Vec2 p = vec2Arg(e.at("at"), "at");
                 created.push_back({{"type", "point"}, {"id", sk.addPoint(p.x, p.y, construction)}});
+            } else if(type == "text") {
+                const cad::Vec2 p = vec2Arg(e.at("at"), "at");
+                const std::string text = e.value("text", "");
+                if(text.find_first_not_of(" \t\r\n") == std::string::npos) fail("a text entity needs its text");
+                const int id = sk.addText(p, text, construction);
+                cad::SkEntity &t = *sk.find(id);
+                t.font = e.value("font", std::string("DejaVu Sans"));
+                t.bold = e.value("bold", false);
+                t.italic = e.value("italic", false);
+                t.mirror = e.value("mirror", false);
+                t.size = e.value("size", 5.0);
+                t.angle = e.value("angle", 0.0);
+                if(t.size <= 0) fail("the text size must be more than 0");
+                const cad::SketchTextLetters letters = cad::sketchTextLetters(sk, t);
+                if(!letters.ok) fail(letters.error);
+                json made = {{"type", "text"}, {"id", id}, {"origin_point", t.a}, {"letter_regions", letters.pieces.size()}};
+                if(!letters.warning.empty()) made["warning"] = letters.warning;
+                created.push_back(made);
             } else {
-                fail("unknown entity type \"" + type + "\" (rectangle, center_rectangle, circle, line, polygon, polyline, arc, point)");
+                fail("unknown entity type \"" + type + "\" (rectangle, center_rectangle, circle, line, polygon, polyline, arc, point, text)");
             }
         }
     };
@@ -432,7 +452,10 @@ void McpTools::define() {
           "One of: {type:\"rectangle\", corner1:[x,y], corner2:[x,y]}, {type:\"center_rectangle\", center:[x,y], width, height}, "
           "{type:\"circle\", center:[x,y], diameter | radius}, {type:\"line\", from:[x,y], to:[x,y]}, "
           "{type:\"polygon\", points:[[x,y],...]} (closed; \"polyline\" is open), {type:\"arc\", center, start, end} "
-          "(counter-clockwise from start), {type:\"point\", at:[x,y]}. Optional: construction (bool), dimension (bool: "
+          "(counter-clockwise from start), {type:\"point\", at:[x,y]}, {type:\"text\", at:[x,y] (start of the first "
+          "line's baseline), text (\\n for more lines), size (letter height, mm, default 5), font (default \"DejaVu "
+          "Sans\"; also \"DejaVu Serif\", \"DejaVu Sans Mono\" or an installed font), bold, italic, angle (degrees), "
+          "mirror (bool: letters reversed, to read from the other side)}: every letter becomes a region to extrude. Optional: construction (bool), dimension (bool: "
           "add driving dimensions that become editable parameters; default true for rectangles and circles)."}},
         "Sketch geometry in the sketch's own 2D coordinates (mm). On XY these are world X, Y; on XZ, world X and Z; on "
         "YZ, world Y and Z; on a face or construction plane, see the frame this tool returns.");
@@ -962,6 +985,88 @@ void McpTools::define() {
             h->tipAngle = ang("tip_angle", 118);
             h->flatTip = a.value("flat_tip", false);
             return commit(h, "Create Hole (MCP)");
+        });
+
+    add("emboss_text",
+        "Engraves text into a face (cut in) or embosses it (raised) on any face of a body; on a curved face the letters "
+        "follow the surface (they wrap exactly around cylinders and cones). The text's middle goes at `at` (a world "
+        "point on or near the face) or at `position` in the face's own frame, else at the middle of the face. On a "
+        "flat face the text reads from outside with y up on upright faces (on a top face, x and y are world X and Y); "
+        "on a curved face y runs up along the surface. Returns the feature, the volume change and where the text is.",
+        {{"face", topoItem("face")},
+         {"text", str("the text; \\n for more lines")},
+         {"at", xyz("where the middle of the text goes (world, mm): the nearest point of the face")},
+         {"position", xy("instead of at: the middle of the text in the face's frame (mm)")},
+         {"size", numberOrExpr("letter height (the font's size), mm, default 5")},
+         {"depth", numberOrExpr("engrave depth or emboss height, mm, default 0.6")},
+         {"direction", enumOf({"engrave", "emboss"}, "engrave (cut in, default) or emboss (raised)")},
+         {"rotation", numberOrExpr("turn about the face normal, degrees anticlockwise seen from outside, default 0")},
+         {"font", str("font family, default \"DejaVu Sans\" (bundled: DejaVu Sans, DejaVu Serif, DejaVu Sans Mono)")},
+         {"bold", boolean("bold letters")},
+         {"italic", boolean("italic letters")},
+         {"letter_spacing", numberOrExpr("extra space between letters, mm, default 0")},
+         {"line_spacing", numberOrExpr("line pitch as a multiple of the size, default 1.2")},
+         {"mirror", boolean("reverse the letters, to read from the other side (stamps, moulds)")}},
+        {"face", "text"}, [&doc, begin, settle, topo, commit, slot](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            auto f = std::make_shared<cad::TextFeature>();
+            f->face = topo(st, a.at("face"), cad::TopoKind::Face);
+            f->text = a.at("text").get<std::string>();
+            if(f->text.find_first_not_of(" \t\r\n") == std::string::npos) fail("give the text");
+            const cad::ResolvedRef r = cad::resolveRef(*st, f->face);
+            if(!r.ok || r.shape.ShapeType() != TopAbs_FACE) fail("that face could not be found");
+            const TopoDS_Face face = TopoDS::Face(r.shape);
+            cad::FaceTextFrame frame;
+            std::string why;
+            if(!cad::faceTextFrame(face, frame, why)) fail(why);
+            double x = 0, y = 0;
+            if(a.contains("position")) {
+                const cad::Vec2 p = vec2Arg(a["position"], "position");
+                x = p.x;
+                y = p.y;
+            } else if(a.contains("at") || frame.planar) {
+                // A given point, or the middle of a flat face (a curved face's frame starts at its middle).
+                gp_Pnt target;
+                if(a.contains("at")) {
+                    target = pntArg(a["at"], "at");
+                } else {
+                    GProp_GProps props;
+                    BRepGProp::SurfaceProperties(face, props);
+                    target = props.CentreOfMass();
+                }
+                const cad::KernelLock lock(cad::kernelMutex());
+                if(!frame.locate(target, x, y)) fail("that point could not be found on the face");
+            }
+            f->x = doc.makeSlot(num(std::round(x * 1000) / 1000) + " mm");
+            f->y = doc.makeSlot(num(std::round(y * 1000) / 1000) + " mm");
+            f->size = slot(lengthExpr(a.value("size", json(5.0)), "size"), cad::ValueKind::Length, "size");
+            f->depth = slot(lengthExpr(a.value("depth", json(0.6)), "depth"), cad::ValueKind::Length, "depth");
+            f->rotation = slot(angleExpr(a.value("rotation", json(0.0)), "rotation"), cad::ValueKind::Angle, "rotation");
+            f->letterSpacing = slot(lengthExpr(a.value("letter_spacing", json(0.0)), "letter_spacing"), cad::ValueKind::Length,
+                                    "letter_spacing");
+            const json ls = a.value("line_spacing", json(1.2));
+            f->lineSpacing = slot(ls.is_number() ? num(ls.get<double>()) : ls.get<std::string>(), cad::ValueKind::Scalar,
+                                  "line_spacing");
+            f->font = a.value("font", std::string("DejaVu Sans"));
+            f->bold = a.value("bold", false);
+            f->italic = a.value("italic", false);
+            f->mirror = a.value("mirror", false);
+            const std::string d = lower(a.value("direction", std::string("engrave")));
+            if(d != "engrave" && d != "emboss") fail("direction must be engrave or emboss");
+            f->direction = cad::textDirectionFromString(d);
+            double before = 0.0;
+            for(const auto &kv : st->bodies) before += cad::volumeOf(kv.second->shape.shape());
+            json res = commit(f, "Create Text (MCP)");
+            double after = 0.0;
+            for(const auto &kv : settle()->bodies) after += cad::volumeOf(kv.second->shape.shape());
+            res["volume_change_mm3"] = r3(after - before);
+            const gp_Pnt mid = frame.point(x, y);
+            res["text_middle"] = pt(mid);
+            res["position"] = {r3(x), r3(y)};
+            res["face_frame"] = frame.planar ? "planar: x and y in the face's plane (on a top face, world X and Y)"
+                                             : "curved: mm along the surface from the middle of the face";
+            return res;
         });
 
     // Bodies and / or features for mirror and pattern.

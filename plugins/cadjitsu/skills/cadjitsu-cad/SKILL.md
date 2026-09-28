@@ -105,6 +105,13 @@ Threads: `hole` with `type: "tapped"` and `thread: "M5"` (modelled from M5 / #10
 tap drill to tap after printing), or `thread` on an existing hole's or boss's round face (size from its diameter).
 Printed threads need clearance (default 0.15 mm); for M2-M4 prefer heat-set inserts or self-tapping screws.
 
+Text: `emboss_text` engraves text into a face (`direction: "engrave"`, the default) or raises it
+(`"emboss"`), on flat or curved faces (it wraps round cylinders); `at` puts the text's middle at a world point.
+In a sketch, a `{type: "text"}` entity makes every letter a region to extrude (a nameplate: a rectangle plus a
+text, extrude the plate, then the letters). For FDM: letters 5 mm or taller with strokes at least 0.6 mm wide
+(bold fonts help small text); raised text 0.6-1 mm high (at least 0.4 mm), engraved text 0.6-1 mm deep.
+`mirror: true` reverses the letters for text read through the bed (printed face down) or used as a stamp or mould.
+
 ## 6. Designing for FDM printing
 
 - **Walls:** at least 1.2 mm (3 perimeters of a 0.4 mm nozzle); 2-3 mm for parts that carry load.

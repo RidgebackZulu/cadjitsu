@@ -140,6 +140,27 @@ Drills holes into a planar face at world points on it (or at the points of a ske
 | `tip_angle` | number or string | drill point angle, default 118 |
 | `type` | `simple` / `counterbore` / `countersink` / `tapped` | default simple |
 
+## `emboss_text`
+
+Engraves text into a face (cut in) or embosses it (raised) on any face of a body; on a curved face the letters follow the surface (they wrap exactly around cylinders and cones). The text's middle goes at `at` (a world point on or near the face) or at `position` in the face's own frame, else at the middle of the face. On a flat face the text reads from outside with y up on upright faces (on a top face, x and y are world X and Y); on a curved face y runs up along the surface. Returns the feature, the volume change and where the text is.
+
+| Argument | Type | Description |
+|---|---|---|
+| `at` | [x, y, z] | where the middle of the text goes (world, mm): the nearest point of the face |
+| `bold` | boolean | bold letters |
+| `depth` | number or string | engrave depth or emboss height, mm, default 0.6 |
+| `direction` | `engrave` / `emboss` | engrave (cut in, default) or emboss (raised) |
+| `face` **(required)** | object |  |
+| `font` | string | font family, default "DejaVu Sans" (bundled: DejaVu Sans, DejaVu Serif, DejaVu Sans Mono) |
+| `italic` | boolean | italic letters |
+| `letter_spacing` | number or string | extra space between letters, mm, default 0 |
+| `line_spacing` | number or string | line pitch as a multiple of the size, default 1.2 |
+| `mirror` | boolean | reverse the letters, to read from the other side (stamps, moulds) |
+| `position` | [x, y] | instead of at: the middle of the text in the face's frame (mm) |
+| `rotation` | number or string | turn about the face normal, degrees anticlockwise seen from outside, default 0 |
+| `size` | number or string | letter height (the font's size), mm, default 5 |
+| `text` **(required)** | string | the text; \n for more lines |
+
 ## `mirror`
 
 Mirrors bodies, or holes / extrudes, across a plane (XY, XZ, YZ, a construction plane or a planar face). Symmetric parts: model half, mirror it with join.

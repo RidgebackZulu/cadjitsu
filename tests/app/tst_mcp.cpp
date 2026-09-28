@@ -158,7 +158,7 @@ private slots:
             QVERIFY(t.contains("inputSchema") && t.contains("description"));
         }
         for(const char *n : {"get_design", "create_sketch", "extrude", "fillet", "chamfer", "hole", "combine", "list_edges",
-                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step"})
+                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text"})
             QVERIFY2(names.count(n), n);
         // The session ends: back to listening.
         QCOMPARE(post({}, kToken, {}, QStringLiteral("/mcp"), "DELETE").status, 200);
@@ -417,6 +417,58 @@ private slots:
         QVERIFY(tool("hole", {{"face", {{"body", "Body1"}, {"index", topIndex}}}, {"points", {{15, 3, 10}}},
                               {"type", "tapped"}})
                      .first); // no thread size
+    }
+
+    // Text: as sketch regions to extrude, and engraved / embossed on faces.
+    void textInSketchesAndOnFaces() {
+        initialize();
+        // A sketch with a plate and a name in it: the letters are regions of their own.
+        const auto [e0, sk] = tool("create_sketch", {{"plane", "XY"},
+                                                     {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {60, 20}}},
+                                                                   {{"type", "text"}, {"at", {5, 5}}, {"text", "HI"}, {"size", 10}}}}});
+        QVERIFY2(!e0, sk.dump().c_str());
+        QCOMPARE(sk["entities"][1]["type"].get<std::string>(), std::string("text"));
+        QCOMPARE(sk["entities"][1]["letter_regions"].get<int>(), 2);
+        QCOMPARE(int(sk["profiles"].size()), 3); // the plate with the letters cut out, H and I
+        QVERIFY(tool("create_sketch", {{"plane", "XY"}, {"entities", {{{"type", "text"}, {"at", {0, 0}}, {"text", " "}}}}}).first);
+
+        // A box: text engraved into its top, raised on its front.
+        const json boxSketch = tool("create_sketch", {{"plane", "XY"},
+                                                      {"entities", {{{"type", "rectangle"}, {"corner1", {100, 0}}, {"corner2", {160, 30}}}}}})
+                                   .second;
+        const auto [e1, ex] = tool("extrude", {{"sketch", boxSketch["sketch"]}, {"distance", 10}});
+        QVERIFY2(!e1, ex.dump().c_str());
+        const std::string body = ex["bodies"][0]["id"];
+        const json top = tool("list_faces", {{"body", body}, {"normal", "+z"}}).second;
+        const auto [e2, t1] = tool("emboss_text", {{"face", {{"body", body}, {"index", top["faces"][0]["index"]}}},
+                                                   {"text", "CAD"}, {"size", 8}, {"depth", 1}, {"at", {130, 15, 10}}});
+        QVERIFY2(!e2, t1.dump().c_str());
+        QVERIFY(t1["volume_change_mm3"].get<double>() < -10);
+        QCOMPARE(t1["position"][0].get<double>(), 130.0);
+        QCOMPARE(t1["feature"]["type"].get<std::string>(), std::string("text"));
+        const json front = tool("list_faces", {{"body", body}, {"normal", "-y"}}).second;
+        const auto [e3, t2] = tool("emboss_text", {{"face", {{"body", body}, {"index", front["faces"][0]["index"]}}},
+                                                   {"text", "UP"}, {"direction", "emboss"}, {"depth", 0.8}, {"mirror", true}});
+        QVERIFY2(!e3, t2.dump().c_str());
+        QVERIFY(t2["volume_change_mm3"].get<double>() > 5);
+        // In the middle of the front face (x 130, z 5).
+        QVERIFY(std::fabs(t2["text_middle"][0].get<double>() - 130) < 1e-3 && std::fabs(t2["text_middle"][2].get<double>() - 5) < 1e-3);
+        QVERIFY(tool("emboss_text", {{"face", {{"body", body}, {"index", 1}}}, {"text", "X"}, {"direction", "sideways"}}).first);
+
+        // Round a cylinder.
+        const json circle =
+            tool("create_sketch", {{"plane", "XY"}, {"entities", {{{"type", "circle"}, {"center", {0, 60}}, {"radius", 12}}}}}).second;
+        const auto [e4, cyl] = tool("extrude", {{"sketch", circle["sketch"]}, {"distance", 30}});
+        QVERIFY2(!e4, cyl.dump().c_str());
+        std::string cylBody;
+        for(const auto &b : cyl["bodies"])
+            if(b["id"] != body) cylBody = b["id"];
+        const json side = tool("list_faces", {{"body", cylBody}, {"type", "cylinder"}}).second;
+        const auto [e5, t3] = tool("emboss_text", {{"face", {{"body", cylBody}, {"index", side["faces"][0]["index"]}}},
+                                                   {"text", "ROUND"}, {"size", 6}});
+        QVERIFY2(!e5, t3.dump().c_str());
+        QVERIFY(t3["volume_change_mm3"].get<double>() < -5);
+        QVERIFY(t3["face_frame"].get<std::string>().rfind("curved", 0) == 0);
     }
 
     void aBatchBuildsAPartInOneCall() {

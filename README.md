@@ -107,10 +107,17 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 | 3-point arc | | |
 | Point | | |
 | Sketch dimension | D | the value box opens when the dimension is placed |
+| Text | T | a panel: text, font, size, X / Y, angle, Reverse |
 
 - Points snap to existing points, the origin, midpoints, quadrants, curves and the sketch axes.
 - Lines within 3° of level or plumb become horizontal or vertical.
 - While drawing, type a number to fill the active value box. Tab moves to the next box. Enter commits the shape, and each typed value becomes a dimension.
+
+**Text (T)**
+- Click where the text goes and start typing: the panel opens with the text box ready, and the letters show on the canvas as you type. Shift+Enter starts a new line; Enter or OK places it (one undo step), Esc drops it. A click elsewhere on the canvas moves it there.
+- The panel sets the **font** (the bundled DejaVu Sans, Serif and Sans Mono first, then the fonts installed on the computer), **Bold** and **Italic**, the **size** (letter height), where its origin is (**X / Y**, the start of the first line's baseline), its **angle**, and **Reverse**, which mirrors the letters so they read the right way from the other side (stamps, moulds, text printed face down).
+- Every letter is a region: extrude it to raise the text, or cut it into a plate. Clicking one letter in Extrude picks the whole text (Shift+click for one letter). Text inside another region cuts its letters out of it, and the insides of letters (an O's middle) are regions of their own.
+- Double-click a text to change it; drag it to move its origin point, which can be dimensioned and constrained like any point. A design that names a font this computer lacks uses DejaVu Sans, and says so.
 
 **Editing**
 - **Dimensions:** double-click a dimension to change it. The value box accepts expressions such as `2*d1` or `1 in`. A dimension that would over-constrain the sketch becomes a driven (reference) dimension.
@@ -168,6 +175,15 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - Click the round faces of holes (internal threads) or bosses (external, a bolt). The size is found from the diameter (a hole drilled at a tap drill or minor diameter, a boss at the major diameter), or chosen: ISO metric M2–M24 coarse and fine, UNC and UNF #4 to 1".
 - Real helical threads are modelled for M5 / #10 and up; smaller ones print poorly, so by default the hole is only opened to the tap drill (tap it, or use a self-tapping screw or a heat-set insert). **Thread Type** forces either. **Clearance** (0.15 mm radial by default) opens internal threads and slims external ones so printed parts fit. Full length, or a length from the open end; left-handed on request.
 - **Hole > Hole Type > Tapped** drills the thread's tap drill and threads it in one feature.
+
+**Emboss Text** (Create)
+- Click the face the text goes on (any face, flat or curved) where it goes, and type. The letters show on the face at once, and the cut or raised solid follows.
+- **Engrave** cuts the letters into the face by the **Depth**; **Emboss** raises them by the **Height**.
+- The panel also sets the font, Bold, Italic, size, letter spacing, line spacing (several lines: Shift+Enter), **X / Y** (where the middle of the text is), **Rotation** and **Reverse** (mirrored letters).
+- On the canvas, drag the round knob to slide the text over the face, the red ring to turn it (Shift: 15° steps) and the arrow for its depth; the dialog follows, and typed values move the handles.
+- On a curved face the letters follow the surface: they wrap exactly round cylinders and cones and read upright from outside.
+- X / Y on a flat face run along the face from the origin (on a top face they are world X and Y; on an upright face, y is up). On a curved face they are millimetres along the surface from the middle of the face.
+- For printing: raised text about 0.6-1 mm high with strokes 0.6 mm or wider (5 mm letters and up), engraved text 0.6-1 mm deep; bold fonts hold small text better.
 
 **Mirror, Rectangular Pattern, Circular Pattern** (Create)
 - Repeat **bodies** (copies that touch the original are joined to it unless **Join to Original** is off), or **features**: click a face of a hole or an extrude, and its copies cut or join exactly as the original does. A later change to the original (a bigger hole) carries to every copy.
@@ -259,7 +275,7 @@ button at its top left goes back to the home view.
 
 Cadjitsu has a built-in [Model Context Protocol](https://modelcontextprotocol.io) server, so AI agents (Claude
 Code, Claude Desktop, Hermes Agent...) can build and edit designs: inspect the design, sketch, extrude, fillet,
-chamfer, drill holes, combine bodies, change parameters, take screenshots and export a checked STL or STEP.
+chamfer, drill holes, engrave or emboss text, combine bodies, change parameters, take screenshots and export a checked STL or STEP.
 Everything an agent does is ordinary history: one undo step per tool call, visible in the timeline.
 
 - **Turn it on:** click the **MCP** button at the right of the toolbar (or File > MCP Server...), tick
