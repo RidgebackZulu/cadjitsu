@@ -4,6 +4,7 @@
 #include "doc/ResultCache.h"
 #include "doc/Section.h"
 #include "expr/ParamTable.h"
+#include "render/Materials.h"
 
 #include <functional>
 #include <map>
@@ -71,6 +72,19 @@ public:
     std::string bodyName(const Body &body) const;
     void setBodyVisible(const BodyId &id, bool visible);
     bool bodyVisible(const BodyId &id) const;
+    // What bodies are printed in (one undo step). nullopt goes back to the
+    // default. A piece of a split body ("b3.2") has its parent's material
+    // unless given its own.
+    // `existing` (the bodies there are now): their pieces that exist already
+    // keep the material they have, so only pieces made later inherit it.
+    void setBodyMaterial(const BodyId &id, const std::optional<BodyMaterial> &m, const std::vector<BodyId> &existing = {});
+    void setBodyMaterials(const std::vector<BodyId> &ids, const std::optional<BodyMaterial> &m,
+                          const std::vector<BodyId> &existing = {});
+    std::optional<BodyMaterial> explicitBodyMaterial(const BodyId &id) const;
+    BodyMaterial bodyMaterial(const BodyId &id) const; // the default when none was chosen
+    // How the design is rendered (build plate, lighting, print surface); not an undo step.
+    void setRenderSettings(const RenderSettings &s);
+    const RenderSettings &renderSettings() const { return m_renderSettings; }
     // Sketches are shown until a feature uses them (like Fusion) unless the
     // user switched them on or off explicitly.
     void setSketchVisible(FeatureId id, bool visible);
@@ -155,6 +169,8 @@ private:
     int m_nextParam = 1;
     std::map<BodyId, std::string> m_bodyNames;
     std::set<BodyId> m_hiddenBodies;
+    std::map<BodyId, BodyMaterial> m_bodyMaterials;
+    RenderSettings m_renderSettings;
     std::map<FeatureId, bool> m_sketchVisibility;
     std::set<FeatureId> m_hiddenPlanes;
     std::map<std::string, bool> m_folderVisibility; // explicit settings only

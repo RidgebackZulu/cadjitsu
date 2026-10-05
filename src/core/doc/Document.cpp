@@ -215,6 +215,56 @@ void Document::setBodyVisible(const BodyId &id, bool visible) {
 
 bool Document::bodyVisible(const BodyId &id) const { return !m_hiddenBodies.count(id); }
 
+void Document::setBodyMaterial(const BodyId &id, const std::optional<BodyMaterial> &m, const std::vector<BodyId> &existing) {
+    setBodyMaterials({id}, m, existing);
+}
+
+void Document::setBodyMaterials(const std::vector<BodyId> &ids, const std::optional<BodyMaterial> &m,
+                                const std::vector<BodyId> &existing) {
+    bool same = true;
+    for(const BodyId &id : ids) {
+        auto it = m_bodyMaterials.find(id);
+        same &= m ? (it != m_bodyMaterials.end() && it->second == *m) : it == m_bodyMaterials.end();
+    }
+    if(same) return;
+    pushUndo("Body Material");
+    // Other bodies there now whose look would follow these (b2.2 after b2) keep theirs.
+    for(const BodyId &other : existing) {
+        if(std::find(ids.begin(), ids.end(), other) != ids.end() || m_bodyMaterials.count(other)) continue;
+        for(const BodyId &id : ids)
+            if(other.size() > id.size() && other.compare(0, id.size() + 1, id + ".") == 0) {
+                if(auto own = explicitBodyMaterial(other)) m_bodyMaterials[other] = *own;
+                else m_bodyMaterials[other] = defaultBodyMaterial();
+                break;
+            }
+    }
+    for(const BodyId &id : ids) {
+        if(m) m_bodyMaterials[id] = *m;
+        else m_bodyMaterials.erase(id);
+    }
+    touch(false);
+}
+
+std::optional<BodyMaterial> Document::explicitBodyMaterial(const BodyId &id) const {
+    for(BodyId k = id;;) {
+        auto it = m_bodyMaterials.find(k);
+        if(it != m_bodyMaterials.end()) return it->second;
+        const size_t dot = k.rfind('.');
+        if(dot == std::string::npos) return std::nullopt;
+        k = k.substr(0, dot);
+    }
+}
+
+BodyMaterial Document::bodyMaterial(const BodyId &id) const {
+    return explicitBodyMaterial(id).value_or(defaultBodyMaterial());
+}
+
+void Document::setRenderSettings(const RenderSettings &s) {
+    if(s == m_renderSettings) return;
+    m_renderSettings = s;
+    touch(false);
+}
+
 void Document::setSketchVisible(FeatureId id, bool visible) {
     auto it = m_sketchVisibility.find(id);
     if(it != m_sketchVisibility.end() && it->second == visible) return;
@@ -412,12 +462,16 @@ json Document::snapshot() const {
     std::vector<int> hiddenPlanes(m_hiddenPlanes.begin(), m_hiddenPlanes.end());
     json folders = json::object();
     for(const auto &[name, visible] : m_folderVisibility) folders[name] = visible;
+    json materials = json::object();
+    for(const auto &[id, m] : m_bodyMaterials) materials[id] = m.toJson();
     return json{{"features", features},
                 {"marker", m_marker},
                 {"nextId", m_nextId},
                 {"nextParam", m_nextParam},
                 {"bodyNames", names},
                 {"hiddenBodies", std::vector<std::string>(m_hiddenBodies.begin(), m_hiddenBodies.end())},
+                {"bodyMaterials", materials},
+                {"render", m_renderSettings.toJson()},
                 {"sketchVisibility", sketches},
                 {"hiddenPlanes", hiddenPlanes},
                 {"folderVisibility", folders},
@@ -441,6 +495,11 @@ void Document::restore(const json &snap) {
         if(it.value().is_string()) m_bodyNames[it.key()] = it.value().get<std::string>();
     const auto hidden = jget<std::vector<std::string>>(snap, "hiddenBodies", {});
     m_hiddenBodies = std::set<BodyId>(hidden.begin(), hidden.end());
+    m_bodyMaterials.clear();
+    const json materials = snap.value("bodyMaterials", json::object());
+    for(auto it = materials.begin(); it != materials.end(); ++it)
+        if(auto m = BodyMaterial::fromJson(it.value())) m_bodyMaterials[it.key()] = *m;
+    m_renderSettings = RenderSettings::fromJson(snap.value("render", json::object()));
     m_sketchVisibility.clear();
     const json sketches = snap.value("sketchVisibility", json::object());
     for(auto it = sketches.begin(); it != sketches.end(); ++it)
@@ -550,6 +609,8 @@ void Document::clear() {
     m_nextParam = 1;
     m_bodyNames.clear();
     m_hiddenBodies.clear();
+    m_bodyMaterials.clear();
+    m_renderSettings = RenderSettings();
     m_sketchVisibility.clear();
     m_hiddenPlanes.clear();
     m_folderVisibility.clear();

@@ -6,6 +6,7 @@
 #include <QContextMenuEvent>
 #include <QHeaderView>
 #include <QMenu>
+#include <QPixmap>
 #include <QPainter>
 #include <QStyledItemDelegate>
 
@@ -14,6 +15,33 @@
 namespace cadjitsu {
 
 namespace {
+
+// The body icon with a dot of its filament colour (none when it has the default).
+QIcon bodyIcon(const cad::BodyMaterial &m, bool chosen) {
+    const QIcon base = icon(IconId::Body);
+    if(!chosen) return base;
+    QIcon out;
+    for(int size : {16, 32}) {
+        QPixmap pm = base.pixmap(QSize(size, size), 2.0);
+        pm.setDevicePixelRatio(2.0);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        const QColor c = QColor::fromRgb(QRgb(m.rgb));
+        const double r = size * 0.24;
+        const QPointF centre(size - r - 0.5, size - r - 0.5);
+        p.setPen(QPen(QColor(255, 255, 255), size / 16.0));
+        p.setBrush(m.finish == cad::Finish::Translucent ? QColor(c.red(), c.green(), c.blue(), 150) : c);
+        p.drawEllipse(centre, r, r);
+        if(m.finish == cad::Finish::Silk) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(255, 255, 255, 170));
+            p.drawEllipse(centre - QPointF(r * 0.35, r * 0.35), r * 0.3, r * 0.3);
+        }
+        p.end();
+        out.addPixmap(pm);
+    }
+    return out;
+}
 
 constexpr int OverriddenRole = Qt::UserRole + 20;
 
@@ -141,7 +169,8 @@ void BrowserTree::rebuild() {
             auto *it = new QTreeWidgetItem(bodies, {QString::fromStdString(m_doc.bodyName(*b))});
             it->setData(0, KindRole, BodyItem);
             it->setData(0, IdRole, QString::fromStdString(b->id));
-            it->setIcon(0, icon(IconId::Body));
+            it->setIcon(0, bodyIcon(m_doc.bodyMaterial(b->id), m_doc.explicitBodyMaterial(b->id).has_value()));
+            it->setToolTip(0, QString::fromStdString(m_doc.bodyMaterial(b->id).describe()));
             it->setFlags(it->flags() | Qt::ItemIsEditable);
             setEye(it, m_doc.bodyVisible(b->id));
             child(it, bodiesOn);

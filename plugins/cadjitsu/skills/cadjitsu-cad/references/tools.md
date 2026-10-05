@@ -297,6 +297,18 @@ Shows or hides bodies, sketches and construction planes (like the eyes in the br
 | `sketches` | array of integer or string | sketch ids or names |
 | `visible` **(required)** | boolean | true to show, false to hide |
 
+## `set_material`
+
+Sets what bodies are printed in: the filament (PLA, PETG or TPU), its finish (matte, silk or semitransparent) and colour (a named filament colour such as "Signal Red", "Silk Gold", "Ice Blue", or "#rrggbb"). One undo step. The Rendered style and render_image show it (layer lines, silk sheen, light through semitransparent parts); default: grey matte PLA. Returns the bodies with their materials.
+
+| Argument | Type | Description |
+|---|---|---|
+| `bodies` | array of string | the bodies (all of them if left out) |
+| `color` | string | a named filament colour or #rrggbb (default: keep, or one that suits the finish) |
+| `finish` | `matte` / `silk` / `semitransparent` | finish (default: keep, or matte) |
+| `material` | `PLA` / `PETG` / `TPU` | filament (default: keep, or PLA) |
+| `reset` | boolean | back to the default grey matte PLA (ignores the rest) |
+
 ## `delete_feature`
 
 Deletes a feature from the timeline (one undo step).

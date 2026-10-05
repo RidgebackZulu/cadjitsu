@@ -158,7 +158,7 @@ private slots:
             QVERIFY(t.contains("inputSchema") && t.contains("description"));
         }
         for(const char *n : {"get_design", "create_sketch", "extrude", "fillet", "chamfer", "hole", "combine", "list_edges",
-                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text"})
+                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text", "set_material"})
             QVERIFY2(names.count(n), n);
         // The session ends: back to listening.
         QCOMPARE(post({}, kToken, {}, QStringLiteral("/mcp"), "DELETE").status, 200);
@@ -469,6 +469,40 @@ private slots:
         QVERIFY2(!e5, t3.dump().c_str());
         QVERIFY(t3["volume_change_mm3"].get<double>() < -5);
         QVERIFY(t3["face_frame"].get<std::string>().rfind("curved", 0) == 0);
+    }
+
+    // Print materials per body: set, kept where not given, reported, undone.
+    void materialsPerBody() {
+        initialize();
+        QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {20, 10}}},
+                                                       {{"type", "circle"}, {"center", {40, 5}}, {"radius", 5}}}}})
+                     .first);
+        const auto [e0, ex] = tool("extrude", {{"sketch", 1}, {"distance", 5}});
+        QVERIFY2(!e0, ex.dump().c_str());
+        QCOMPARE(int(ex["bodies"].size()), 2);
+        const std::string a = ex["bodies"][0]["id"], b = ex["bodies"][1]["id"];
+        QCOMPARE(ex["bodies"][0]["material"]["material"].get<std::string>(), std::string("PLA"));
+        const auto [e1, r1] = tool("set_material", {{"bodies", {a}}, {"material", "PETG"}, {"finish", "semitransparent"},
+                                                   {"color", "Ice Blue"}});
+        QVERIFY2(!e1, r1.dump().c_str());
+        QCOMPARE(m_window->document().bodyMaterial(a).finish, cad::Finish::Translucent);
+        QCOMPARE(QString::fromStdString(m_window->document().bodyMaterial(a).colorName), QStringLiteral("Ice Blue"));
+        QCOMPARE(m_window->document().bodyMaterial(b), cad::defaultBodyMaterial());
+        // Only the finish: silk; the colour switches to one that comes in silk.
+        const auto [e2, r2] = tool("set_material", {{"finish", "silk"}});
+        QVERIFY2(!e2, r2.dump().c_str());
+        QCOMPARE(m_window->document().bodyMaterial(a).material, cad::PrintMaterial::PETG);
+        QCOMPARE(m_window->document().bodyMaterial(b).finish, cad::Finish::Silk);
+        const cad::FilamentColor *c = cad::findFilamentColor(m_window->document().bodyMaterial(a).colorName);
+        QVERIFY(c && (c->finishes & (1u << int(cad::Finish::Silk))));
+        QVERIFY(tool("set_material", {{"color", "Plaid"}}).first);
+        QVERIFY(tool("set_material", {{"material", "ABS"}}).first);
+        QVERIFY(tool("set_material", {{"bodies", {a}}}).first);
+        QVERIFY(!tool("set_material", {{"bodies", {b}}, {"color", "#ff8000"}}).first);
+        QCOMPARE(m_window->document().bodyMaterial(b).rgb, 0xff8000u);
+        QVERIFY(!tool("set_material", {{"reset", true}}).first);
+        QCOMPARE(m_window->document().bodyMaterial(a), cad::defaultBodyMaterial());
     }
 
     void aBatchBuildsAPartInOneCall() {

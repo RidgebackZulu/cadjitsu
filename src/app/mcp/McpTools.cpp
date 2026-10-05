@@ -269,7 +269,8 @@ void McpTools::define() {
                            {"bounding_box", bb},
                            {"faces", b->shape.faceCount()},
                            {"edges", b->shape.edgeCount()},
-                           {"visible", doc.bodyVisible(b->id)}});
+                           {"visible", doc.bodyVisible(b->id)},
+                           {"material", doc.bodyMaterial(b->id).toJson()}});
         }
         return out;
     };
@@ -1449,6 +1450,74 @@ void McpTools::define() {
             for(auto id : planes) doc.setPlaneVisible(id, on);
             for(const json &v : a.value("folders", json::array())) doc.setFolderVisible(v.get<std::string>(), on);
             return visibilityJson(settle());
+        });
+
+    add("set_material",
+        "Sets what bodies are printed in: the filament (PLA, PETG or TPU), its finish (matte, silk or semitransparent) "
+        "and colour (a named filament colour such as \"Signal Red\", \"Silk Gold\", \"Ice Blue\", or \"#rrggbb\"). One "
+        "undo step. The Rendered style and render_image show it (layer lines, silk sheen, light through "
+        "semitransparent parts); default: grey matte PLA. Returns the bodies with their materials.",
+        {{"bodies", arrayOf(str("body id or name"), "the bodies (all of them if left out)")},
+         {"material", enumOf({"PLA", "PETG", "TPU"}, "filament (default: keep, or PLA)")},
+         {"finish", enumOf({"matte", "silk", "semitransparent"}, "finish (default: keep, or matte)")},
+         {"color", str("a named filament colour or #rrggbb (default: keep, or one that suits the finish)")},
+         {"reset", boolean("back to the default grey matte PLA (ignores the rest)")}},
+        {}, [&doc, begin, settle, bodyOf, bodiesJson](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            std::vector<cad::BodyId> ids;
+            for(const json &v : a.value("bodies", json::array())) ids.push_back(bodyOf(st, v)->id);
+            if(!a.contains("bodies"))
+                for(const cad::Body *b : st->orderedBodies()) ids.push_back(b->id);
+            if(ids.empty()) fail("there are no bodies");
+            std::vector<cad::BodyId> all;
+            for(const cad::Body *b : st->orderedBodies()) all.push_back(b->id);
+            if(a.value("reset", false)) {
+                doc.setBodyMaterials(ids, std::nullopt, all);
+                return json{{"bodies", bodiesJson(settle())}};
+            }
+            // Each body keeps what is not given.
+            std::optional<cad::PrintMaterial> pm;
+            std::optional<cad::Finish> fin;
+            if(a.contains("material")) {
+                cad::PrintMaterial v;
+                if(!cad::printMaterialFromString(a["material"].get<std::string>(), v)) fail("material must be PLA, PETG or TPU");
+                pm = v;
+            }
+            if(a.contains("finish")) {
+                cad::Finish v;
+                if(!cad::finishFromString(a["finish"].get<std::string>(), v)) fail("finish must be matte, silk or semitransparent");
+                fin = v;
+            }
+            std::optional<std::pair<uint32_t, std::string>> color;
+            if(a.contains("color")) {
+                uint32_t rgb;
+                std::string name;
+                if(!cad::parseColor(a["color"].get<std::string>(), rgb, name))
+                    fail("unknown colour " + a["color"].dump() + " (a filament colour name or #rrggbb)");
+                color = {{rgb, name}};
+            }
+            if(!pm && !fin && !color) fail("give a material, finish or color (or reset)");
+            for(const cad::BodyId &id : ids) {
+                cad::BodyMaterial m = doc.bodyMaterial(id);
+                if(pm) m.material = *pm;
+                if(fin && *fin != m.finish) {
+                    m.finish = *fin;
+                    // A colour that does not come in this finish: the finish's first one.
+                    const cad::FilamentColor *named = cad::findFilamentColor(m.colorName);
+                    if(!color && named && !(named->finishes & (1u << int(*fin)))) {
+                        const auto options = cad::colorsFor(*fin);
+                        m.rgb = options.front()->rgb;
+                        m.colorName = options.front()->name;
+                    }
+                }
+                if(color) {
+                    m.rgb = color->first;
+                    m.colorName = color->second;
+                }
+                doc.setBodyMaterial(id, m, all);
+            }
+            return json{{"bodies", bodiesJson(settle())}};
         });
 
     add("delete_feature", "Deletes a feature from the timeline (one undo step).",

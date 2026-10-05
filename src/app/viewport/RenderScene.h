@@ -2,6 +2,8 @@
 
 #include "mesh/MeshData.h"
 
+#include "render/Materials.h"
+
 #include <QColor>
 #include <QMatrix4x4>
 #include <QRectF>
@@ -22,6 +24,9 @@ struct RenderBody {
     QColor color;
     float opacity = 1.0f;
     bool edges = true;
+    // What it is printed in (the Rendered style's materials).
+    cad::Optics optics;
+    bool translucent = false;
 };
 
 struct FaceHighlight {
