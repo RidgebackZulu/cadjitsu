@@ -178,6 +178,7 @@ void ModelView::refresh() {
     }
     m_state = m_eval->state;
     RenderScene scene;
+    scene.render = m_doc.renderSettings();
     std::vector<PickTarget> targets;
     for(const cad::Body *b : m_state->orderedBodies()) {
         if(!m_doc.bodyVisible(b->id) || !m_doc.folderVisible("bodies")) continue;
@@ -188,6 +189,7 @@ void ModelView::refresh() {
         rb.color = chosen ? QColor::fromRgb(QRgb(chosen->rgb)) : defaultBodyColor();
         const cad::BodyMaterial m = m_doc.bodyMaterial(b->id);
         rb.optics = cad::opticsFor(m);
+        rb.hasOptics = true;
         rb.translucent = m.finish == cad::Finish::Translucent;
         scene.bodies.push_back(rb);
         targets.push_back({b->id, rb.mesh});

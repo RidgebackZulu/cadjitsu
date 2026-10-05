@@ -28,6 +28,7 @@
 #include "mcp/McpDialog.h"
 #include "mcp/McpLog.h"
 #include "mcp/McpServer.h"
+#include "mcp/McpTools.h"
 #include "ui/BrowserTree.h"
 #include "ui/ExportDialog.h"
 #include "ui/Icons.h"
@@ -1997,6 +1998,87 @@ bool iconsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
+// Print materials in the Rendered style: matte, silk, semitransparent and
+// TPU bodies on the build plate, in each plate and lighting, saved for review.
+bool renderScenario(MainWindow &w, const QDir &out, QTextStream &log) {
+    using json = nlohmann::json;
+    bool ok = true;
+    auto check = [&](bool cond, const QString &what) {
+        log << (cond ? "  ok   " : "  FAIL ") << what << "\n";
+        ok &= cond;
+    };
+    McpTools &tools = *w.mcpTools();
+    auto call = [&](const std::string &name, const json &args) {
+        const json r = tools.callTool(name, args);
+        const std::string text = r.contains("content") ? r["content"][0].value("text", "") : r.dump();
+        if(r.value("isError", false)) log << "         " << QString::fromStdString(name) << ": " << QString::fromStdString(text) << "\n";
+        const json j = json::parse(text, nullptr, false);
+        return j.is_discarded() ? json::object() : j;
+    };
+    auto body = [&](const json &entity, double height) {
+        const json sk = call("create_sketch", {{"plane", "XY"}, {"entities", json::array({entity})}});
+        const json ex = call("extrude", {{"sketch", sk.value("sketch", 0)}, {"distance", height}});
+        check(ex.contains("bodies"), QStringLiteral("extrude %1 mm").arg(height));
+    };
+    auto rect = [](double x0, double y0, double x1, double y1) {
+        return json{{"type", "rectangle"}, {"corner1", {x0, y0}}, {"corner2", {x1, y1}}};
+    };
+    auto circle = [](double x, double y, double r) { return json{{"type", "circle"}, {"center", {x, y}}, {"radius", r}}; };
+    body(circle(0, 0, 12), 30);           // Body1: matte red PLA
+    body(circle(34, 0, 12), 30);          // Body2: silk gold PLA
+    body(rect(-14, -40, 18, -22), 24);    // Body3: semitransparent blue PETG...
+    body(rect(-8, -14, 12, -10), 34);     // Body4: ...in front of a white part
+    body(rect(26, -40, 46, -20), 14);     // Body5: black TPU
+    auto material = [&](const char *b, const char *m, const char *f, const char *c) {
+        const json r = call("set_material", {{"bodies", {b}}, {"material", m}, {"finish", f}, {"color", c}});
+        check(r.contains("bodies"), QStringLiteral("%1: %2 %3 %4").arg(b, m, f, c));
+    };
+    material("Body1", "PLA", "matte", "Signal Red");
+    material("Body2", "PLA", "silk", "Silk Gold");
+    material("Body3", "PETG", "semitransparent", "Ice Blue");
+    material("Body4", "PLA", "matte", "Snow White");
+    material("Body5", "TPU", "matte", "Jet Black");
+    w.refresh();
+    Viewport *vp = w.viewport();
+    vp->setDisplayStyle(DisplayStyle::Rendered);
+    vp->setStandardView(StandardView::Home, false);
+    check(waitForFrames(vp, 3), QStringLiteral("rendered"));
+
+    struct Shot {
+        const char *file;
+        cad::BuildPlateKind plate;
+        cad::Lighting lighting;
+    };
+    const Shot shots[] = {{"render_textured_studio.png", cad::BuildPlateKind::TexturedPEI, cad::Lighting::Studio},
+                          {"render_smooth_studio.png", cad::BuildPlateKind::SmoothPEI, cad::Lighting::Studio},
+                          {"render_textured_daylight.png", cad::BuildPlateKind::TexturedPEI, cad::Lighting::Daylight},
+                          {"render_none_studio.png", cad::BuildPlateKind::None, cad::Lighting::Studio}};
+    QImage first;
+    for(const Shot &s : shots) {
+        cad::RenderSettings rs = w.document().renderSettings();
+        rs.plate = s.plate;
+        rs.lighting = s.lighting;
+        w.document().setRenderSettings(rs);
+        w.refresh();
+        waitForFrames(vp, 3);
+        const QImage img = vp->grabFramebuffer();
+        img.save(out.filePath(QString::fromLatin1(s.file)));
+        if(first.isNull()) first = img;
+        else check(meanDifference(first, img) > 1.0, QStringLiteral("%1 differs from the first").arg(QString::fromLatin1(s.file)));
+    }
+    // A close-up of the surfaces: layer lines, silk, the plate's grain.
+    cad::RenderSettings rs = w.document().renderSettings();
+    rs.plate = cad::BuildPlateKind::TexturedPEI;
+    rs.lighting = cad::Lighting::Studio;
+    w.document().setRenderSettings(rs);
+    w.refresh();
+    vp->setStandardView(StandardView::Home, false);
+    for(int i = 0; i < 4; ++i) vp->camera().zoom(1.5f, vp->camera().target);
+    waitForFrames(vp, 3);
+    vp->grabFramebuffer().save(out.filePath(QStringLiteral("render_closeup.png")));
+    return ok;
+}
+
 const std::map<QString, Scenario> &scenarios() {
     static const std::map<QString, Scenario> s = {
         {QStringLiteral("smoke"), smokeScenario},
@@ -2008,6 +2090,7 @@ const std::map<QString, Scenario> &scenarios() {
         {QStringLiteral("acceptance"), acceptanceScenario},
         {QStringLiteral("mcp"), mcpScenario},
         {QStringLiteral("icons"), iconsScenario},
+        {QStringLiteral("render"), renderScenario},
     };
     return s;
 }

@@ -4,6 +4,7 @@
 #include "viewport/RenderScene.h"
 
 #include <QColor>
+#include <QVector3D>
 
 #include <memory>
 #include <unordered_map>
@@ -40,6 +41,11 @@ public:
 
     size_t cachedMeshCount() const { return m_meshes.size(); }
 
+    // The Rendered style's stage around the bodies (the build plate, or the
+    // ground under them), as the corners of its top and the depth below it:
+    // for the camera's near and far planes. Empty without bodies.
+    static std::vector<QVector3D> stageCorners(const RenderScene &scene);
+
 private:
     struct GpuMesh;
     struct DrawCall;
@@ -50,6 +56,10 @@ private:
     void rebuildBindings();
     void ensureDynamicBuffer(std::unique_ptr<QRhiBuffer> &buf, quint32 size, int usage);
     void evictMeshes();
+    void createRenderedResources();
+    void ensureScreenTargets(const QSize &fb);
+    void ensureEnvironment(cad::Lighting lighting, QRhiResourceUpdateBatch *u);
+    void rebuildRenderedBindings();
 
     QRhi *m_rhi = nullptr;
     QRhiRenderPassDescriptor *m_rp = nullptr;

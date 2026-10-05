@@ -55,12 +55,15 @@ SurfaceSample printSurface(const V3 &p, const V3 &ng, const SurfaceParams &s) {
         n = normalize(ng - across * (slope * amp * (up ? 1.0f : -1.0f)));
         cavity = 1.0f - (up ? 0.06f : 0.12f) * s.strength * fade * (1.0f - bump);
         tangent = dir;
+        out.acrossAdd = (1.0f - fade) * 0.15f * s.strength;
         if(!up) out.roughnessAdd += 0.12f; // bridges sag and are rough
     } else {
         // Walls and slopes: risers (bead sides) and, on slopes, flat treads.
         V3 nh(ng.x, ng.y, 0);
         nh = normalize(nh);
         tangent = normalize(cross(Z, nh));
+        // Bead crowns too fine to see still spread reflections up and down the wall.
+        out.acrossAdd = (1.0f - fade) * 0.4f * s.strength;
         const float q = std::min(cz * cz, 0.92f); // tread share of the period (cos^2 of the slope)
         float riser = 1.0f;
         V3 tread = cz > 0.0f ? Z : -Z;
@@ -85,7 +88,7 @@ SurfaceSample printSurface(const V3 &p, const V3 &ng, const SurfaceParams &s) {
         const V3 grad(valueNoise(q + V3(e, 0, 0)) - valueNoise(q - V3(e, 0, 0)),
                       valueNoise(q + V3(0, e, 0)) - valueNoise(q - V3(0, e, 0)),
                       valueNoise(q + V3(0, 0, e)) - valueNoise(q - V3(0, 0, e)));
-        V3 g = grad * (1.0f / (2.0f * e)) * (0.06f * s.micro);
+        V3 g = grad * (1.0f / (2.0f * e)) * (0.06f * s.micro) * fade;
         g = g - n * dot(g, n);
         n = normalize(n + g);
     }

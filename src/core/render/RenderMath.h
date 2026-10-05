@@ -78,11 +78,13 @@ inline float valueNoise(V3 p) {
 }
 
 // Cellular (Worley) noise in 2D: distance to the nearest feature point (cells
-// of size 1), and a random id of that cell in [0, 1).
-inline float cellular(float px, float py, float &cellId) {
+// of size 1), a random id of that cell in [0, 1), and the offset from the
+// point to the feature (dx, dy) - the distance's gradient is -(dx, dy) / d.
+inline float cellular(float px, float py, float &cellId, float &dxOut, float &dyOut) {
     const float fx = std::floor(px), fy = std::floor(py);
     float best = 8.0f;
     cellId = 0.0f;
+    dxOut = dyOut = 0.0f;
     for(int j = -1; j <= 1; ++j)
         for(int i = -1; i <= 1; ++i) {
             const int cx = int(fx) + i, cy = int(fy) + j;
@@ -92,9 +94,15 @@ inline float cellular(float px, float py, float &cellId) {
             if(d < best) {
                 best = d;
                 cellId = hash3(cx, cy, 37);
+                dxOut = dx;
+                dyOut = dy;
             }
         }
     return std::sqrt(best);
+}
+inline float cellular(float px, float py, float &cellId) {
+    float dx, dy;
+    return cellular(px, py, cellId, dx, dy);
 }
 
 } // namespace cad::rt

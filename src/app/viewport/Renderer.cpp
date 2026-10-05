@@ -3,10 +3,17 @@
 #include "viewport/ShaderLoader.h"
 #include "viewport/ViewCube.h"
 
+#include "render/BuildPlate.h"
+#include "render/Environment.h"
+
+#include <QtCore/qfloat16.h>
 #include <rhi/qrhi.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
+#include <optional>
 
 namespace cadjitsu {
 
@@ -27,7 +34,24 @@ struct DrawUniforms {
     float color[4];
     float color2[4];
     float params[4]; // x = width / size (px), y = depth bias, z = lit / round, w = ignore clip
+    // The Rendered style's material (pbr_blocks.glsl).
+    float m0[4], m1[4], m2[4], m3[4], m4[4];
 };
+
+struct SceneUniforms {
+    float lightViewProj[16];
+    float reflViewProj[16];
+    float contactViewProj[16];
+    float keyDir[4];
+    float keyIrr[4];
+    float surface[4];
+    float plateInfo[4];
+    float shadowInfo[4];
+    float flips[4];
+    float sh[9][4];
+};
+
+constexpr int kShadowSize = 2048, kTintSize = 1024, kEnvBase = 256, kEnvLevels = 6;
 
 struct CubeUniforms {
     float mvp[16];
@@ -105,6 +129,24 @@ struct Renderer::Pipelines {
     std::unique_ptr<QRhiShaderResourceBindings> silSrb, groundSrb;
     QRhiResourceUpdateBatch *pending = nullptr;
 
+    // Rendered style: image-based lighting, the key light's shadow map (and
+    // the tint semitransparent bodies give it), how thick semitransparent
+    // bodies are along each view ray, and the model mirrored in a smooth plate.
+    std::unique_ptr<QRhiBuffer> sceneUbo, shadowFrameUbo, reflFrameUbo, plateVbuf, plateIbuf;
+    quint32 plateIndexCount = 0;
+    std::vector<float> plateKey;
+    std::unique_ptr<QRhiTexture> envTex, lutTex, dummyTex, shadowTex, tintTex, thickTex, reflTex;
+    int envLighting = -1;
+    std::array<std::array<float, 3>, 9> envSh{};
+    std::unique_ptr<QRhiRenderBuffer> shadowDepth, reflDepth;
+    std::unique_ptr<QRhiTextureRenderTarget> shadowRt, tintRt, thickRt, reflRt;
+    std::unique_ptr<QRhiRenderPassDescriptor> shadowRp, tintRp, thickRp, reflRp;
+    std::unique_ptr<QRhiSampler> envSampler, linearSampler, nearestSampler;
+    std::unique_ptr<QRhiShaderResourceBindings> pbrSrb, reflPassSrb, shadowSrb, thickSrb;
+    QSize screenSize;
+
+    std::unique_ptr<QRhiGraphicsPipeline> pbrOpaque, pbrTransmit, pbrEmit, plate, shadowOpaque, shadowTint, thickness,
+        reflBody;
     std::unique_ptr<QRhiGraphicsPipeline> bg, mesh, meshOverlay, meshOverlayNoDepth, line, lineNoDepth, point,
         pointNoDepth, grid, cube, stencilParity, cap, silhouette, ground;
 };
@@ -153,6 +195,7 @@ void Renderer::rebuildBindings() {
                               QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage,
                                                                         p.silTex.get(), p.silSampler.get())});
     p.groundSrb->create();
+    if(p.pbrSrb) rebuildRenderedBindings();
 }
 
 void Renderer::createPipelines() {
@@ -369,6 +412,260 @@ void Renderer::createPipelines() {
     fill.depthFailOp = QRhiGraphicsPipeline::StencilZero;
     p.cap = stencilPipeline("cap.vert", "cap.frag", true, fill);
     p.cube = make("cube.vert", "cube.frag", cubeLayout, true, true, NoBlend, p.cubeSrb.get());
+    createRenderedResources();
+}
+
+void Renderer::createRenderedResources() {
+    Pipelines &p = *m_p;
+    QRhi *rhi = m_rhi;
+    p.sceneUbo.reset(rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(SceneUniforms)));
+    p.sceneUbo->create();
+    for(auto *b : {&p.shadowFrameUbo, &p.reflFrameUbo}) {
+        b->reset(rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(FrameUniforms)));
+        (*b)->create();
+    }
+    p.envSampler.reset(rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::Linear,
+                                       QRhiSampler::Repeat, QRhiSampler::ClampToEdge));
+    p.envSampler->create();
+    p.linearSampler.reset(rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::Linear,
+                                          QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
+    p.linearSampler->create();
+    p.nearestSampler.reset(rhi->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
+                                           QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
+    p.nearestSampler->create();
+
+    // The environment (baked when first drawn) and the BRDF table.
+    p.envTex.reset(rhi->newTexture(QRhiTexture::RGBA16F, QSize(kEnvBase, kEnvBase / 2), 1, QRhiTexture::MipMapped));
+    p.envTex->create();
+    const int lutSize = 64;
+    const std::vector<float> lut = cad::rt::brdfLut(lutSize);
+    std::vector<qfloat16> lutHalf(size_t(lutSize * lutSize * 4), qfloat16(0.0f));
+    for(int i = 0; i < lutSize * lutSize; ++i) {
+        lutHalf[size_t(4 * i)] = qfloat16(lut[size_t(2 * i)]);
+        lutHalf[size_t(4 * i + 1)] = qfloat16(lut[size_t(2 * i + 1)]);
+        lutHalf[size_t(4 * i + 3)] = qfloat16(1.0f);
+    }
+    p.lutTex.reset(rhi->newTexture(QRhiTexture::RGBA16F, QSize(lutSize, lutSize)));
+    p.lutTex->create();
+    p.pending->uploadTexture(p.lutTex.get(),
+                             QRhiTextureUploadDescription({0, 0, QRhiTextureSubresourceUploadDescription(
+                                                                     lutHalf.data(), quint32(lutHalf.size() * 2))}));
+    p.dummyTex.reset(rhi->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
+    p.dummyTex->create();
+    QImage black(1, 1, QImage::Format_RGBA8888);
+    black.fill(Qt::transparent);
+    p.pending->uploadTexture(p.dummyTex.get(), black);
+
+    // The key light's view: the depth of the nearest opaque surface...
+    const QRhiTexture::Format depthFormat =
+        rhi->isTextureFormatSupported(QRhiTexture::R32F) ? QRhiTexture::R32F : QRhiTexture::RGBA16F;
+    p.shadowTex.reset(rhi->newTexture(depthFormat, QSize(kShadowSize, kShadowSize), 1, QRhiTexture::RenderTarget));
+    p.shadowTex->create();
+    p.shadowDepth.reset(rhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil, QSize(kShadowSize, kShadowSize)));
+    p.shadowDepth->create();
+    {
+        QRhiTextureRenderTargetDescription d{QRhiColorAttachment(p.shadowTex.get())};
+        d.setDepthStencilBuffer(p.shadowDepth.get());
+        p.shadowRt.reset(rhi->newTextureRenderTarget(d));
+        p.shadowRp.reset(p.shadowRt->newCompatibleRenderPassDescriptor());
+        p.shadowRt->setRenderPassDescriptor(p.shadowRp.get());
+        p.shadowRt->create();
+    }
+    // ...and what semitransparent bodies let through.
+    p.tintTex.reset(rhi->newTexture(QRhiTexture::RGBA16F, QSize(kTintSize, kTintSize), 1, QRhiTexture::RenderTarget));
+    p.tintTex->create();
+    p.tintRt.reset(rhi->newTextureRenderTarget({QRhiColorAttachment(p.tintTex.get())}));
+    p.tintRp.reset(p.tintRt->newCompatibleRenderPassDescriptor());
+    p.tintRt->setRenderPassDescriptor(p.tintRp.get());
+    p.tintRt->create();
+
+    p.pbrSrb.reset(rhi->newShaderResourceBindings());
+    p.reflPassSrb.reset(rhi->newShaderResourceBindings());
+    p.shadowSrb.reset(rhi->newShaderResourceBindings());
+    p.thickSrb.reset(rhi->newShaderResourceBindings());
+    ensureScreenTargets(QSize(64, 64));
+
+    QRhiVertexInputLayout meshLayout;
+    meshLayout.setBindings({{6 * sizeof(float)}});
+    meshLayout.setAttributes({{0, 0, QRhiVertexInputAttribute::Float3, 0},
+                              {0, 1, QRhiVertexInputAttribute::Float3, 3 * sizeof(float)}});
+    QRhiVertexInputLayout plateLayout;
+    plateLayout.setBindings({{7 * sizeof(float)}});
+    plateLayout.setAttributes({{0, 0, QRhiVertexInputAttribute::Float3, 0},
+                               {0, 1, QRhiVertexInputAttribute::Float3, 3 * sizeof(float)},
+                               {0, 2, QRhiVertexInputAttribute::Float, 6 * sizeof(float)}});
+    using GP = QRhiGraphicsPipeline;
+    auto make = [&](const char *vs, const char *fs, const QRhiVertexInputLayout &layout, QRhiRenderPassDescriptor *rp,
+                    int samples, bool depthTest, bool depthWrite, std::optional<GP::TargetBlend> blend,
+                    QRhiShaderResourceBindings *srb, bool bias = false) {
+        std::unique_ptr<GP> pl(rhi->newGraphicsPipeline());
+        pl->setShaderStages({{QRhiShaderStage::Vertex, loadShader(QString::fromLatin1(vs))},
+                             {QRhiShaderStage::Fragment, loadShader(QString::fromLatin1(fs))}});
+        pl->setVertexInputLayout(layout);
+        pl->setDepthTest(depthTest);
+        pl->setDepthWrite(depthWrite);
+        pl->setDepthOp(GP::LessOrEqual);
+        if(blend) pl->setTargetBlends({*blend});
+        if(bias) {
+            if(!qEnvironmentVariableIsSet("CADJITSU_NO_CONSTANT_DEPTH_BIAS")) pl->setDepthBias(2);
+            pl->setSlopeScaledDepthBias(1.5f);
+        }
+        pl->setSampleCount(samples);
+        pl->setShaderResourceBindings(srb);
+        pl->setRenderPassDescriptor(rp);
+        pl->create();
+        return pl;
+    };
+    GP::TargetBlend multiply;
+    multiply.enable = true;
+    multiply.srcColor = GP::Zero;
+    multiply.dstColor = GP::SrcColor;
+    multiply.srcAlpha = GP::Zero;
+    multiply.dstAlpha = GP::One;
+    GP::TargetBlend add;
+    add.enable = true;
+    add.srcColor = GP::One;
+    add.dstColor = GP::One;
+    add.srcAlpha = GP::Zero;
+    add.dstAlpha = GP::One;
+    GP::TargetBlend tint = multiply;
+    tint.srcAlpha = GP::One;
+    tint.dstAlpha = GP::One;
+    tint.opAlpha = GP::Min;
+    GP::TargetBlend sum;
+    sum.enable = true;
+    sum.srcColor = sum.dstColor = sum.srcAlpha = sum.dstAlpha = GP::One;
+
+    p.pbrOpaque = make("pbr.vert", "pbr.frag", meshLayout, m_rp, m_sampleCount, true, true, {}, p.pbrSrb.get(), true);
+    p.pbrTransmit = make("pbr.vert", "pbr.frag", meshLayout, m_rp, m_sampleCount, true, false, multiply, p.pbrSrb.get());
+    p.pbrEmit = make("pbr.vert", "pbr.frag", meshLayout, m_rp, m_sampleCount, true, false, add, p.pbrSrb.get());
+    p.plate = make("plate.vert", "plate.frag", plateLayout, m_rp, m_sampleCount, true, true, {}, p.pbrSrb.get());
+    p.shadowOpaque = make("pbr.vert", "shadow.frag", meshLayout, p.shadowRp.get(), 1, true, true, {}, p.shadowSrb.get());
+    p.shadowTint = make("pbr.vert", "shadow.frag", meshLayout, p.tintRp.get(), 1, false, false, tint, p.shadowSrb.get());
+    p.thickness = make("pbr.vert", "thickness.frag", meshLayout, p.thickRp.get(), 1, false, false, sum, p.thickSrb.get());
+    p.reflBody = make("pbr.vert", "pbr.frag", meshLayout, p.reflRp.get(), 1, true, true, {}, p.reflPassSrb.get());
+}
+
+// The targets that follow the window's size: semitransparent thickness (full
+// size) and the plate's reflection (half size, blurred through its mip levels).
+void Renderer::ensureScreenTargets(const QSize &fb) {
+    Pipelines &p = *m_p;
+    if(p.screenSize == fb && p.thickRt) return;
+    p.screenSize = fb;
+    QRhi *rhi = m_rhi;
+    p.thickTex.reset(rhi->newTexture(QRhiTexture::RGBA16F, fb, 1, QRhiTexture::RenderTarget));
+    p.thickTex->create();
+    p.thickRt.reset(rhi->newTextureRenderTarget({QRhiColorAttachment(p.thickTex.get())}));
+    if(!p.thickRp) p.thickRp.reset(p.thickRt->newCompatibleRenderPassDescriptor());
+    p.thickRt->setRenderPassDescriptor(p.thickRp.get());
+    p.thickRt->create();
+
+    const QSize half(std::max(1, fb.width() / 2), std::max(1, fb.height() / 2));
+    p.reflTex.reset(rhi->newTexture(QRhiTexture::RGBA16F, half, 1,
+                                    QRhiTexture::RenderTarget | QRhiTexture::MipMapped | QRhiTexture::UsedWithGenerateMips));
+    p.reflTex->create();
+    p.reflDepth.reset(rhi->newRenderBuffer(QRhiRenderBuffer::DepthStencil, half));
+    p.reflDepth->create();
+    QRhiTextureRenderTargetDescription d{QRhiColorAttachment(p.reflTex.get())};
+    d.setDepthStencilBuffer(p.reflDepth.get());
+    p.reflRt.reset(rhi->newTextureRenderTarget(d));
+    if(!p.reflRp) p.reflRp.reset(p.reflRt->newCompatibleRenderPassDescriptor());
+    p.reflRt->setRenderPassDescriptor(p.reflRp.get());
+    p.reflRt->create();
+    rebuildRenderedBindings();
+}
+
+void Renderer::rebuildRenderedBindings() {
+    Pipelines &p = *m_p;
+    using B = QRhiShaderResourceBinding;
+    const auto stages = B::VertexStage | B::FragmentStage;
+    const auto frag = B::FragmentStage;
+    const auto draw = B::uniformBufferWithDynamicOffset(1, stages, p.drawUbo.get(), sizeof(DrawUniforms));
+    const auto sceneB = B::uniformBuffer(4, stages, p.sceneUbo.get());
+    auto textures = [&](QRhiTexture *refl, QRhiTexture *thick) {
+        return std::vector<B>{B::sampledTexture(2, frag, p.envTex.get(), p.envSampler.get()),
+                              B::sampledTexture(3, frag, p.lutTex.get(), p.linearSampler.get()),
+                              B::sampledTexture(5, frag, p.shadowTex.get(), p.nearestSampler.get()),
+                              B::sampledTexture(6, frag, p.tintTex.get(), p.nearestSampler.get()),
+                              B::sampledTexture(7, frag, refl, p.linearSampler.get()),
+                              B::sampledTexture(8, frag, p.silTex.get(), p.silSampler.get()),
+                              B::sampledTexture(9, frag, thick, p.nearestSampler.get())};
+    };
+    auto set = [&](QRhiShaderResourceBindings *srb, QRhiBuffer *frame, std::vector<B> extra) {
+        std::vector<B> all{B::uniformBuffer(0, stages, frame), draw, sceneB};
+        all.insert(all.end(), extra.begin(), extra.end());
+        srb->setBindings(all.begin(), all.end());
+        srb->create();
+    };
+    set(p.pbrSrb.get(), p.frameUbo.get(), textures(p.reflTex.get(), p.thickTex.get()));
+    set(p.reflPassSrb.get(), p.reflFrameUbo.get(), textures(p.dummyTex.get(), p.dummyTex.get()));
+    set(p.shadowSrb.get(), p.shadowFrameUbo.get(), {});
+    set(p.thickSrb.get(), p.frameUbo.get(), {});
+}
+
+// Pre-filtered environment for the lighting, baked once per lighting set.
+void Renderer::ensureEnvironment(cad::Lighting lighting, QRhiResourceUpdateBatch *u) {
+    Pipelines &p = *m_p;
+    if(p.envLighting == int(lighting)) return;
+    p.envLighting = int(lighting);
+    const cad::rt::EnvMaps maps = cad::rt::bakeEnvMaps(cad::rt::environment(lighting), kEnvBase, kEnvLevels);
+    p.envSh = maps.sh;
+    QVector<QRhiTextureUploadEntry> entries;
+    std::vector<std::vector<qfloat16>> halves;
+    const int levels = m_rhi->mipLevelsForSize(p.envTex->pixelSize());
+    halves.reserve(size_t(levels));
+    float avg[3] = {0, 0, 0};
+    for(int lv = 0; lv < levels; ++lv) {
+        const QSize size = m_rhi->sizeForMipLevel(lv, p.envTex->pixelSize());
+        std::vector<qfloat16> h(size_t(size.width() * size.height() * 4), qfloat16(1.0f));
+        if(lv < int(maps.rgb.size())) {
+            const auto &src = maps.rgb[size_t(lv)];
+            for(int i = 0; i < size.width() * size.height(); ++i)
+                for(int c = 0; c < 3; ++c) h[size_t(4 * i + c)] = qfloat16(src[size_t(3 * i + c)]);
+            if(lv == int(maps.rgb.size()) - 1) {
+                for(int i = 0; i < size.width() * size.height(); ++i)
+                    for(int c = 0; c < 3; ++c) avg[c] += src[size_t(3 * i + c)] / float(size.width() * size.height());
+            }
+        } else {
+            // Never sampled (the roughest level is the last baked one), but defined.
+            for(int i = 0; i < size.width() * size.height(); ++i)
+                for(int c = 0; c < 3; ++c) h[size_t(4 * i + c)] = qfloat16(avg[c]);
+        }
+        halves.push_back(std::move(h));
+        entries.append(QRhiTextureUploadEntry(
+            0, lv, QRhiTextureSubresourceUploadDescription(halves.back().data(), quint32(halves.back().size() * 2))));
+    }
+    QRhiTextureUploadDescription desc;
+    desc.setEntries(entries.begin(), entries.end());
+    u->uploadTexture(p.envTex.get(), desc);
+}
+
+std::vector<QVector3D> Renderer::stageCorners(const RenderScene &scene) {
+    QVector3D lo(1e30f, 1e30f, 1e30f), hi(-1e30f, -1e30f, -1e30f);
+    for(const RenderBody &b : scene.bodies) {
+        if(!b.mesh || b.mesh->vertexCount() == 0) continue;
+        lo = QVector3D(std::min(lo.x(), b.mesh->bboxMin[0]), std::min(lo.y(), b.mesh->bboxMin[1]), std::min(lo.z(), b.mesh->bboxMin[2]));
+        hi = QVector3D(std::max(hi.x(), b.mesh->bboxMax[0]), std::max(hi.y(), b.mesh->bboxMax[1]), std::max(hi.z(), b.mesh->bboxMax[2]));
+    }
+    if(lo.x() > hi.x()) return {};
+    std::vector<QVector3D> out;
+    const cad::rt::PlateLayout l = cad::rt::plateLayout({lo.x(), lo.y(), lo.z()}, {hi.x(), hi.y(), hi.z()}, scene.render);
+    if(l.present) {
+        const float y0 = std::min(l.bedCy - l.bedD / 2, l.sheetCy - l.sheetD / 2 - l.tabD);
+        const float y1 = std::max(l.bedCy + l.bedD / 2, l.sheetCy + l.sheetD / 2);
+        const float x0 = l.cx - l.bedW / 2, x1 = l.cx + l.bedW / 2;
+        for(float z : {l.top, l.top - l.sheetT - l.bedT})
+            for(const QVector3D &c : {QVector3D(x0, y0, z), QVector3D(x1, y0, z), QVector3D(x1, y1, z), QVector3D(x0, y1, z)})
+                out.push_back(c);
+        return out;
+    }
+    // The ground square (as drawn, a little bigger).
+    const QVector3D size = hi - lo;
+    const float half = std::max(size.x(), size.y()) * 0.9f + size.length() * 0.1f + 1.0f;
+    const QVector3D c = (lo + hi) * 0.5f;
+    for(const QVector3D &d : {QVector3D(-1, -1, 0), QVector3D(1, -1, 0), QVector3D(1, 1, 0), QVector3D(-1, 1, 0)})
+        out.push_back(QVector3D(c.x() + d.x() * half, c.y() + d.y() * half, lo.z()));
+    return out;
 }
 
 Renderer::GpuMesh &Renderer::meshFor(const std::shared_ptr<const cad::MeshData> &mesh, QRhiResourceUpdateBatch *u) {
@@ -481,16 +778,37 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
     const bool edges = scene.style == DisplayStyle::ShadedWithEdges || scene.style == DisplayStyle::Wireframe;
     const QColor edgeColor(28, 33, 40);
 
-    // Opaque bodies.
+    // Opaque bodies. In the Rendered style, physically based in their print
+    // material; semitransparent ones are drawn after everything opaque.
+    auto opticsOf = [](const RenderBody &b) {
+        if(b.hasOptics) return b.optics;
+        cad::BodyMaterial m;
+        m.rgb = uint32_t(b.color.rgb() & 0xffffff);
+        return cad::opticsFor(m);
+    };
+    auto material = [&](quint32 index, const RenderBody &b, int pass) {
+        const cad::Optics o = opticsOf(b);
+        DrawUniforms &du = uniforms[index];
+        setVec(du.m0, o.albedo[0], o.albedo[1], o.albedo[2], o.ior);
+        setVec(du.m1, o.specTint[0], o.specTint[1], o.specTint[2], o.metalness);
+        setVec(du.m2, o.roughness, o.roughnessAcross, o.sheen, b.translucent ? o.transmission : 0.0f);
+        setVec(du.m3, o.absorbPerMm[0], o.absorbPerMm[1], o.absorbPerMm[2], o.layerStrength);
+        const float minExtent = std::min({b.mesh->bboxMax[0] - b.mesh->bboxMin[0], b.mesh->bboxMax[1] - b.mesh->bboxMin[1],
+                                          b.mesh->bboxMax[2] - b.mesh->bboxMin[2]});
+        setVec(du.m4, o.microRoughness, float(pass), 0.7f * minExtent, o.scatterMm);
+    };
+    auto isTranslucent = [&](const RenderBody &b) { return rendered && b.hasOptics && b.translucent && b.opacity >= 0.999f; };
     std::vector<GpuMesh *> gpu(scene.bodies.size(), nullptr);
     for(size_t i = 0; i < scene.bodies.size(); ++i) {
         const RenderBody &b = scene.bodies[i];
         if(!b.mesh) continue;
         gpu[i] = &meshFor(b.mesh, u);
-        if(!faces || b.opacity < 0.999f || !gpu[i]->ibuf) continue;
+        if(!faces || b.opacity < 0.999f || !gpu[i]->ibuf || isTranslucent(b)) continue;
         DrawCall d;
-        d.pipeline = p.mesh.get();
-        d.uniform = uniform(b.color, b.color.darker(160), 0, 0, 1, rendered ? 1.0f : 0.0f);
+        d.pipeline = rendered ? p.pbrOpaque.get() : p.mesh.get();
+        d.srb = rendered ? p.pbrSrb.get() : nullptr;
+        d.uniform = uniform(b.color, b.color.darker(160), 0, 0, 1, 0);
+        if(rendered) material(d.uniform, b, 0);
         d.vb0 = gpu[i]->vbuf.get();
         d.ib = gpu[i]->ibuf.get();
         d.count = gpu[i]->indexCount;
@@ -524,27 +842,46 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
         }
     }
 
-    // Rendered style: a soft contact shadow on the ground under the model, from
-    // a top-down silhouette of it (drawn before the main pass).
-    std::vector<DrawCall> silDraws;
+    // Rendered style: the build plate (or a ground) under the model, the key
+    // light's soft shadows, and a contact shadow from a top-down silhouette of
+    // the model (all drawn before the main pass).
+    std::vector<DrawCall> silDraws, shadowDraws, tintDraws, thickDraws, reflDraws, translucentDraws;
+    bool reflection = false;
     if(rendered) {
         QVector3D lo(1e30f, 1e30f, 1e30f), hi(-1e30f, -1e30f, -1e30f);
+        std::vector<size_t> translucent;
         for(size_t i = 0; i < scene.bodies.size(); ++i) {
             const RenderBody &b = scene.bodies[i];
             if(!gpu[i] || !gpu[i]->ibuf || b.opacity < 0.999f) continue;
             lo = QVector3D(std::min(lo.x(), b.mesh->bboxMin[0]), std::min(lo.y(), b.mesh->bboxMin[1]), std::min(lo.z(), b.mesh->bboxMin[2]));
             hi = QVector3D(std::max(hi.x(), b.mesh->bboxMax[0]), std::max(hi.y(), b.mesh->bboxMax[1]), std::max(hi.z(), b.mesh->bboxMax[2]));
             DrawCall d;
-            d.pipeline = p.silhouette.get();
             d.srb = p.silSrb.get();
+            d.pipeline = p.silhouette.get();
             d.uniform = uniform(Qt::white, Qt::white, 0, 0, 0, 0);
             d.vb0 = gpu[i]->vbuf.get();
             d.ib = gpu[i]->ibuf.get();
             d.count = gpu[i]->indexCount;
             silDraws.push_back(d);
+            // Into the key light's shadow map, or its tint.
+            DrawCall sd = d;
+            sd.srb = p.shadowSrb.get();
+            sd.uniform = uniform(b.color, b.color, 0, 0, 0, 0);
+            material(sd.uniform, b, isTranslucent(b) ? 1 : 0);
+            sd.pipeline = isTranslucent(b) ? p.shadowTint.get() : p.shadowOpaque.get();
+            (isTranslucent(b) ? tintDraws : shadowDraws).push_back(sd);
+            if(isTranslucent(b)) translucent.push_back(i);
         }
         if(!silDraws.empty()) {
+            ensureEnvironment(scene.render.lighting, u);
+            ensureScreenTargets(fb);
+            const cad::rt::Environment env = cad::rt::environment(scene.render.lighting);
+            const QVector3D L(env.key.dir.x, env.key.dir.y, env.key.dir.z);
+            const bool flipY = m_rhi->isYUpInNDC() && !m_rhi->isYUpInFramebuffer();
             const float size = (hi - lo).length();
+            SceneUniforms su{};
+
+            // The contact shadow's top-down view.
             const float half = std::max(hi.x() - lo.x(), hi.y() - lo.y()) * 0.5f * 1.7f + size * 0.1f + 1.0f;
             const QVector3D c = (lo + hi) * 0.5f;
             QMatrix4x4 view, proj;
@@ -554,17 +891,161 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
             FrameUniforms sf = fu;
             setMat(sf.viewProj, top);
             u->updateDynamicBuffer(p.silUbo.get(), 0, sizeof sf, &sf);
-            DrawCall g;
-            g.pipeline = p.ground.get();
-            g.srb = p.groundSrb.get();
-            const bool flipY = m_rhi->isYUpInNDC() && !m_rhi->isYUpInFramebuffer();
-            g.uniform = uniform(QColor(18, 24, 34, 165), QColor(flipY ? 255 : 0, 0, 0), c.x(), c.y(), half,
-                                lo.z() - 0.002f * size);
-            setMat(uniforms.back().model, top);
-            setVec(uniforms.back().color2, flipY ? 1.0f : 0.0f, 0.014f, 0.055f, 0.0f);
-            g.vb0 = p.quadCorners.get();
-            g.count = 6;
-            draws.push_back(g);
+            setMat(su.contactViewProj, top);
+
+            // The key light's view: around the model and its shadow on the plate.
+            std::vector<QVector3D> pts;
+            for(int k = 0; k < 8; ++k) {
+                const QVector3D q((k & 1) ? hi.x() : lo.x(), (k & 2) ? hi.y() : lo.y(), (k & 4) ? hi.z() : lo.z());
+                pts.push_back(q);
+                pts.push_back(q - L * ((q.z() - lo.z()) / std::max(L.z(), 0.05f)));
+            }
+            QMatrix4x4 lview;
+            lview.lookAt(c + L * size, c, std::fabs(L.z()) > 0.99f ? QVector3D(0, 1, 0) : QVector3D(0, 0, 1));
+            QVector3D vlo(1e30f, 1e30f, 1e30f), vhi(-1e30f, -1e30f, -1e30f);
+            for(const QVector3D &q : pts) {
+                const QVector3D v = lview.map(q);
+                vlo = QVector3D(std::min(vlo.x(), v.x()), std::min(vlo.y(), v.y()), std::min(vlo.z(), v.z()));
+                vhi = QVector3D(std::max(vhi.x(), v.x()), std::max(vhi.y(), v.y()), std::max(vhi.z(), v.z()));
+            }
+            const float R = std::max(vhi.x() - vlo.x(), vhi.y() - vlo.y()) * 0.5f * 1.04f + 0.5f;
+            const float mx = 0.5f * (vlo.x() + vhi.x()), my = 0.5f * (vlo.y() + vhi.y());
+            const float zn = -vhi.z() - 1.0f, zf = -vlo.z() + 1.0f;
+            QMatrix4x4 lproj;
+            lproj.ortho(mx - R, mx + R, my - R, my + R, zn, zf);
+            const QMatrix4x4 lvp = corr * lproj * lview;
+            setMat(su.lightViewProj, lvp);
+            FrameUniforms lf = fu;
+            setMat(lf.viewProj, lvp);
+            setVec(lf.eyePos, c + L * size, 1.0f);
+            setVec(lf.eyeDir, -L, 0.0f);
+            lf.misc[0] = 0.0f;
+            u->updateDynamicBuffer(p.shadowFrameUbo.get(), 0, sizeof lf, &lf);
+            const float tanR = std::tan(env.key.angularRadius);
+            setVec(su.keyDir, L, tanR);
+            const cad::rt::V3 irr = env.key.irradiance();
+            setVec(su.keyIrr, irr.x, irr.y, irr.z, 1.0f);
+            setVec(su.shadowInfo, 1.0f / float(kShadowSize), (zf - zn) / (m_rhi->isClipDepthZeroToOne() ? 1.0f : 2.0f),
+                   2.0f * R, 1.0f);
+            setVec(su.flips, flipY ? 1.0f : 0.0f, 0, flipY ? 1.0f : 0.0f, 0);
+            for(int k = 0; k < 9; ++k) setVec(su.sh[k], p.envSh[size_t(k)][0], p.envSh[size_t(k)][1], p.envSh[size_t(k)][2], 0);
+            const cad::RenderSettings &rs = scene.render;
+            setVec(su.surface, float(rs.layerHeight), float(rs.lineWidth), rs.layerLines ? 1.0f : 0.0f, lo.z());
+
+            // The plate, just under the model (its own print surface is at lo.z).
+            const cad::rt::PlateLayout layout =
+                cad::rt::plateLayout({lo.x(), lo.y(), lo.z() - 0.02f}, {hi.x(), hi.y(), hi.z()}, rs);
+            reflection = layout.present && layout.kind == cad::BuildPlateKind::SmoothPEI && !scene.clipPlane;
+            setVec(su.plateInfo, float(int(rs.plate)), reflection ? 1.0f : 0.0f, 1.0f, float(kEnvLevels - 1));
+            if(layout.present) {
+                const std::vector<float> key{layout.top, layout.cx, layout.cy};
+                if(key != p.plateKey || !p.plateVbuf) {
+                    p.plateKey = key;
+                    const cad::rt::PlateMesh pm = cad::rt::plateMesh(layout);
+                    std::vector<float> vb;
+                    vb.reserve(pm.positions.size() * 7);
+                    for(size_t k = 0; k < pm.positions.size(); ++k)
+                        vb.insert(vb.end(), {pm.positions[k].x, pm.positions[k].y, pm.positions[k].z, pm.normals[k].x,
+                                             pm.normals[k].y, pm.normals[k].z, float(pm.part[k / 3])});
+                    p.plateVbuf.reset(m_rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::VertexBuffer, quint32(vb.size() * 4)));
+                    p.plateVbuf->create();
+                    u->uploadStaticBuffer(p.plateVbuf.get(), vb.data());
+                    p.plateIbuf.reset(m_rhi->newBuffer(QRhiBuffer::Immutable, QRhiBuffer::IndexBuffer, quint32(pm.indices.size() * 4)));
+                    p.plateIbuf->create();
+                    u->uploadStaticBuffer(p.plateIbuf.get(), pm.indices.data());
+                    p.plateIndexCount = quint32(pm.indices.size());
+                }
+                DrawCall g;
+                g.pipeline = p.plate.get();
+                g.srb = p.pbrSrb.get();
+                g.uniform = uniform(Qt::white, Qt::white, 0, 0, 0, 0);
+                g.vb0 = p.plateVbuf.get();
+                g.ib = p.plateIbuf.get();
+                g.count = p.plateIndexCount;
+                draws.insert(draws.begin(), g);
+            } else {
+                DrawCall g;
+                g.pipeline = p.ground.get();
+                g.srb = p.groundSrb.get();
+                g.uniform = uniform(QColor(18, 24, 34, 165), QColor(flipY ? 255 : 0, 0, 0), c.x(), c.y(), half,
+                                    lo.z() - 0.002f * size);
+                setMat(uniforms.back().model, top);
+                setVec(uniforms.back().color2, flipY ? 1.0f : 0.0f, 0.014f, 0.055f, 0.0f);
+                g.vb0 = p.quadCorners.get();
+                g.count = 6;
+                draws.push_back(g);
+            }
+
+            // The model mirrored in a smooth plate.
+            if(reflection) {
+                QMatrix4x4 mirror;
+                mirror.translate(0, 0, 2.0f * layout.top);
+                mirror.scale(1, 1, -1);
+                const QMatrix4x4 rvp = corr * cam.viewProjection() * mirror;
+                setMat(su.reflViewProj, rvp);
+                FrameUniforms rf = fu;
+                setMat(rf.viewProj, rvp);
+                const QVector3D e = cam.eye(), f = cam.forward();
+                setVec(rf.eyePos, QVector3D(e.x(), e.y(), 2.0f * layout.top - e.z()), cam.orthographic ? 1.0f : 0.0f);
+                setVec(rf.eyeDir, QVector3D(f.x(), f.y(), -f.z()), 0.0f);
+                rf.misc[0] = 0.0f;
+                rf.misc[2] = 1.0f;
+                u->updateDynamicBuffer(p.reflFrameUbo.get(), 0, sizeof rf, &rf);
+                for(const DrawCall &d : draws) {
+                    if(d.pipeline != p.pbrOpaque.get()) continue;
+                    DrawCall r = d;
+                    r.pipeline = p.reflBody.get();
+                    r.srb = p.reflPassSrb.get();
+                    reflDraws.push_back(r);
+                }
+                for(size_t i : translucent) {
+                    const RenderBody &b = scene.bodies[i];
+                    DrawCall r;
+                    r.pipeline = p.reflBody.get();
+                    r.srb = p.reflPassSrb.get();
+                    r.uniform = uniform(b.color, b.color, 0, 0, 0, 0);
+                    material(r.uniform, b, 0);
+                    // Seen in the mirror as a tinted, glossy body.
+                    const cad::Optics o = opticsOf(b);
+                    DrawUniforms &du = uniforms[r.uniform];
+                    for(int k = 0; k < 3; ++k) du.m0[k] = 0.6f * std::exp(-o.absorbPerMm[size_t(k)] * 3.0f);
+                    du.m2[3] = 0.0f;
+                    r.vb0 = gpu[i]->vbuf.get();
+                    r.ib = gpu[i]->ibuf.get();
+                    r.count = gpu[i]->indexCount;
+                    reflDraws.push_back(r);
+                }
+            }
+            u->updateDynamicBuffer(p.sceneUbo.get(), 0, sizeof su, &su);
+
+            // Semitransparent bodies, back to front: their thickness along each
+            // view ray, then what shows through them, then their own light.
+            const QVector3D eye = cam.eye(), fwd = cam.forward();
+            auto depthOf = [&](size_t i) {
+                const auto &m = *scene.bodies[i].mesh;
+                const QVector3D ctr(0.5f * (m.bboxMin[0] + m.bboxMax[0]), 0.5f * (m.bboxMin[1] + m.bboxMax[1]),
+                                    0.5f * (m.bboxMin[2] + m.bboxMax[2]));
+                return cam.orthographic ? QVector3D::dotProduct(ctr - eye, fwd) : (ctr - eye).length();
+            };
+            std::sort(translucent.begin(), translucent.end(), [&](size_t a, size_t b) { return depthOf(a) > depthOf(b); });
+            for(size_t i : translucent) {
+                const RenderBody &b = scene.bodies[i];
+                DrawCall d;
+                d.vb0 = gpu[i]->vbuf.get();
+                d.ib = gpu[i]->ibuf.get();
+                d.count = gpu[i]->indexCount;
+                d.pipeline = p.thickness.get();
+                d.srb = p.thickSrb.get();
+                d.uniform = uniform(b.color, b.color, depthOf(i), 0, 0, 0);
+                thickDraws.push_back(d);
+                for(int pass : {1, 2}) {
+                    d.pipeline = pass == 1 ? p.pbrTransmit.get() : p.pbrEmit.get();
+                    d.srb = p.pbrSrb.get();
+                    d.uniform = uniform(b.color, b.color, 0, 0, 1, 0);
+                    material(d.uniform, b, pass);
+                    translucentDraws.push_back(d);
+                }
+            }
         }
     }
 
@@ -609,6 +1090,8 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
         d.count = gpu[i]->indexCount;
         draws.push_back(d);
     }
+
+    draws.insert(draws.end(), translucentDraws.begin(), translucentDraws.end());
 
     // Face highlights (hover / selection).
     for(const auto &h : scene.faceHighlights) {
@@ -747,11 +1230,13 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
 
     // Record.
     const QRhiViewport full(0, 0, float(fb.width()), float(fb.height()));
-    if(!silDraws.empty()) {
-        cb->beginPass(p.silRt.get(), QColor(0, 0, 0, 0), {1.0f, 0}, u);
+    // Offscreen passes of the Rendered style.
+    auto offscreen = [&](QRhiTextureRenderTarget *target, const QColor &clear, const std::vector<DrawCall> &list) {
+        cb->beginPass(target, clear, {1.0f, 0}, u);
         u = nullptr;
-        cb->setViewport(QRhiViewport(0, 0, 512, 512));
-        for(const DrawCall &d : silDraws) {
+        const QSize ts = target->pixelSize();
+        cb->setViewport(QRhiViewport(0, 0, float(ts.width()), float(ts.height())));
+        for(const DrawCall &d : list) {
             cb->setGraphicsPipeline(d.pipeline);
             const QRhiCommandBuffer::DynamicOffset off(1, d.uniform * p.drawStride);
             cb->setShaderResources(d.srb, 1, &off);
@@ -760,9 +1245,20 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
             cb->drawIndexed(d.count);
         }
         cb->endPass();
-        // Blurred versions of it for the soft shadow.
+    };
+    if(!silDraws.empty()) {
+        offscreen(p.silRt.get(), QColor(0, 0, 0, 0), silDraws);
+        // Blurred versions of it for the soft contact shadow.
         u = m_rhi->nextResourceUpdateBatch();
         u->generateMips(p.silTex.get());
+        offscreen(p.shadowRt.get(), QColor::fromRgbF(1, 1, 1, 1), shadowDraws);
+        offscreen(p.tintRt.get(), QColor::fromRgbF(1, 1, 1, 1), tintDraws);
+        if(!thickDraws.empty()) offscreen(p.thickRt.get(), QColor(0, 0, 0, 0), thickDraws);
+        if(reflection) {
+            offscreen(p.reflRt.get(), QColor(0, 0, 0, 0), reflDraws);
+            u = m_rhi->nextResourceUpdateBatch();
+            u->generateMips(p.reflTex.get());
+        }
     }
     cb->beginPass(rt, backgroundBottom, {1.0f, 0}, u);
     cb->setGraphicsPipeline(p.bg.get());

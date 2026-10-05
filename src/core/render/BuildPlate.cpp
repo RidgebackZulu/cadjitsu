@@ -63,12 +63,6 @@ void addBox(PlateMesh &m, float x0, float y0, float z0, float x1, float y1, floa
     addQuad(m, {x1, y0, z0}, {x1, y1, z0}, {x1, y1, z1}, {x1, y0, z1}, part);  // right
 }
 
-float grainHeight(float x, float y) {
-    float id;
-    const float d = cellular(x, y, id);
-    return (1.0f - smoothstepf(0.0f, 0.75f, d)) * (0.75f + 0.5f * id);
-}
-
 } // namespace
 
 PlateLayout plateLayout(const V3 &bmin, const V3 &bmax, const RenderSettings &settings) {
@@ -129,28 +123,31 @@ PlateShade plateShade(const PlateLayout &l, int part, const V3 &p, const V3 &ng)
         const V3 grad(valueNoise(q + V3(e, 0, 0)) - valueNoise(q - V3(e, 0, 0)),
                       valueNoise(q + V3(0, e, 0)) - valueNoise(q - V3(0, e, 0)), 0);
         s.normal = normalize(ng - grad * 0.004f);
-        s.albedo = srgb(212, 168, 92);
-        s.metalness = 0.45f;
+        // A clear film over the gold: the plate's shader adds its gloss (a clear coat).
+        s.albedo = srgb(176, 128, 58);
+        s.metalness = 0.3f;
         s.roughness = 0.06f + 0.03f * valueNoise(p * 0.05f);
         return s;
     }
     // Textured PEI: a powder-coated grain of fused particles (~0.3 mm), golden,
     // with a few flat particles that glint.
-    const float sc = 1.0f / 0.32f, e = 0.04f;
-    const float x = p.x * sc, y = p.y * sc;
-    const float hx = grainHeight(x + e, y) - grainHeight(x - e, y);
-    const float hy = grainHeight(x, y + e) - grainHeight(x, y - e);
-    s.normal = normalize(V3(-hx / (2 * e) * 0.32f, -hy / (2 * e) * 0.32f, 1.0f));
-    float id;
-    const float d = cellular(x, y, id);
+    // Each particle is a dome: height falls off with the distance d to its
+    // centre, so the slope is along the offset to the centre.
+    const float sc = 1.0f / 0.32f;
+    float id, fx, fy;
+    const float d = cellular(p.x * sc, p.y * sc, id, fx, fy);
+    const float t = clampf(d / 0.75f, 0.0f, 1.0f);
+    const float dh = (6.0f * t * (1.0f - t)) / 0.75f * (0.75f + 0.5f * id); // -d(height)/d(d)
+    const float inv = d > 1e-5f ? 1.0f / d : 0.0f;
+    // Height decreases away from the centre: gradient = -dh * (p - c)/d = dh * (fx, fy)/d.
+    const float gx = dh * fx * inv, gy = dh * fy * inv;
+    const float k = 0.32f * 0.35f;      // grain height relative to its size
+    s.normal = normalize(V3(-gx * k, -gy * k, 1.0f));
     const float peak = 1.0f - smoothstepf(0.0f, 0.75f, d);
-    s.albedo = srgb(194, 150, 78) * (0.82f + 0.22f * peak + 0.12f * id);
+    s.albedo = srgb(188, 150, 90) * (0.82f + 0.22f * peak + 0.12f * id);
     s.metalness = 0.3f;
     s.roughness = 0.5f;
-    if(id > 0.93f) { // glints
-        s.metalness = 0.7f;
-        s.roughness = 0.16f;
-    }
+    if(id > 0.93f) s.roughness = 0.22f; // a grain of the powder coat catching the light
     return s;
 }
 

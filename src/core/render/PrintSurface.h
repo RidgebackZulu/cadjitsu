@@ -34,6 +34,7 @@ struct SurfaceSample {
     V3 tangent;                // along the extrusion (for anisotropic sheen)
     float cavity = 1.0f;       // darkening in the seams between beads (0..1)
     float roughnessAdd = 0.0f; // unresolved detail, as extra roughness
+    float acrossAdd = 0.0f;    // unresolved bead crowns: extra roughness across the lines only
 };
 
 // Bead side profile: height (0..1) and slope d/dg at g in [0, 1] across a bead.

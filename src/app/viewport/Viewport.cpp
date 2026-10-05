@@ -115,14 +115,10 @@ void Viewport::render(QRhiCommandBuffer *cb) {
         for(const QVector3D &c : {QVector3D(-e, -e, 0), QVector3D(e, -e, 0), QVector3D(e, e, 0), QVector3D(-e, e, 0)})
             grid.push_back(scene.gridFrame.map(c));
     }
-    if(scene.style == DisplayStyle::Rendered && !bounds.isEmpty()) {
-        // The ground square around the model (as Renderer draws it, a little bigger).
-        const QVector3D size = bounds.max - bounds.min;
-        const float half = std::max(size.x(), size.y()) * 0.9f + size.length() * 0.1f + 1.0f;
-        const QVector3D c = (bounds.min + bounds.max) * 0.5f;
-        grid.clear();
-        for(const QVector3D &d : {QVector3D(-1, -1, 0), QVector3D(1, -1, 0), QVector3D(1, 1, 0), QVector3D(-1, 1, 0)})
-            grid.push_back(QVector3D(c.x() + d.x() * half, c.y() + d.y() * half, bounds.min.z()));
+    if(scene.style == DisplayStyle::Rendered) {
+        // The build plate (or the ground) under the model, as Renderer draws it.
+        const std::vector<QVector3D> stage = Renderer::stageCorners(scene);
+        if(!stage.empty()) grid.assign(stage.begin(), stage.begin() + 4);
     }
     m_camera.updateClipPlanes(bounds, grid);
 

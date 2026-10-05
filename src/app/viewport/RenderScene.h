@@ -26,6 +26,7 @@ struct RenderBody {
     bool edges = true;
     // What it is printed in (the Rendered style's materials).
     cad::Optics optics;
+    bool hasOptics = false; // without: matte PLA in `color`
     bool translucent = false;
 };
 
@@ -89,6 +90,9 @@ struct RenderScene {
 
     bool viewCube = true;
     std::optional<QVector3D> viewCubeHover;
+
+    // The Rendered style's set: build plate, lighting, print surface.
+    cad::RenderSettings render;
 };
 
 } // namespace cadjitsu

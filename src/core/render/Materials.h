@@ -58,7 +58,7 @@ std::string hexColor(uint32_t rgb); // "#rrggbb"
 // printed parts (see Materials.cpp). Colours are linear RGB.
 struct Optics {
     std::array<float, 3> albedo{};     // diffuse (body) colour
-    std::array<float, 3> specTint{};   // specular colour at normal incidence scale (1 = white)
+    std::array<float, 3> specTint{};   // colour of the metallic share of the specular (silk flakes)
     float ior = 1.46f;                 // refractive index (Fresnel)
     float roughness = 0.5f;            // GGX alpha along the layers (perceptual roughness)
     float roughnessAcross = 0.5f;      // across the layers (silk is anisotropic)

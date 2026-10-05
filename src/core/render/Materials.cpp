@@ -197,12 +197,13 @@ Optics opticsFor(const BodyMaterial &m) {
         o.layerStrength = m.material == PrintMaterial::TPU ? 0.7f : 0.85f;
         break;
     case Finish::Silk:
-        // Diffuse body dimmed: much of the light comes off the flakes as tinted specular.
-        o.albedo = {c[0] * 0.45f, c[1] * 0.45f, c[2] * 0.45f};
+        // Part of the light comes off the flakes as specular in the filament's
+        // colour (specTint, weighted by metalness), the rest is the dyed body.
+        o.albedo = {c[0] * 0.8f, c[1] * 0.8f, c[2] * 0.8f};
         o.specTint = c;
-        o.metalness = m.material == PrintMaterial::TPU ? 0.35f : 0.6f;
-        o.roughness = m.material == PrintMaterial::TPU ? 0.3f : 0.16f;
-        o.roughnessAcross = m.material == PrintMaterial::TPU ? 0.5f : 0.42f;
+        o.metalness = m.material == PrintMaterial::TPU ? 0.25f : 0.4f;
+        o.roughness = m.material == PrintMaterial::TPU ? 0.3f : 0.2f;
+        o.roughnessAcross = m.material == PrintMaterial::TPU ? 0.55f : 0.5f;
         o.layerStrength = 1.2f;
         o.microRoughness = 0.05f;
         break;
@@ -210,13 +211,13 @@ Optics opticsFor(const BodyMaterial &m) {
         float clarity = 1.0f; // mean free path scale
         switch(m.material) {
         case PrintMaterial::PETG:
-            o.transmission = 0.94f, o.scatterMm = 6.0f, o.roughness = 0.08f, o.phaseG = 0.65f, clarity = 1.0f;
+            o.transmission = 0.94f, o.scatterMm = 14.0f, o.roughness = 0.08f, o.phaseG = 0.65f, clarity = 1.0f;
             break;
         case PrintMaterial::PLA:
-            o.transmission = 0.86f, o.scatterMm = 1.6f, o.roughness = 0.16f, o.phaseG = 0.45f, clarity = 0.8f;
+            o.transmission = 0.86f, o.scatterMm = 4.0f, o.roughness = 0.16f, o.phaseG = 0.45f, clarity = 0.8f;
             break;
         case PrintMaterial::TPU:
-            o.transmission = 0.8f, o.scatterMm = 0.9f, o.roughness = 0.32f, o.phaseG = 0.3f, clarity = 0.7f;
+            o.transmission = 0.8f, o.scatterMm = 2.5f, o.roughness = 0.32f, o.phaseG = 0.3f, clarity = 0.7f;
             o.sheen = 0.15f;
             break;
         }
