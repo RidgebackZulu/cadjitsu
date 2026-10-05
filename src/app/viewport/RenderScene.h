@@ -5,6 +5,7 @@
 #include "render/Materials.h"
 
 #include <QColor>
+#include <QImage>
 #include <QMatrix4x4>
 #include <QRectF>
 #include <QVector3D>
@@ -93,6 +94,11 @@ struct RenderScene {
 
     // The Rendered style's set: build plate, lighting, print surface.
     cad::RenderSettings render;
+    // Refine the Rendered style with the path tracer when the view rests.
+    bool rayTrace = false;
+    // The path tracer's image (premultiplied, framebuffer-sized or smaller),
+    // drawn over the bodies and under highlights. Null: none.
+    QImage traced;
 };
 
 } // namespace cadjitsu

@@ -1,5 +1,5 @@
 # Linux development / CI environment (conda-forge). Mac builds use Homebrew instead:
-#   brew install qtbase qtsvg qtshadertools opencascade eigen ninja cmake
+#   brew install qtbase qtsvg qtshadertools opencascade eigen embree open-image-denoise ninja cmake
 name: cadjitsu
 channels:
   - conda-forge
@@ -7,6 +7,8 @@ dependencies:
   - qt6-main=6.9
   - occt=7.9.3=novtk*
   - eigen=3.4.0
+  - embree=4
+  - openimagedenoise=2
   - cmake>=3.24
   - ninja
   - c-compiler

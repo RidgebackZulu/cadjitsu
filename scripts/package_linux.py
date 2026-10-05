@@ -9,7 +9,7 @@ makes <out dir>/Cadjitsu-<label>-Linux-x86_64/ and its .tar.gz:
     bin/Cadjitsu, bin/fonts, bin/qt.conf
     lib/                     every library the app and its Qt plugins load from the
                              conda environment (the system's C library, X11 and GL
-                             drivers stay the system's)
+                             drivers stay the system's), and the denoiser's devices
     plugins/                 the Qt plugins it needs
     etc/fonts/               fontconfig's configuration
 
@@ -77,9 +77,20 @@ def main():
     if os.path.isdir(fonts_conf):
         shutil.copytree(fonts_conf, os.path.join(root, "etc", "fonts"), symlinks=False)
 
+    # Open Image Denoise loads its devices at run time from next to its own
+    # library (they are not linked, so ldd does not list them).
+    modules = []
+    for fn in sorted(os.listdir(os.path.join(prefix, "lib"))):
+        src = os.path.join(prefix, "lib", fn)
+        if fn.startswith("libOpenImageDenoise_device_") and ".so" in fn and not os.path.islink(src):
+            dest = os.path.join(root, "lib", fn)
+            shutil.copy2(src, dest)
+            os.chmod(dest, os.stat(dest).st_mode | stat.S_IWUSR)
+            modules.append(dest)
+
     # Libraries from the environment, for the app and every plugin (and theirs).
-    todo = [app] + [os.path.join(dp, f) for dp, _, fs in os.walk(os.path.join(root, "plugins"))
-                    for f in fs if f.endswith(".so")]
+    todo = [app] + modules + [os.path.join(dp, f) for dp, _, fs in os.walk(os.path.join(root, "plugins"))
+                              for f in fs if f.endswith(".so")]
     copied = set()
     # Resolved against the environment (plugins' own RPATHs are relative to where they were).
     resolve = dict(os.environ, LD_LIBRARY_PATH=os.path.join(prefix, "lib"))

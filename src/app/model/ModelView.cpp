@@ -179,6 +179,7 @@ void ModelView::refresh() {
     m_state = m_eval->state;
     RenderScene scene;
     scene.render = m_doc.renderSettings();
+    scene.rayTrace = scene.render.rayTraced;
     std::vector<PickTarget> targets;
     for(const cad::Body *b : m_state->orderedBodies()) {
         if(!m_doc.bodyVisible(b->id) || !m_doc.folderVisible("bodies")) continue;

@@ -5,18 +5,23 @@
 #include "viewport/ViewCube.h"
 #include "viewport/ViewportTool.h"
 
+#include "render/PathTracer.h"
+
 #include <rhi/qrhi.h>
 
+#include <QFontMetricsF>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QNativeGestureEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QTimer>
 #include <QToolButton>
 #include <QVariantAnimation>
 #include <QWheelEvent>
 
 #include <cmath>
+#include <cstring>
 
 namespace cadjitsu {
 
@@ -68,6 +73,14 @@ Viewport::Viewport(QWidget *parent) : QRhiWidget(parent) {
     m_anim->setStartValue(0.0);
     m_anim->setEndValue(1.0);
     m_anim->setEasingCurve(QEasingCurve::InOutCubic);
+
+    m_traceRest = new QTimer(this);
+    m_traceRest->setSingleShot(true);
+    m_traceRest->setInterval(150);
+    connect(m_traceRest, &QTimer::timeout, this, &Viewport::startTrace);
+    m_tracePoll = new QTimer(this);
+    m_tracePoll->setInterval(100);
+    connect(m_tracePoll, &QTimer::timeout, this, &Viewport::pollTrace);
 
     m_camera.viewport = size();
     updateGrid();
@@ -122,6 +135,8 @@ void Viewport::render(QRhiCommandBuffer *cb) {
     }
     m_camera.updateClipPlanes(bounds, grid);
 
+    updateTracing(scene, renderTarget()->pixelSize());
+    if(!m_traced.isNull()) scene.traced = m_traced;
     m_renderer.render(cb, renderTarget(), scene, m_camera, float(devicePixelRatioF()));
     ++m_frames;
 }
@@ -703,6 +718,146 @@ void Viewport::paintOverlay(QPainter &p) {
         p.drawRect(m_box);
     }
     if(ViewportTool *t = activeTool()) t->paintOverlay(p);
+    if(!m_traced.isNull()) {
+        // What the path tracer has done so far.
+        const QString text = tr("Ray traced · %n sample(s)", nullptr, m_tracedSamples) +
+                             (m_tracedDenoised ? tr(" · denoised") : QString());
+        p.save();
+        QFont f = p.font();
+        f.setPointSizeF(f.pointSizeF() * 0.9);
+        p.setFont(f);
+        const QRectF r(10, height() - 30, QFontMetricsF(f).horizontalAdvance(text) + 16, 20);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(20, 26, 36, 150));
+        p.drawRoundedRect(r, 10, 10);
+        p.setPen(QColor(240, 244, 250));
+        p.drawText(r, Qt::AlignCenter, text);
+        p.restore();
+    }
+}
+
+// --- path tracing ---------------------------------------------------------------------
+
+namespace {
+
+// What the path tracer's image depends on, besides the camera.
+std::vector<uint64_t> traceSignature(const RenderScene &scene) {
+    std::vector<uint64_t> sig;
+    for(const RenderBody &b : scene.bodies) {
+        sig.push_back(uint64_t(reinterpret_cast<uintptr_t>(b.mesh.get())));
+        sig.push_back(uint64_t(b.color.rgba()) | (uint64_t(b.translucent) << 32) | (uint64_t(b.hasOptics) << 33));
+        uint64_t h = 1469598103934665603ULL;
+        const auto *bytes = reinterpret_cast<const unsigned char *>(&b.optics);
+        for(size_t i = 0; i < sizeof(cad::Optics); ++i) h = (h ^ bytes[i]) * 1099511628211ULL;
+        sig.push_back(h);
+    }
+    sig.push_back(std::hash<std::string>()(scene.render.toJson().dump()));
+    return sig;
+}
+
+} // namespace
+
+bool Viewport::tracing() const { return m_tracer && m_tracer->running(); }
+
+// Rendered style: the live preview while anything moves; once the view and
+// the model have rested a moment, the path tracer's image, refining.
+void Viewport::updateTracing(const RenderScene &scene, const QSize &fb) {
+    const bool wanted = scene.style == DisplayStyle::Rendered && scene.rayTrace && !scene.bodies.empty() &&
+                        !scene.clipPlane && m_drag == Drag::None && m_anim->state() != QAbstractAnimation::Running;
+    if(!wanted) {
+        if(!m_traced.isNull() || m_traceRest->isActive() || m_tracePoll->isActive()) stopTrace();
+        m_traceSignature.clear();
+        return;
+    }
+    // Draft: about the window's size in logical pixels (fast); final: every pixel.
+    const float dpr = float(devicePixelRatioF());
+    const QSize size = scene.render.quality == cad::RenderQuality::Final || dpr <= 1.0f
+                           ? fb
+                           : QSize(std::max(1, int(float(fb.width()) / dpr)), std::max(1, int(float(fb.height()) / dpr)));
+    std::vector<uint64_t> sig = traceSignature(scene);
+    const QMatrix4x4 vp = m_camera.viewProjection();
+    if(sig == m_traceSignature && vp == m_traceViewProj && size == m_traceSize) return;
+    stopTrace();
+    m_traceSignature = std::move(sig);
+    m_traceViewProj = vp;
+    m_traceSize = size;
+    m_traceRest->start();
+}
+
+void Viewport::startTrace() {
+    if(m_traceSignature.empty() || m_traceSize.isEmpty()) return;
+    if(!m_tracer) m_tracer = std::make_unique<cad::rt::PathTracer>();
+    cad::rt::TraceScene ts;
+    ts.settings = m_content.render;
+    std::unordered_map<const cad::MeshData *, std::shared_ptr<cad::rt::TraceMesh>> used;
+    for(const RenderBody &b : m_content.bodies) {
+        if(!b.mesh || b.mesh->indices.empty() || b.opacity < 0.999f) continue;
+        auto it = m_traceMeshes.find(b.mesh.get());
+        std::shared_ptr<cad::rt::TraceMesh> tm;
+        if(it != m_traceMeshes.end()) tm = it->second;
+        else {
+            tm = std::make_shared<cad::rt::TraceMesh>();
+            tm->positions = b.mesh->positions;
+            tm->normals = b.mesh->normals;
+            tm->indices = b.mesh->indices;
+        }
+        // The material can change without the mesh: a copy when it differs.
+        cad::Optics o = b.optics;
+        if(!b.hasOptics) {
+            cad::BodyMaterial m;
+            m.rgb = uint32_t(b.color.rgb() & 0xffffff);
+            o = cad::opticsFor(m);
+        }
+        const bool translucent = b.hasOptics && b.translucent;
+        if(std::memcmp(&tm->optics, &o, sizeof o) != 0 || tm->translucent != translucent) {
+            auto copy = std::make_shared<cad::rt::TraceMesh>(*tm);
+            copy->optics = o;
+            copy->translucent = translucent;
+            tm = copy;
+        }
+        used[b.mesh.get()] = tm;
+        ts.meshes.push_back(tm);
+    }
+    m_traceMeshes = std::move(used);
+    cad::rt::TraceCamera cam;
+    const QMatrix4x4 inv = m_traceViewProj.inverted();
+    std::memcpy(cam.invViewProj.data(), inv.constData(), 16 * sizeof(float));
+    cam.width = m_traceSize.width();
+    cam.height = m_traceSize.height();
+    m_tracer->render(std::move(ts), cam, m_content.render.quality == cad::RenderQuality::Final ? 1024 : 128);
+    m_tracePoll->start();
+}
+
+void Viewport::pollTrace() {
+    if(!m_tracer) return;
+    cad::rt::TraceImage img;
+    if(m_tracer->takeImage(img, m_traceGeneration)) {
+        if(QSize(img.width, img.height) == m_traceSize) {
+            m_traced = QImage(img.rgba.data(), img.width, img.height, QImage::Format_RGBA8888_Premultiplied).copy();
+            m_tracedSamples = img.samples;
+            m_tracedDenoised = img.denoised;
+            update();
+            m_overlay->update();
+        }
+    } else if(!m_tracer->running() && !m_traceRest->isActive()) {
+        m_tracePoll->stop();
+    }
+}
+
+void Viewport::stopTrace() {
+    m_traceRest->stop();
+    m_tracePoll->stop();
+    if(m_tracer) {
+        m_tracer->stop();
+        cad::rt::TraceImage stale;
+        m_tracer->takeImage(stale, m_traceGeneration); // drop what is already done
+    }
+    if(!m_traced.isNull()) {
+        m_traced = QImage();
+        m_tracedSamples = 0;
+        m_overlay->update();
+    }
 }
 
 } // namespace cadjitsu

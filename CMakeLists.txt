@@ -26,6 +26,9 @@ if(CCACHE_PROGRAM)
 endif()
 
 find_package(Eigen3 REQUIRED NO_MODULE)
+# The path tracer: Embree for rays, Open Image Denoise (optional) to denoise.
+find_package(embree 4 REQUIRED CONFIG)
+find_package(OpenImageDenoise 2 CONFIG QUIET)
 include(CadjitsuOcct)
 
 add_subdirectory(third_party/slvs)

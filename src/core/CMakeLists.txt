@@ -9,7 +9,14 @@ add_library(cadcore STATIC ${CADCORE_SOURCES})
 target_include_directories(cadcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cadcore
     PUBLIC  Cadjitsu::OCCT nlohmann_json
-    PRIVATE slvs Eigen3::Eigen)
+    PRIVATE slvs Eigen3::Eigen embree)
+if(TARGET OpenImageDenoise)
+    target_link_libraries(cadcore PRIVATE OpenImageDenoise)
+    target_compile_definitions(cadcore PRIVATE CADJITSU_HAVE_OIDN)
+    message(STATUS "Path tracer: denoising with Open Image Denoise ${OpenImageDenoise_VERSION}")
+else()
+    message(STATUS "Path tracer: no Open Image Denoise, images are not denoised")
+endif()
 # The version the app reports: the project version, or a CI build's label
 # ("1.0.1-dev.52"; see scripts/version_label.sh).
 set(CADJITSU_BUILD_LABEL "${PROJECT_VERSION}" CACHE STRING "Version label the app reports")

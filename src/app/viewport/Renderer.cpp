@@ -141,9 +141,15 @@ struct Renderer::Pipelines {
     std::unique_ptr<QRhiRenderBuffer> shadowDepth, reflDepth;
     std::unique_ptr<QRhiTextureRenderTarget> shadowRt, tintRt, thickRt, reflRt;
     std::unique_ptr<QRhiRenderPassDescriptor> shadowRp, tintRp, thickRp, reflRp;
-    std::unique_ptr<QRhiSampler> envSampler, linearSampler, nearestSampler;
+    std::unique_ptr<QRhiSampler> envSampler, linearSampler, plainSampler, nearestSampler;
     std::unique_ptr<QRhiShaderResourceBindings> pbrSrb, reflPassSrb, shadowSrb, thickSrb;
     QSize screenSize;
+
+    // The path tracer's image.
+    std::unique_ptr<QRhiTexture> tracedTex;
+    qint64 tracedKey = 0;
+    std::unique_ptr<QRhiShaderResourceBindings> tracedSrb;
+    std::unique_ptr<QRhiGraphicsPipeline> traced;
 
     std::unique_ptr<QRhiGraphicsPipeline> pbrOpaque, pbrTransmit, pbrEmit, plate, shadowOpaque, shadowTint, thickness,
         reflBody;
@@ -430,6 +436,10 @@ void Renderer::createRenderedResources() {
     p.linearSampler.reset(rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::Linear,
                                           QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
     p.linearSampler->create();
+    // For textures without mip levels (sampling them with mipmapping makes them incomplete on OpenGL).
+    p.plainSampler.reset(rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None,
+                                         QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
+    p.plainSampler->create();
     p.nearestSampler.reset(rhi->newSampler(QRhiSampler::Nearest, QRhiSampler::Nearest, QRhiSampler::None,
                                            QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
     p.nearestSampler->create();
@@ -544,6 +554,22 @@ void Renderer::createRenderedResources() {
     p.shadowTint = make("pbr.vert", "shadow.frag", meshLayout, p.tintRp.get(), 1, false, false, tint, p.shadowSrb.get());
     p.thickness = make("pbr.vert", "thickness.frag", meshLayout, p.thickRp.get(), 1, false, false, sum, p.thickSrb.get());
     p.reflBody = make("pbr.vert", "pbr.frag", meshLayout, p.reflRp.get(), 1, true, true, {}, p.reflPassSrb.get());
+
+    p.tracedTex.reset(rhi->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
+    p.tracedTex->create();
+    p.tracedSrb.reset(rhi->newShaderResourceBindings());
+    p.tracedSrb->setBindings({QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, p.bgUbo.get()),
+                              QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
+                                                                        p.tracedTex.get(), p.plainSampler.get())});
+    p.tracedSrb->create();
+    GP::TargetBlend over;
+    over.enable = true;
+    over.srcColor = GP::One;
+    over.dstColor = GP::OneMinusSrcAlpha;
+    over.srcAlpha = GP::One;
+    over.dstAlpha = GP::OneMinusSrcAlpha;
+    p.traced = make("traced.vert", "traced.frag", QRhiVertexInputLayout(), m_rp, m_sampleCount, false, false, over,
+                    p.tracedSrb.get());
 }
 
 // The targets that follow the window's size: semitransparent thickness (full
@@ -584,7 +610,7 @@ void Renderer::rebuildRenderedBindings() {
     const auto sceneB = B::uniformBuffer(4, stages, p.sceneUbo.get());
     auto textures = [&](QRhiTexture *refl, QRhiTexture *thick) {
         return std::vector<B>{B::sampledTexture(2, frag, p.envTex.get(), p.envSampler.get()),
-                              B::sampledTexture(3, frag, p.lutTex.get(), p.linearSampler.get()),
+                              B::sampledTexture(3, frag, p.lutTex.get(), p.plainSampler.get()),
                               B::sampledTexture(5, frag, p.shadowTex.get(), p.nearestSampler.get()),
                               B::sampledTexture(6, frag, p.tintTex.get(), p.nearestSampler.get()),
                               B::sampledTexture(7, frag, refl, p.linearSampler.get()),
@@ -1093,6 +1119,29 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
 
     draws.insert(draws.end(), translucentDraws.begin(), translucentDraws.end());
 
+    // The path tracer's image over the bodies (highlights stay on top).
+    if(rendered && !scene.traced.isNull()) {
+        if(p.tracedTex->pixelSize() != scene.traced.size()) {
+            p.tracedTex.reset(m_rhi->newTexture(QRhiTexture::RGBA8, scene.traced.size()));
+            p.tracedTex->create();
+            p.tracedSrb->setBindings({QRhiShaderResourceBinding::uniformBuffer(0, QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage, p.bgUbo.get()),
+                                      QRhiShaderResourceBinding::sampledTexture(1, QRhiShaderResourceBinding::FragmentStage,
+                                                                                p.tracedTex.get(), p.plainSampler.get())});
+            p.tracedSrb->create();
+            p.tracedKey = 0;
+        }
+        if(p.tracedKey != scene.traced.cacheKey()) {
+            u->uploadTexture(p.tracedTex.get(), scene.traced);
+            p.tracedKey = scene.traced.cacheKey();
+        }
+        DrawCall d;
+        d.pipeline = p.traced.get();
+        d.srb = p.tracedSrb.get();
+        d.vb0 = p.quadCorners.get(); // unused: the triangle comes from the vertex index
+        d.count = 3;
+        draws.push_back(d);
+    }
+
     // Face highlights (hover / selection).
     for(const auto &h : scene.faceHighlights) {
         if(!h.mesh || h.face < 1 || h.face > int(h.mesh->faceRanges.size())) continue;
@@ -1268,6 +1317,13 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
 
     for(const DrawCall &d : draws) {
         if(!d.vb0 || d.count == 0) continue;
+        if(d.pipeline == p.traced.get()) {
+            cb->setGraphicsPipeline(d.pipeline);
+            cb->setViewport(full);
+            cb->setShaderResources(d.srb);
+            cb->draw(3);
+            continue;
+        }
         cb->setGraphicsPipeline(d.pipeline);
         if(d.pipeline == p.stencilParity.get() || d.pipeline == p.cap.get()) cb->setStencilRef(0);
         cb->setViewport(full);

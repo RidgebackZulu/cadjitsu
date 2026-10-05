@@ -12,11 +12,18 @@
 #include <QRhiWidget>
 
 #include <functional>
+#include <unordered_map>
 #include <memory>
 #include <optional>
 
+class QTimer;
 class QToolButton;
 class QVariantAnimation;
+
+namespace cad::rt {
+class PathTracer;
+struct TraceMesh;
+}
 
 namespace cadjitsu {
 
@@ -84,6 +91,11 @@ public:
     QColor backgroundBottom() const { return m_renderer.backgroundBottom; }
     int frameCount() const { return m_frames; }
 
+    // The Rendered style's path tracing: samples in the image shown (0: none yet).
+    int tracedSamples() const { return m_traced.isNull() ? 0 : m_tracedSamples; }
+    bool tracedDenoised() const { return m_tracedDenoised; }
+    bool tracing() const;
+
     // Paints overlays (selection rectangle, tool labels) - called by the overlay widget.
     void paintOverlay(QPainter &p);
     // Schedules a repaint of the 3D view and its overlay (after tool state changes).
@@ -133,6 +145,10 @@ private:
     void stopAnimation();
     QVector3D anchorAt(QPointF px) const;
     void changed();
+    void updateTracing(const RenderScene &scene, const QSize &fb);
+    void startTrace();
+    void pollTrace();
+    void stopTrace();
 
     Renderer m_renderer;
     Camera m_camera;
@@ -169,6 +185,18 @@ private:
     NavBar *m_navBar = nullptr;
     QToolButton *m_homeButton = nullptr;
     QVariantAnimation *m_anim = nullptr;
+
+    // Path tracing, once the view rests.
+    std::unique_ptr<cad::rt::PathTracer> m_tracer;
+    QTimer *m_traceRest = nullptr, *m_tracePoll = nullptr;
+    std::vector<uint64_t> m_traceSignature;
+    QMatrix4x4 m_traceViewProj;
+    QSize m_traceSize;
+    uint64_t m_traceGeneration = 0;
+    QImage m_traced;
+    int m_tracedSamples = 0;
+    bool m_tracedDenoised = false;
+    std::unordered_map<const cad::MeshData *, std::shared_ptr<cad::rt::TraceMesh>> m_traceMeshes;
 };
 
 } // namespace cadjitsu

@@ -88,7 +88,7 @@ jobs:
           mkdir -p out/unpacked
           tar -xzf "out/package/Cadjitsu-$CADJITSU_LABEL-Linux-x86_64.tar.gz" -C out/unpacked
           app="$PWD/out/unpacked/Cadjitsu-$CADJITSU_LABEL-Linux-x86_64/cadjitsu"
-          for t in smoke acceptance; do
+          for t in smoke acceptance render; do
             scripts/run_xvfb.sh env -i DISPLAY=:99 HOME="$HOME" PATH=/usr/bin:/bin LANG=C.UTF-8 \
               LIBGL_ALWAYS_SOFTWARE=1 __GLX_VENDOR_LIBRARY_NAME=mesa QT_XCB_GL_INTEGRATION=xcb_glx \
               "$app" --selftest=$t --out out/linux-package
@@ -126,8 +126,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install --quiet qtbase qtsvg qtshadertools opencascade eigen ninja
-          brew list --versions qtbase qtshadertools opencascade eigen
+          brew install --quiet qtbase qtsvg qtshadertools opencascade eigen embree open-image-denoise ninja
+          brew list --versions qtbase qtshadertools opencascade eigen embree open-image-denoise
 
       - name: Configure
         run: cmake --preset macos-brew -DCADJITSU_BUILD_LABEL="$CADJITSU_LABEL"
@@ -171,6 +171,8 @@ jobs:
           out/Cadjitsu.app/Contents/MacOS/Cadjitsu --selftest=acceptance --out out/macos-bundled || status=$?
           # The icons (QtSvg) render from the bundle too.
           out/Cadjitsu.app/Contents/MacOS/Cadjitsu --selftest=icons --out out/macos-bundled || status=$?
+          # The path tracer and its denoiser (loaded at run time) from the bundle.
+          out/Cadjitsu.app/Contents/MacOS/Cadjitsu --selftest=render --out out/macos-bundled || status=$?
           if [ "$status" -ne 0 ]; then
             echo "::group::Backtrace and loaded images"
             lldb --batch -o run -k "thread backtrace all" -k "image list" -- \

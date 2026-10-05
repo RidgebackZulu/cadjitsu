@@ -40,6 +40,7 @@
 
 #include "base/Version.h"
 #include "doc/Section.h"
+#include "render/PathTracer.h"
 #include "features/ExtrudeFeature.h"
 #include "features/FilletFeature.h"
 #include "features/SketchFeature.h"
@@ -2058,6 +2059,7 @@ bool renderScenario(MainWindow &w, const QDir &out, QTextStream &log) {
         cad::RenderSettings rs = w.document().renderSettings();
         rs.plate = s.plate;
         rs.lighting = s.lighting;
+        rs.rayTraced = false; // the live preview
         w.document().setRenderSettings(rs);
         w.refresh();
         waitForFrames(vp, 3);
@@ -2066,10 +2068,33 @@ bool renderScenario(MainWindow &w, const QDir &out, QTextStream &log) {
         if(first.isNull()) first = img;
         else check(meanDifference(first, img) > 1.0, QStringLiteral("%1 differs from the first").arg(QString::fromLatin1(s.file)));
     }
-    // A close-up of the surfaces: layer lines, silk, the plate's grain.
+    // The path tracer takes over once the view rests, and refines.
     cad::RenderSettings rs = w.document().renderSettings();
     rs.plate = cad::BuildPlateKind::TexturedPEI;
     rs.lighting = cad::Lighting::Studio;
+    rs.rayTraced = true;
+    w.document().setRenderSettings(rs);
+    w.refresh();
+    QElapsedTimer clock;
+    clock.start();
+    while(vp->tracedSamples() < 16 && clock.elapsed() < 120000) processEventsFor(100);
+    waitForFrames(vp, 2);
+    log << "         path traced: " << vp->tracedSamples() << " samples" << (vp->tracedDenoised() ? ", denoised" : "")
+        << " in " << clock.elapsed() / 1000.0 << " s\n";
+    check(vp->tracedSamples() >= 1, QStringLiteral("the path tracer's image is shown"));
+    if(cad::rt::PathTracer::denoiserAvailable())
+        check(vp->tracedDenoised(), QStringLiteral("and denoised (Open Image Denoise)"));
+    const QImage traced = vp->grabFramebuffer();
+    traced.save(out.filePath(QStringLiteral("render_traced.png")));
+    w.grab().save(out.filePath(QStringLiteral("render_window.png")));
+    // Moving the view goes back to the live preview at once.
+    vp->camera().zoom(1.02f, vp->camera().target);
+    vp->update();
+    waitForFrames(vp, 2);
+    check(vp->tracedSamples() == 0, QStringLiteral("moving the view shows the live preview"));
+
+    // A close-up of the surfaces: layer lines, silk, the plate's grain.
+    rs.rayTraced = false;
     w.document().setRenderSettings(rs);
     w.refresh();
     vp->setStandardView(StandardView::Home, false);

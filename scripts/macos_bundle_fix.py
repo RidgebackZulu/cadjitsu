@@ -165,8 +165,38 @@ class Bundle:
         run("install_name_tool", "-id", new_ref, dest)
         return new_ref, dest
 
+    def add_runtime_modules(self):
+        """Open Image Denoise loads its devices at run time from next to its own
+        library; they are not linked, so nothing else brings them in."""
+        if not any(n.startswith("libOpenImageDenoise") for n in os.listdir(self.frameworks)):
+            return
+        prefixes = [os.environ.get("HOMEBREW_PREFIX", ""), "/opt/homebrew", "/usr/local"]
+        for prefix in [p for p in prefixes if p]:
+            lib = os.path.join(prefix, "lib")
+            if not os.path.isdir(lib):
+                continue
+            found = [n for n in sorted(os.listdir(lib)) if n.startswith("libOpenImageDenoise_device_") and n.endswith(".dylib")]
+            first = {}  # real file -> the name it was copied as (other names link to it)
+            for n in found:
+                dest = os.path.join(self.frameworks, n)
+                if os.path.exists(dest):
+                    continue
+                real = os.path.realpath(os.path.join(lib, n))
+                if real in first:
+                    os.symlink(first[real], dest)
+                else:
+                    shutil.copy2(real, dest)
+                    os.chmod(dest, 0o755)
+                    self.origin[dest] = real
+                    run("install_name_tool", "-id", IN_FRAMEWORKS + n, dest)
+                    first[real] = n
+                print(f"  denoiser device: {self.rel(dest)}")
+            if found:
+                return
+
     def fix(self):
         os.makedirs(self.frameworks, exist_ok=True)
+        self.add_runtime_modules()
         exe_rpaths = rpaths(self.exe)
         queue = list(macho_files(self.contents))
         done = set()
