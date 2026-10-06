@@ -24,6 +24,9 @@ struct SkEntity {
     int id = 0;
     SkType type = SkType::Point;
     bool construction = false;
+    // Projected from another sketch (its feature id and entity id there), or 0:
+    // the geometry follows that entity and is fixed in this sketch.
+    int projSketch = 0, projEntity = 0;
 
     // Point
     double x = 0.0, y = 0.0;
@@ -43,6 +46,7 @@ struct SkEntity {
 
     bool isCurve() const { return type == SkType::Line || type == SkType::Circle || type == SkType::Arc; }
     bool isText() const { return type == SkType::Text; }
+    bool isProjected() const { return projSketch != 0; }
 };
 
 enum class SkCon {

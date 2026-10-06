@@ -285,6 +285,7 @@ json Sketch::toJson() const {
     for(const auto &e : entities) {
         json je{{"id", e.id}, {"type", typeName(e.type)}};
         if(e.construction) je["construction"] = true;
+        if(e.projSketch) je["projected"] = json::array({e.projSketch, e.projEntity});
         switch(e.type) {
         case SkType::Point:
             je["x"] = e.x;
@@ -340,6 +341,10 @@ Sketch Sketch::fromJson(const json &j) {
         e.id = jget<int>(je, "id", 0);
         e.type = typeFromName(jget<std::string>(je, "type", "point"));
         e.construction = jget<bool>(je, "construction", false);
+        if(je.contains("projected") && je["projected"].is_array() && je["projected"].size() == 2) {
+            e.projSketch = je["projected"][0].get<int>();
+            e.projEntity = je["projected"][1].get<int>();
+        }
         e.x = jget<double>(je, "x", 0.0);
         e.y = jget<double>(je, "y", 0.0);
         e.a = jget<int>(je, "a", 0);

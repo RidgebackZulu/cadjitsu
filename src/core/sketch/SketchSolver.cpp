@@ -165,7 +165,8 @@ private:
         for(const auto &e : m_sketch.entities) {
             if(e.type != SkType::Point) continue;
             std::array<Slvs_hParam, 2> ps;
-            m_entity[e.id] = point2d(kSolve, e.x, e.y, &ps);
+            // Projected geometry follows another sketch: fixed here.
+            m_entity[e.id] = point2d(e.isProjected() ? kFixed : kSolve, e.x, e.y, &ps);
             m_pointParams[e.id] = ps;
         }
         for(const auto &e : m_sketch.entities) {
@@ -179,7 +180,7 @@ private:
                 break;
             case SkType::Circle: {
                 if(!m_entity.count(e.a)) break;
-                const Slvs_hParam r = param(kSolve, e.r);
+                const Slvs_hParam r = param(e.isProjected() ? kFixed : kSolve, e.r);
                 m_radiusParam[e.id] = r;
                 const Slvs_hEntity dist = addEntity(Slvs_MakeDistance(m_nextEntity++, kSolve, m_workplane, r));
                 m_entity[e.id] =
@@ -463,7 +464,7 @@ private:
 std::vector<int> pointIds(const Sketch &s) {
     std::vector<int> out;
     for(const auto &e : s.entities)
-        if(e.type == SkType::Point) out.push_back(e.id);
+        if(e.type == SkType::Point && !e.isProjected()) out.push_back(e.id); // projected points are fixed
     return out;
 }
 
@@ -552,7 +553,7 @@ SolveOutcome solveSketch(Sketch &sketch, const DimensionLookup &lookup, const So
                 if(pr.dof >= 0 && pr.dof < partDof) freePoints.insert(pid);
             }
             for(const auto &e : part.entities) {
-                if(e.type != SkType::Circle) continue;
+                if(e.type != SkType::Circle || e.isProjected()) continue;
                 SlvsSystem probe(part, lookup);
                 probe.addFixedDiameter(e.id);
                 const SlvsSystem::Result pr = probe.solve({}, false);

@@ -3,6 +3,7 @@
 #include "sketch/SketchText.h"
 
 #include "sketch/ProfileBuilder.h"
+#include "sketch/SketchProject.h"
 #include "sketch/SketchSolver.h"
 #include "topo/Resolver.h"
 
@@ -31,8 +32,9 @@ void SketchFeature::dataFromJson(const json &j) {
 }
 
 std::vector<FeatureId> SketchFeature::dependencies() const {
-    if(plane.kind == PlaneRef::Kind::Construction) return {plane.plane};
-    return {};
+    std::vector<FeatureId> out = projectionSources(sketch);
+    if(plane.kind == PlaneRef::Kind::Construction) out.push_back(plane.plane);
+    return out;
 }
 
 FeatureResult SketchFeature::compute(const StatePtr &input, const ComputeContext &ctx) const {
@@ -46,6 +48,17 @@ FeatureResult SketchFeature::compute(const StatePtr &input, const ComputeContext
         result->name = name;
         result->frame = frame;
         result->sketch = sketch;
+
+        // Projected geometry follows the sketches it came from.
+        std::vector<std::string> warnings;
+        refreshProjections(
+            result->sketch, frame,
+            [&](FeatureId src) -> const SketchResult * {
+                auto it = input->sketches.find(src);
+                return it == input->sketches.end() ? nullptr : it->second.get();
+            },
+            warnings);
+        for(const std::string &w : warnings) status.merge(Status::warning(w));
 
         // Evaluate dimensions and solve the constraints.
         SolveOptions options;
