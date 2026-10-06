@@ -86,6 +86,13 @@ class SketchToolTests : public QObject {
         return m_window->commandPanel()->findChild<SelectionField *>(QString::fromLatin1(name));
     }
 
+    void drag(QPointF from, QPointF to) {
+        move(from);
+        send(vp(), QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+        for(int i = 1; i <= 5; ++i) send(vp(), QEvent::MouseMove, from + (to - from) * (i / 5.0), Qt::NoButton, Qt::LeftButton);
+        send(vp(), QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+    }
+
 private slots:
     void init() {
         m_window = std::make_unique<MainWindow>();
@@ -149,6 +156,45 @@ private slots:
         QCOMPARE(countType(sk(), SkType::Line), 3);
     }
 
+    void dialogObjectsCanBeBoxSelected() {
+        startSketch(cad::PlaneRef::Kind::XY);
+        ed()->edit(QStringLiteral("U"), [](cad::Sketch &s) {
+            const int p0 = s.addPoint(0, 0), p1 = s.addPoint(20, 0), p2 = s.addPoint(20, 10), p3 = s.addPoint(0, 10);
+            s.addLine(p0, p1);
+            s.addLine(p1, p2);
+            s.addLine(p2, p3);
+        }, false);
+        trigger("sketchMirror");
+        SelectionField *objects = field("sketchMirrorObjects");
+        QVERIFY(objects->active());
+        // Left to right, around it all: a window picks the three lines.
+        drag(at(-3, -3), at(23, 13));
+        QCOMPARE(objects->count(), 3);
+        QVERIFY(objects->active()); // still picking objects
+        // Right to left: a crossing box picks what it touches.
+        emit objects->cleared();
+        QCOMPARE(objects->count(), 0);
+        drag(at(22, 2), at(18, 8));
+        QCOMPARE(objects->count(), 1); // only the vertical line at x = 20 lies across it
+        drag(at(25, 12), at(15, -2));
+        QCOMPARE(objects->count(), 3); // adds the two touched horizontal lines
+        // A window that holds nothing whole adds nothing.
+        emit objects->cleared();
+        drag(at(5, -3), at(15, 13));
+        QCOMPARE(objects->count(), 0);
+        // A click still toggles one.
+        click(at(10, 0));
+        QCOMPARE(objects->count(), 1);
+        click(at(10, 0));
+        QCOMPARE(objects->count(), 0);
+        // Then on with the box-selected ones.
+        drag(at(-3, -3), at(23, 13));
+        emit field("sketchMirrorLine")->activated();
+        click(at(0, 5));
+        m_window->commandPanel()->okButton()->click();
+        QCOMPARE(countType(sk(), SkType::Line), 6);
+    }
+
     void mirrorWithGeometrySelectedStartsAtTheLineAndCancelLeavesIt() {
         startSketch(cad::PlaneRef::Kind::XY);
         ed()->edit(QStringLiteral("box"), [](cad::Sketch &s) { s.addRectangle({5, 0}, {20, 10}); }, false);
@@ -167,14 +213,17 @@ private slots:
     void circularPatternDialogPreviewsAsTheQuantityIsTyped() {
         startSketch(cad::PlaneRef::Kind::XY);
         ed()->edit(QStringLiteral("hole"), [](cad::Sketch &s) { s.addCircle(Vec2(30, 0), 4); }, false);
-        ed()->selectEntities(ofType(SkType::Circle), false);
         trigger("sketchCircularPattern");
         QCOMPARE(mode()->tool(), SketchToolKind::CircularPattern);
         CommandPanel *panel = m_window->commandPanel();
         QVERIFY(panel->isOpen()); // from the start
-        SelectionField *centre = field("sketchPatternCentre");
-        QVERIFY(centre && centre->active());
+        // The hole, box-selected.
+        QVERIFY(field("sketchPatternObjects")->active());
+        drag(at(24, -6), at(36, 6));
         QCOMPARE(field("sketchPatternObjects")->count(), 1);
+        SelectionField *centre = field("sketchPatternCentre");
+        emit centre->activated();
+        QVERIFY(centre && centre->active());
         ValueField *count = panel->findChild<ValueField *>(QStringLiteral("sketchPatternCount"));
         QVERIFY(count);
         QVERIFY(!panel->okButton()->isEnabled());

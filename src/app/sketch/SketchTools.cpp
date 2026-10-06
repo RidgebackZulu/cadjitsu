@@ -187,6 +187,14 @@ void SketchTool::highlight(RenderScene &scene, const std::vector<SketchHit> &hit
 
 namespace {
 
+// A box selection: blue and solid left to right (window: what lies inside),
+// green and dashed right to left (crossing: what it touches too).
+void paintSelectionBox(QPainter &p, const QRectF &rect, bool crossing) {
+    p.setPen(QPen(crossing ? QColor(40, 150, 70) : QColor(40, 110, 210), 1.2, crossing ? Qt::DashLine : Qt::SolidLine));
+    p.setBrush(crossing ? QColor(60, 180, 90, 35) : QColor(60, 130, 220, 35));
+    p.drawRect(rect);
+}
+
 // ---------------------------------------------------------------------------
 // Select: pick, box-select and drag sketch geometry and dimension labels.
 
@@ -272,11 +280,7 @@ public:
 
 protected:
     void paintToolOverlay(QPainter &p) override {
-        if(!m_box) return;
-        p.setPen(QPen(m_crossing ? QColor(40, 150, 70) : QColor(40, 110, 210), 1.2,
-                      m_crossing ? Qt::DashLine : Qt::SolidLine));
-        p.setBrush(m_crossing ? QColor(60, 180, 90, 35) : QColor(60, 130, 220, 35));
-        p.drawRect(m_rect);
+        if(m_box) paintSelectionBox(p, m_rect, m_crossing);
     }
 
 private:
@@ -1942,11 +1946,15 @@ public:
     void deactivate() override { close(); }
     bool mousePress(QMouseEvent *e) override {
         if(e->button() != Qt::LeftButton) return false;
-        SketchEditor &ed = editor();
         if(m_field == Field::Objects) {
-            const SketchHit hit = ed.hitTest(e->position(), HitPoints | HitCurves | HitText);
-            if(hit.kind == SketchHit::Kind::Point || hit.kind == SketchHit::Kind::Curve) ed.select(hit, true);
-        } else if(pickTarget(e->position())) {
+            // A click toggles what is under it; a drag draws a selection box
+            // (decided on release).
+            m_press = e->position();
+            m_pressed = true;
+            m_box = false;
+            return true;
+        }
+        if(pickTarget(e->position())) {
             setField(Field::Target);
             focusValue();
         }
@@ -1955,7 +1963,16 @@ public:
     }
     bool mouseMove(QMouseEvent *e) override {
         if(m_field == Field::Objects) {
-            setHover(e->position(), HitPoints | HitCurves | HitText);
+            const QPointF pos = e->position();
+            if(m_pressed && (m_box || pxDist(pos, m_press) >= 4.0)) {
+                m_box = true;
+                m_rect = QRectF(m_press, pos).normalized();
+                m_crossing = pos.x() < m_press.x();
+                editor().hover = {};
+                editor().refreshView();
+            } else if(!m_pressed) {
+                setHover(pos, HitPoints | HitCurves | HitText);
+            }
             return true;
         }
         hoverTarget(e->position());
@@ -1968,7 +1985,26 @@ public:
         editor().refreshView();
         return true;
     }
-    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool mouseRelease(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton || !m_pressed) return true;
+        m_pressed = false;
+        SketchEditor &ed = editor();
+        if(m_box) {
+            m_box = false;
+            ed.selectEntities(ed.entitiesInRect(m_rect, m_crossing), true);
+        } else {
+            const SketchHit hit = ed.hitTest(m_press, HitPoints | HitCurves | HitText);
+            if(hit.kind == SketchHit::Kind::Point || hit.kind == SketchHit::Kind::Curve) ed.select(hit, true);
+        }
+        refresh();
+        return true;
+    }
+    bool cancel() override {
+        if(!m_pressed) return false;
+        m_pressed = m_box = false;
+        editor().refreshView();
+        return true;
+    }
     bool keyPress(QKeyEvent *e) override {
         if(e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
             if(m_field == Field::Objects && !hasTarget() && !pickedEntities(editor()).empty()) setField(Field::Target);
@@ -2006,6 +2042,13 @@ protected:
     virtual QString needObjects() const = 0;
     virtual QString needTarget() const = 0;
 
+    // Tool-specific drawing over the canvas (after the selection box).
+    virtual void paintPanelOverlay(QPainter &) {}
+    void paintToolOverlay(QPainter &p) override {
+        if(m_box) paintSelectionBox(p, m_rect, m_crossing);
+        paintPanelOverlay(p);
+    }
+
     CommandPanel *panel() const { return m_panel; }
     Field field() const { return m_field; }
     void track(QMetaObject::Connection c) { m_connections.push_back(std::move(c)); }
@@ -2039,6 +2082,7 @@ protected:
 
     void setField(Field f) {
         m_field = f;
+        m_pressed = m_box = false;
         if(m_objects) m_objects->setActive(f == Field::Objects);
         if(m_target) m_target->setActive(f == Field::Target);
         editor().hover = {};
@@ -2111,6 +2155,9 @@ private:
 
     QPointer<CommandPanel> m_panel;
     SelectionField *m_objects = nullptr, *m_target = nullptr;
+    QPointF m_press;
+    QRectF m_rect;
+    bool m_pressed = false, m_box = false, m_crossing = false;
     Field m_field = Field::Objects;
     bool m_paletteShown = false;
     std::unique_ptr<QObject> m_link;
@@ -2262,7 +2309,7 @@ protected:
         m_mode.showStatus(tr("%1 in all.").arg(count));
         return true;
     }
-    void paintToolOverlay(QPainter &p) override {
+    void paintPanelOverlay(QPainter &p) override {
         if(field() == Field::Target && !m_centre)
             if(auto id = snapHint(m_snap)) paintHint(p, m_cursor, *id);
     }

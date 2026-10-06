@@ -2173,11 +2173,24 @@ bool sketchToolsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
 
     // A circular pattern of a slot-like circle, with its count typed.
     ed->edit(QStringLiteral("hole"), [](cad::Sketch &s) { s.addCircle(cad::Vec2(0, 40), 3); }, false);
-    const int hole = ids(cad::SkType::Circle).back();
-    ed->selectEntities({hole}, false);
+    ed->clearSelection();
     w.action(QStringLiteral("sketchCircularPattern"))->trigger();
     CommandPanel *panel = w.commandPanel();
     check(panel && panel->isOpen(), QStringLiteral("the Circular Pattern dialog opens at once"));
+    // The hole, box-selected in the dialog.
+    {
+        const QPointF from = ed->toScreen({-5, 35}), to = ed->toScreen({5, 45});
+        sendMouse(vp, QEvent::MouseMove, from, Qt::NoButton, Qt::NoButton);
+        sendMouse(vp, QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+        for(int i = 1; i <= 5; ++i)
+            sendMouse(vp, QEvent::MouseMove, from + (to - from) * (i / 5.0), Qt::NoButton, Qt::LeftButton);
+        shot("sketchtools_3a_box_select.png");
+        sendMouse(vp, QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+    }
+    auto *objects = panel ? panel->findChild<SelectionField *>(QStringLiteral("sketchPatternObjects")) : nullptr;
+    check(objects && objects->count() == 1, QStringLiteral("a box around the hole picks it"));
+    if(auto *centre = panel ? panel->findChild<SelectionField *>(QStringLiteral("sketchPatternCentre")) : nullptr)
+        emit centre->activated();
     clickAt(vp, ed->toScreen({0, 25}));
     if(ValueField *n = panel ? panel->findChild<ValueField *>(QStringLiteral("sketchPatternCount")) : nullptr) {
         n->setExpression(QStringLiteral("5"));
