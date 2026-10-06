@@ -102,6 +102,7 @@ void main() {
         float t = textureLod(thicknessMap, gl_FragCoord.xy * viewport.zw, 0.0).r;
         if(t <= 0.01)
             t = 2.0;
+        t = plasticAlong(t);
         vec3 sigma = m3.rgb + vec3(1.0 / max(m4.w, 0.05));
         float Fv = f0d + (1.0 - f0d) * FV;
         vec3 Td = transmission * (1.0 - Fv) * (1.0 - Fv) * exp(-sigma * t);
@@ -114,6 +115,7 @@ void main() {
         float t = textureLod(thicknessMap, gl_FragCoord.xy * viewport.zw, 0.0).r;
         if(t <= 0.01)
             t = 2.0;
+        t = plasticAlong(t);
         float Fv = f0d + (1.0 - f0d) * FV;
         // The share of light scattered inside on its way through: it comes
         // out diffuse, in the plastic's colour, lit from all around (and

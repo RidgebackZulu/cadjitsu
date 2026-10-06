@@ -21,10 +21,12 @@
 #include <QListWidget>
 #include <QPainter>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
+#include <cmath>
 #include <thread>
 
 namespace cadjitsu {
@@ -157,9 +159,18 @@ RenderDialog::RenderDialog(cad::Document &doc, ModelView *view, Viewport *viewpo
     surfRow->addWidget(m_layerHeight);
     surfRow->addWidget(m_layerLines);
     surfLayout->addRow(tr("Layer height"), surfRow);
+    m_infill = new QSpinBox(this);
+    m_infill->setRange(0, 100);
+    m_infill->setSingleStep(5);
+    m_infill->setSuffix(tr(" %"));
+    m_infill->setToolTip(tr("Semitransparent parts: how much light gets through depends on how solid the print is"));
+    surfLayout->addRow(tr("Infill"), m_infill);
     outer->addWidget(section(tr("Surface"), surfLayout));
     connect(m_layerHeight, &QDoubleSpinBox::valueChanged, this, [this](double v) {
         applySettings([v](cad::RenderSettings &s) { s.layerHeight = v; });
+    });
+    connect(m_infill, &QSpinBox::valueChanged, this, [this](int v) {
+        applySettings([v](cad::RenderSettings &s) { s.infill = v / 100.0; });
     });
     connect(m_layerLines, &QCheckBox::toggled, this, [this](bool on) {
         applySettings([on](cad::RenderSettings &s) { s.layerLines = on; });
@@ -304,6 +315,7 @@ void RenderDialog::sync() {
     const cad::RenderSettings &s = m_doc.renderSettings();
     m_layerHeight->setValue(s.layerHeight);
     m_layerLines->setChecked(s.layerLines);
+    m_infill->setValue(int(std::lround(s.infill * 100.0)));
     m_plate->button(int(s.plate))->setChecked(true);
     m_placement->setCurrentIndex(m_placement->findData(int(s.placement)));
     m_placement->setEnabled(s.plate != cad::BuildPlateKind::None);

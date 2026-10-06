@@ -11,6 +11,13 @@ layout(binding = 9) uniform sampler2D thicknessMap;
 
 const float PI = 3.14159265358979;
 
+// Plastic crossed on a straight path of `len` mm through a printed part: two
+// walls of 3 perimeters, then infill (twin of cad::plasticAlong).
+float plasticAlong(float len) {
+    float walls = 6.0 * surface.y;
+    return min(len, walls) + flips.y * max(len - walls, 0.0);
+}
+
 vec3 viewVector(vec3 p) {
     return eyePos.w > 0.5 ? -eyeDir.xyz : normalize(eyePos.xyz - p);
 }

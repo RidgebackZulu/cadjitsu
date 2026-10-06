@@ -176,6 +176,9 @@ float linearToSrgb(float c) {
 // - Semitransparent prints: the plastic itself is clear, but light scatters at
 //   the interfaces between beads and layers, so a printed part is hazy: PETG
 //   the clearest (mean free path of several mm), PLA milkier, TPU milkier still.
+//   The mean free paths are per mm of plastic: light crosses only the walls
+//   and the infill (see plasticAlong). The layer-lined surface blurs what is
+//   seen through it (a rough boundary).
 //   The colour is the light a ~3 mm wall lets through (Beer-Lambert).
 // - Side walls: layer lines are visible on every finish; roughness of the walls
 //   grows with the layer height (Ra ~5-25 um at 0.1-0.3 mm) - see PrintSurface.
@@ -230,13 +233,13 @@ Optics opticsFor(const BodyMaterial &m) {
         float clarity = 1.0f; // mean free path scale
         switch(m.material) {
         case PrintMaterial::PETG:
-            o.transmission = 0.94f, o.scatterMm = 14.0f, o.roughness = 0.08f, o.phaseG = 0.65f, clarity = 1.0f;
+            o.transmission = 0.94f, o.scatterMm = 4.0f, o.roughness = 0.18f, o.phaseG = 0.65f, clarity = 1.0f;
             break;
         case PrintMaterial::PLA:
-            o.transmission = 0.86f, o.scatterMm = 4.0f, o.roughness = 0.16f, o.phaseG = 0.45f, clarity = 0.8f;
+            o.transmission = 0.86f, o.scatterMm = 1.5f, o.roughness = 0.24f, o.phaseG = 0.45f, clarity = 0.8f;
             break;
         case PrintMaterial::TPU:
-            o.transmission = 0.8f, o.scatterMm = 2.5f, o.roughness = 0.32f, o.phaseG = 0.3f, clarity = 0.7f;
+            o.transmission = 0.8f, o.scatterMm = 1.0f, o.roughness = 0.32f, o.phaseG = 0.3f, clarity = 0.7f;
             o.sheen = 0.15f;
             break;
         }
@@ -264,15 +267,22 @@ const char *toString(Lighting l) { return l == Lighting::Daylight ? "daylight" :
 const char *toString(Placement p) { return p == Placement::AsModelled ? "as_modelled" : "centered"; }
 const char *toString(RenderQuality q) { return q == RenderQuality::Final ? "final" : "draft"; }
 
+float plasticAlong(float length, float lineWidth, float infill) {
+    const float walls = 2.0f * 3.0f * lineWidth;
+    return std::min(length, walls) + std::clamp(infill, 0.0f, 1.0f) * std::max(length - walls, 0.0f);
+}
+
 bool RenderSettings::operator==(const RenderSettings &o) const {
     return plate == o.plate && lighting == o.lighting && placement == o.placement && layerHeight == o.layerHeight &&
-           lineWidth == o.lineWidth && layerLines == o.layerLines && rayTraced == o.rayTraced && quality == o.quality;
+           lineWidth == o.lineWidth && layerLines == o.layerLines && infill == o.infill && rayTraced == o.rayTraced &&
+           quality == o.quality;
 }
 
 json RenderSettings::toJson() const {
     return json{{"plate", toString(plate)},          {"lighting", toString(lighting)},
                 {"placement", toString(placement)},  {"layerHeight", layerHeight},
                 {"lineWidth", lineWidth},            {"layerLines", layerLines},
+                {"infill", infill},
                 {"rayTraced", rayTraced},            {"quality", toString(quality)}};
 }
 
@@ -286,6 +296,7 @@ RenderSettings RenderSettings::fromJson(const json &j) {
     s.layerHeight = std::clamp(jget<double>(j, "layerHeight", s.layerHeight), 0.04, 0.6);
     s.lineWidth = std::clamp(jget<double>(j, "lineWidth", s.lineWidth), 0.1, 2.0);
     s.layerLines = jget<bool>(j, "layerLines", s.layerLines);
+    s.infill = std::clamp(jget<double>(j, "infill", s.infill), 0.0, 1.0);
     s.rayTraced = jget<bool>(j, "rayTraced", s.rayTraced);
     s.quality = jget<std::string>(j, "quality", "draft") == "final" ? RenderQuality::Final : RenderQuality::Draft;
     return s;

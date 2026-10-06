@@ -139,6 +139,7 @@ json renderJson(const cad::RenderSettings &s) {
     return {{"plate", cad::toString(s.plate)},         {"placement", cad::toString(s.placement)},
             {"lighting", cad::toString(s.lighting)},   {"layer_height", s.layerHeight},
             {"line_width", s.lineWidth},               {"layer_lines", s.layerLines},
+            {"infill_percent", std::lround(s.infill * 100.0)},
             {"ray_traced", s.rayTraced},               {"quality", cad::toString(s.quality)}};
 }
 json topoItem(const std::string &what) {
@@ -1586,8 +1587,8 @@ void McpTools::define() {
     add("set_render",
         "How the design is rendered (the Rendered style and render_image): the build plate (the Snapmaker U1's textured "
         "or smooth PEI sheet, or none), where the model sits on it (centered, or as_modelled with the print area's "
-        "front-left corner at the origin, as in a slicer), studio or daylight lighting, the print's layer height and "
-        "line width and whether layer lines show, whether the canvas refines with the path tracer when the view "
+        "front-left corner at the origin, as in a slicer), studio or daylight lighting, the print's layer height, "
+        "line width and infill and whether layer lines show, whether the canvas refines with the path tracer when the view "
         "rests, and draft or final quality. Not an undo step. Switches the canvas to the Rendered style (unless "
         "show is false). Returns the settings.",
         {{"plate", enumOf({"textured_pei", "smooth_pei", "none"}, "build plate sheet")},
@@ -1596,6 +1597,7 @@ void McpTools::define() {
          {"layer_height", number("mm (0.04-0.6; default 0.2)")},
          {"line_width", number("mm (0.1-2; default 0.42)")},
          {"layer_lines", boolean("show the layer lines")},
+         {"infill_percent", number("infill of the prints, 0-100 (default 15): how much light gets through semitransparent parts")},
          {"ray_traced", boolean("refine the canvas with the path tracer when the view rests")},
          {"quality", enumOf({"draft", "final"}, "draft (fast) or final (every pixel, more samples)")},
          {"show", boolean("switch the canvas to the Rendered style (default true)")}},
@@ -1607,6 +1609,10 @@ void McpTools::define() {
                                                              {"ray_traced", "rayTraced"},  {"quality", "quality"}};
             for(const auto &[from, to] : keys)
                 if(a.contains(from)) j[to] = a[from];
+            if(a.contains("infill_percent")) {
+                if(!a["infill_percent"].is_number()) fail("infill_percent must be a number (0-100)");
+                j["infill"] = a["infill_percent"].get<double>() / 100.0;
+            }
             const std::map<std::string, std::vector<std::string>> allowed = {
                 {"plate", {"textured_pei", "smooth_pei", "none"}}, {"placement", {"centered", "as_modelled"}},
                 {"lighting", {"studio", "daylight"}},              {"quality", {"draft", "final"}}};

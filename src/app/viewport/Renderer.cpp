@@ -821,7 +821,8 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
         setVec(du.m3, o.absorbPerMm[0], o.absorbPerMm[1], o.absorbPerMm[2], o.layerStrength);
         const float minExtent = std::min({b.mesh->bboxMax[0] - b.mesh->bboxMin[0], b.mesh->bboxMax[1] - b.mesh->bboxMin[1],
                                           b.mesh->bboxMax[2] - b.mesh->bboxMin[2]});
-        setVec(du.m4, o.microRoughness, float(pass), 0.7f * minExtent, o.scatterMm);
+        setVec(du.m4, o.microRoughness, float(pass),
+               cad::plasticAlong(minExtent, float(scene.render.lineWidth), float(scene.render.infill)), o.scatterMm);
     };
     auto isTranslucent = [&](const RenderBody &b) { return rendered && b.hasOptics && b.translucent && b.opacity >= 0.999f; };
     std::vector<GpuMesh *> gpu(scene.bodies.size(), nullptr);
@@ -953,7 +954,7 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
             setVec(su.keyIrr, irr.x, irr.y, irr.z, 1.0f);
             setVec(su.shadowInfo, 1.0f / float(kShadowSize), (zf - zn) / (m_rhi->isClipDepthZeroToOne() ? 1.0f : 2.0f),
                    2.0f * R, 1.0f);
-            setVec(su.flips, flipY ? 1.0f : 0.0f, 0, flipY ? 1.0f : 0.0f, 0);
+            setVec(su.flips, flipY ? 1.0f : 0.0f, float(scene.render.infill), flipY ? 1.0f : 0.0f, 0);
             for(int k = 0; k < 9; ++k) setVec(su.sh[k], p.envSh[size_t(k)][0], p.envSh[size_t(k)][1], p.envSh[size_t(k)][2], 0);
             const cad::RenderSettings &rs = scene.render;
             setVec(su.surface, float(rs.layerHeight), float(rs.lineWidth), rs.layerLines ? 1.0f : 0.0f, lo.z());

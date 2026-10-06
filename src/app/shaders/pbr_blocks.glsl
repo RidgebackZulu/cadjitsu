@@ -31,6 +31,6 @@ layout(std140, binding = 4) uniform Scene {
     vec4 surface;        // layer height, line width, layer lines on (strength scale), plate z
     vec4 plateInfo;      // kind (0 textured, 1 smooth, 2 none), reflection on, contact on, env max lod
     vec4 shadowInfo;     // texel (uv), world depth per stored unit, world size of the map, on
-    vec4 flips;          // shadow and contact map y flip
+    vec4 flips;          // x: shadow and contact map y flip, y: infill (0..1)
     vec4 sh[9];          // irradiance SH (rgb)
 };

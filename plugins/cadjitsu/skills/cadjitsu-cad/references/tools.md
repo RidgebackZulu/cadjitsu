@@ -352,10 +352,11 @@ Points the camera: home, front, back, left, right, top, bottom (and fits the mod
 
 ## `set_render`
 
-How the design is rendered (the Rendered style and render_image): the build plate (the Snapmaker U1's textured or smooth PEI sheet, or none), where the model sits on it (centered, or as_modelled with the print area's front-left corner at the origin, as in a slicer), studio or daylight lighting, the print's layer height and line width and whether layer lines show, whether the canvas refines with the path tracer when the view rests, and draft or final quality. Not an undo step. Switches the canvas to the Rendered style (unless show is false). Returns the settings.
+How the design is rendered (the Rendered style and render_image): the build plate (the Snapmaker U1's textured or smooth PEI sheet, or none), where the model sits on it (centered, or as_modelled with the print area's front-left corner at the origin, as in a slicer), studio or daylight lighting, the print's layer height, line width and infill and whether layer lines show, whether the canvas refines with the path tracer when the view rests, and draft or final quality. Not an undo step. Switches the canvas to the Rendered style (unless show is false). Returns the settings.
 
 | Argument | Type | Description |
 |---|---|---|
+| `infill_percent` | number | infill of the prints, 0-100 (default 15): how much light gets through semitransparent parts |
 | `layer_height` | number | mm (0.04-0.6; default 0.2) |
 | `layer_lines` | boolean | show the layer lines |
 | `lighting` | `studio` / `daylight` | studio softboxes, or sun and sky |

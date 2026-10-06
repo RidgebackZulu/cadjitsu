@@ -281,7 +281,7 @@ style:
 | Material | PLA / PETG / TPU |
 | Finish | Matte / Silk / Semitransparent |
 | Colour | the finish's filament colours, or Custom... |
-| Surface | layer height, layer lines on or off |
+| Surface | layer height, layer lines on or off, infill (how much light gets through semitransparent parts) |
 | Build plate | Textured PEI / Smooth PEI / None; centred, or as modelled (the print area's front-left corner at the origin) |
 | Scene | Studio or Daylight lighting; Live preview or Ray traced; Draft or Final quality |
 | Save Image... | a path-traced picture of the view (canvas size up to 3840 x 2160) |
@@ -298,7 +298,8 @@ What it looks like, and why:
 - **Matte** filaments (mineral fillers) are rough and low-gloss; **silk** filaments owe their sheen to mica flakes
   lined up along the extrusion, so their highlights are tinted and stretched across the layers; **semitransparent**
   prints are hazy rather than clear (light scatters where beads meet): PETG is the clearest, PLA milkier, TPU
-  milkier still. Their colour is what a 3 mm wall lets through, so thick parts get deeper. Refractive indices:
+  milkier still. Their colour is what a 3 mm wall lets through. A printed part is walls and sparse infill, not
+  solid plastic, so light crosses two walls of three perimeters and then infill-density plastic. Refractive indices:
   PLA 1.46, PETG 1.57, TPU 1.50.
 - **The build plate** is a Snapmaker U1-style double-sided PEI spring-steel sheet (276 x 293 mm, 270 x 270 mm print
   area, a grab tab at the front) on a black heated bed: golden textured PEI with its powder-coat grain, or glossy

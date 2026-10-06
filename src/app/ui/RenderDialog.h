@@ -17,6 +17,7 @@ class QGridLayout;
 class QLabel;
 class QListWidget;
 class QPushButton;
+class QSpinBox;
 class QTimer;
 class QToolButton;
 
@@ -59,6 +60,7 @@ public:
     std::vector<QToolButton *> colorButtons() const { return m_colorButtons; }
     QDoubleSpinBox *layerHeightBox() const { return m_layerHeight; }
     QCheckBox *layerLinesBox() const { return m_layerLines; }
+    QSpinBox *infillBox() const { return m_infill; }
     QComboBox *placementBox() const { return m_placement; }
     QLabel *statusLabel() const { return m_status; }
     // Renders and writes the picture (blocking; Save Image does it in the background).
@@ -89,6 +91,7 @@ private:
     QToolButton *m_custom = nullptr;
     QDoubleSpinBox *m_layerHeight = nullptr;
     QCheckBox *m_layerLines = nullptr;
+    QSpinBox *m_infill = nullptr;
     QComboBox *m_placement = nullptr, *m_imageSize = nullptr;
     QPushButton *m_save = nullptr;
     QLabel *m_status = nullptr;

@@ -85,6 +85,10 @@ float srgbToLinear(float c);
 float linearToSrgb(float c);
 
 // How the scene is rendered: the build plate, lighting and the print's surface.
+// How much plastic a ray crosses on a straight path of `length` mm through a
+// printed part (two walls of 3 perimeters, then infill).
+float plasticAlong(float length, float lineWidth, float infill);
+
 enum class BuildPlateKind { TexturedPEI, SmoothPEI, None };
 enum class Lighting { Studio, Daylight };
 enum class Placement { Centered, AsModelled };
@@ -102,6 +106,9 @@ struct RenderSettings {
     double layerHeight = 0.2;  // mm
     double lineWidth = 0.42;   // mm (nozzle 0.4)
     bool layerLines = true;
+    // Semitransparent prints are walls and sparse infill, not solid plastic:
+    // light crosses two walls of 3 perimeters, then infill-density plastic.
+    double infill = 0.15;      // 0..1
     bool rayTraced = true;     // the path tracer refines the Rendered view when the camera rests
     RenderQuality quality = RenderQuality::Draft;
 

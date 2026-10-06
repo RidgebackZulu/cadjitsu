@@ -373,7 +373,7 @@ struct PathTracer::Impl {
                 enteredAt = at;
                 enteredGeo = h.geo;
             } else if(enteredGeo == h.geo && enteredAt >= 0.0f) {
-                const float len = at - enteredAt;
+                const float len = plasticAlong(at - enteredAt, surface.lineWidth, float(src.settings.infill));
                 const float s = (1.0f - o.phaseG) / std::max(o.scatterMm, 0.05f);
                 T *= expV(V3(o.absorbPerMm[0] + s, o.absorbPerMm[1] + s, o.absorbPerMm[2] + s) * -len);
                 enteredGeo = -1;
@@ -393,9 +393,9 @@ struct PathTracer::Impl {
         return normalize(t * (sinT * std::cos(phi)) + b * (sinT * std::sin(phi)) + env.key.dir * cosT);
     }
 
-    V3 escaped(const V3 &d, float bsdfPdf, bool mis) const {
+    V3 escaped(const V3 &d, float bsdfPdf, bool mis, bool skipKey = false) const {
         V3 L = env.radiance(d);
-        if(dot(d, env.key.dir) >= cosKey) {
+        if(!skipKey && dot(d, env.key.dir) >= cosKey) {
             float w = 1.0f;
             if(mis) w = bsdfPdf * bsdfPdf / (bsdfPdf * bsdfPdf + keyPdf * keyPdf);
             L += env.key.radiance * w;
@@ -409,6 +409,8 @@ struct PathTracer::Impl {
         float lastPdf = 0.0f;
         bool lastMis = false; // the previous vertex sampled the key light
         const Optics *medium = nullptr;
+        float density = 1.0f; // plastic per mm of the path inside (walls and infill)
+        bool skipKey = false;  // the key light was sampled directly from inside a body
         int scatterEvents = 0;
         float travelled = 0.0f;
         primaryHit = false;
@@ -416,13 +418,28 @@ struct PathTracer::Impl {
             const Hit h = intersect(o, d);
             // Inside a semitransparent body: scattering on the way.
             if(medium) {
-                const float sigmaS = 1.0f / std::max(medium->scatterMm, 0.05f);
+                const float sigmaS = density / std::max(medium->scatterMm, 0.05f);
                 const float s = -std::log(std::max(1.0f - rng.uniform(), 1e-7f)) / sigmaS;
                 const float tmax = h.hit ? h.t : 1e3f;
                 const float t = std::min(s, tmax);
-                beta *= expV(V3(medium->absorbPerMm[0], medium->absorbPerMm[1], medium->absorbPerMm[2]) * -t);
+                beta *= expV(V3(medium->absorbPerMm[0], medium->absorbPerMm[1], medium->absorbPerMm[2]) * (-t * density));
                 if(s < tmax) {
                     o = o + d * s;
+                    // The key light, directly: through the rest of the body and out.
+                    const V3 ld = sampleKey(rng);
+                    const Hit out = intersect(o, ld);
+                    if(out.hit && isTranslucent(out.geo) && geos[size_t(out.geo)].mesh->translucent &&
+                       &geos[size_t(out.geo)].mesh->optics == medium) {
+                        const float g = medium->phaseG, c = dot(d, ld);
+                        const float phase = (1.0f - g * g) / (4.0f * kPi * std::pow(std::max(1.0f + g * g - 2.0f * g * c, 1e-4f), 1.5f));
+                        const float sOut = (1.0f - g) / std::max(medium->scatterMm, 0.05f);
+                        const V3 inside = expV(V3(medium->absorbPerMm[0] + sOut, medium->absorbPerMm[1] + sOut,
+                                                  medium->absorbPerMm[2] + sOut) * (-out.t * density));
+                        const float F = fresnelDielectric(std::abs(dot(out.ns, ld)), medium->ior);
+                        const V3 T = transmittance(out.p + ld * kEps, ld);
+                        L += beta * inside * T * env.key.radiance * ((1.0f - F) * phase / keyPdf);
+                    }
+                    skipKey = true;
                     d = sampleHG(d, medium->phaseG, rng.uniform(), rng.uniform());
                     lastMis = false;
                     if(++scatterEvents > 256) break;
@@ -431,7 +448,7 @@ struct PathTracer::Impl {
                 }
             }
             if(!h.hit) {
-                L += beta * escaped(d, lastPdf, lastMis);
+                L += beta * escaped(d, lastPdf, lastMis, skipKey);
                 break;
             }
             travelled += h.t;
@@ -518,6 +535,13 @@ struct PathTracer::Impl {
                     beta *= ggxG1(V3(l.x, l.y, -l.z), a, a);
                     o = h.p - ng * kEps;
                     medium = outside ? optics : nullptr;
+                    if(medium) {
+                        // How much of the way across is plastic (the part's walls and infill).
+                        const V3 dw = normalize(df.toWorld(l));
+                        const Hit across = intersect(o, dw);
+                        const float chord = across.hit ? across.t : 1.0f;
+                        density = plasticAlong(chord, surface.lineWidth, float(src.settings.infill)) / std::max(chord, 1e-3f);
+                    }
                 }
                 d = normalize(df.toWorld(l));
                 lastMis = false;
@@ -554,6 +578,7 @@ struct PathTracer::Impl {
                 o = h.p + ng * kEps;
                 lastPdf = pdf;
                 lastMis = true;
+                skipKey = false;
             }
             // Russian roulette.
             if(depth >= 3) {
