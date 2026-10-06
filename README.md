@@ -117,8 +117,8 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 | Point | | |
 | Sketch dimension | D | the value box opens when the dimension is placed |
 | Text | T | a panel: text, font, size, X / Y, angle, Reverse |
-| Mirror | | pick the geometry, then the line or axis to mirror about |
-| Circular Pattern | | pick the geometry and the centre; a panel: count, angle |
+| Mirror | | a dialog: Objects, then the Mirror Line (a line or axis) |
+| Circular Pattern | | a dialog: Objects, Centre Point, Quantity, Angle |
 | Project | P | click lines, curves and points of another sketch |
 
 - Points snap to existing points, the origin, midpoints, quadrants, curves and the sketch axes.
@@ -132,8 +132,9 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - Double-click a text to change it; drag it to move its origin point, which can be dimensioned and constrained like any point. A design that names a font this computer lacks uses DejaVu Sans, and says so.
 
 **Mirror, Circular Pattern and Project** (SKETCH > MODIFY, and on the right-click menu)
-- **Mirror:** select the geometry (Enter), then click a line or one of the sketch axes. Hovering the line shows the mirror image. The copies are held symmetric to the originals, so they follow when the originals change. Points on the mirror line are shared, so half an outline drawn up to the line becomes one closed profile.
-- **Circular Pattern:** select the geometry (Enter), click the centre, then type **Count** (how many in all, the original included) and the **Angle** they spread over (360 by default). The copies show as you type; OK places them. Their dimensions follow the original's.
+- Both open a dialog at once, as in Fusion 360: **Objects** shows how much geometry is picked, the second field what it is picked about. Click a field to pick into it (it turns blue); its × clears it. The result is previewed live, and OK makes it (one undo step). Geometry already selected fills Objects.
+- **Mirror:** pick the geometry, then (Enter, or click **Mirror Line**) a line or one of the sketch axes; the field names it ("Y axis"). Hovering a line shows the mirror image. The copies are held symmetric to the originals, so they follow when the originals change. Points on the mirror line are shared, so half an outline drawn up to the line becomes one closed profile.
+- **Circular Pattern:** pick the geometry, then the **Centre Point** (a point, the origin or anywhere), and type **Quantity** (how many in all, the original included) and the **Angle** they spread over (360 by default). The copies show as you type; OK places them. Their dimensions follow the original's.
 - **Project (P):** the other sketches' geometry shows faintly in purple. Click a line, circle, arc or point of another sketch (usually on another plane) to bring it onto this one. Projected geometry is purple and fixed. It stays linked: change the original and it follows. It can bound profiles like any other line, and can be made construction geometry and back. Lines and points project onto any plane; circles and arcs only onto a parallel one. You can only project from sketches earlier in the timeline. If the original is deleted, the projection stays where it was, with a warning on the sketch.
 
 **Construction geometry**

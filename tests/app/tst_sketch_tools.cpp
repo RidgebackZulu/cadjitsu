@@ -82,6 +82,10 @@ class SketchToolTests : public QObject {
         return out;
     }
 
+    SelectionField *field(const char *name) {
+        return m_window->commandPanel()->findChild<SelectionField *>(QString::fromLatin1(name));
+    }
+
 private slots:
     void init() {
         m_window = std::make_unique<MainWindow>();
@@ -94,7 +98,7 @@ private slots:
     }
     void cleanup() { m_window.reset(); }
 
-    void mirrorAHalfProfileAboutTheYAxis() {
+    void mirrorDialogPicksObjectsThenTheLine() {
         startSketch(cad::PlaneRef::Kind::XY);
         // A U opening onto the Y axis.
         ed()->edit(QStringLiteral("U"), [](cad::Sketch &s) {
@@ -104,13 +108,37 @@ private slots:
             s.addLine(p2, p3);
         }, false);
         QVERIFY(ed()->profiles().empty());
-        ed()->selectEntities(ofType(SkType::Line), false);
+        // Nothing selected: the dialog opens at once, picking Objects.
         trigger("sketchMirror");
         QCOMPARE(mode()->tool(), SketchToolKind::Mirror);
-        // Hovering the Y axis previews the mirror image; clicking it mirrors.
+        CommandPanel *panel = m_window->commandPanel();
+        QVERIFY(panel->isOpen());
+        SelectionField *objects = field("sketchMirrorObjects"), *line = field("sketchMirrorLine");
+        QVERIFY(objects && line);
+        QVERIFY(objects->active() && !line->active());
+        QVERIFY(!panel->okButton()->isEnabled());
+        click(at(10, 0));
+        click(at(20, 5));
+        click(at(10, 10));
+        QCOMPARE(objects->count(), 3);
+        // The cross clears them; pick them again.
+        emit objects->cleared();
+        QCOMPARE(objects->count(), 0);
+        for(QPointF p : {at(10, 0), at(20, 5), at(10, 10)}) click(p);
+        QCOMPARE(objects->count(), 3);
+        // The Mirror Line field: hovering the Y axis previews, clicking picks it.
+        emit line->activated();
+        QVERIFY(line->active() && !objects->active());
         move(at(0, 5));
         QVERIFY(!ed()->previewLines.empty());
         click(at(0, 5));
+        QCOMPARE(line->text(), QStringLiteral("Y axis"));
+        QVERIFY(!ed()->previewLines.empty());
+        QCOMPARE(countType(sk(), SkType::Line), 3); // not yet
+        QVERIFY(panel->okButton()->isEnabled());
+        panel->okButton()->click();
+        QVERIFY(!panel->isOpen());
+        QCOMPARE(mode()->tool(), SketchToolKind::Select);
         QCOMPARE(countType(sk(), SkType::Line), 6);
         QCOMPARE(int(ed()->profiles().size()), 1);
         QCOMPARE(QString(ed()->undoLabel()), QStringLiteral("Mirror"));
@@ -121,18 +149,38 @@ private slots:
         QCOMPARE(countType(sk(), SkType::Line), 3);
     }
 
-    void circularPatternPreviewsAsTheCountIsTyped() {
+    void mirrorWithGeometrySelectedStartsAtTheLineAndCancelLeavesIt() {
+        startSketch(cad::PlaneRef::Kind::XY);
+        ed()->edit(QStringLiteral("box"), [](cad::Sketch &s) { s.addRectangle({5, 0}, {20, 10}); }, false);
+        ed()->selectEntities(ofType(SkType::Line), false);
+        trigger("sketchMirror");
+        QCOMPARE(field("sketchMirrorObjects")->count(), 4);
+        QVERIFY(field("sketchMirrorLine")->active());
+        click(at(0, -5)); // the Y axis, below the box
+        QCOMPARE(field("sketchMirrorLine")->text(), QStringLiteral("Y axis"));
+        m_window->commandPanel()->cancelButton()->click();
+        QVERIFY(!m_window->commandPanel()->isOpen());
+        QCOMPARE(countType(sk(), SkType::Line), 4);
+        QCOMPARE(mode()->tool(), SketchToolKind::Select);
+    }
+
+    void circularPatternDialogPreviewsAsTheQuantityIsTyped() {
         startSketch(cad::PlaneRef::Kind::XY);
         ed()->edit(QStringLiteral("hole"), [](cad::Sketch &s) { s.addCircle(Vec2(30, 0), 4); }, false);
         ed()->selectEntities(ofType(SkType::Circle), false);
         trigger("sketchCircularPattern");
         QCOMPARE(mode()->tool(), SketchToolKind::CircularPattern);
-        // The centre: the sketch origin.
-        click(at(0, 0));
         CommandPanel *panel = m_window->commandPanel();
-        QVERIFY(panel->isOpen());
+        QVERIFY(panel->isOpen()); // from the start
+        SelectionField *centre = field("sketchPatternCentre");
+        QVERIFY(centre && centre->active());
+        QCOMPARE(field("sketchPatternObjects")->count(), 1);
         ValueField *count = panel->findChild<ValueField *>(QStringLiteral("sketchPatternCount"));
         QVERIFY(count);
+        QVERIFY(!panel->okButton()->isEnabled());
+        // The centre: the sketch origin.
+        click(at(0, 0));
+        QCOMPARE(centre->text(), QStringLiteral("Origin"));
         const size_t six = ed()->previewLines.size();
         QVERIFY(six > 0);
         count->setExpression(QStringLiteral("3"));
@@ -141,7 +189,9 @@ private slots:
         QVERIFY(ed()->previewLines.size() > six);
         count->setExpression(QStringLiteral("1"));
         QVERIFY(!panel->message().isEmpty()); // too few
+        QVERIFY(!panel->okButton()->isEnabled());
         count->setExpression(QStringLiteral("8"));
+        QCOMPARE(countType(sk(), SkType::Circle), 1); // not yet
         panel->okButton()->click();
         QCOMPARE(countType(sk(), SkType::Circle), 8);
         QCOMPARE(int(ed()->profiles().size()), 8);

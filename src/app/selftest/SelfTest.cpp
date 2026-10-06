@@ -2160,8 +2160,12 @@ bool sketchToolsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     const QPointF axis = ed->toScreen({0, 10});
     sendMouse(vp, QEvent::MouseMove, axis, Qt::NoButton, Qt::NoButton);
     check(!ed->previewLines.empty(), QStringLiteral("hovering the Y axis previews the mirror image"));
-    shot("sketchtools_1_mirror_preview.png");
     clickAt(vp, axis);
+    CommandPanel *mirrorPanel = w.commandPanel();
+    check(mirrorPanel && mirrorPanel->isOpen() && mirrorPanel->okButton()->isEnabled(),
+          QStringLiteral("the Mirror dialog shows the objects and the Y axis picked"));
+    shot("sketchtools_1_mirror_preview.png");
+    if(mirrorPanel) mirrorPanel->okButton()->click();
     check(count(cad::SkType::Line) == 10 && count(cad::SkType::Circle) == 2, QStringLiteral("mirrored: 10 lines, 2 circles"));
     check(ed->profiles().size() >= 2, QStringLiteral("the mirrored outline closes into a profile"));
     vp->fitAll(false);
@@ -2172,9 +2176,9 @@ bool sketchToolsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     const int hole = ids(cad::SkType::Circle).back();
     ed->selectEntities({hole}, false);
     w.action(QStringLiteral("sketchCircularPattern"))->trigger();
-    clickAt(vp, ed->toScreen({0, 25}));
     CommandPanel *panel = w.commandPanel();
-    check(panel && panel->isOpen(), QStringLiteral("the pattern asks for the count"));
+    check(panel && panel->isOpen(), QStringLiteral("the Circular Pattern dialog opens at once"));
+    clickAt(vp, ed->toScreen({0, 25}));
     if(ValueField *n = panel ? panel->findChild<ValueField *>(QStringLiteral("sketchPatternCount")) : nullptr) {
         n->setExpression(QStringLiteral("5"));
         vp->fitAll(false);

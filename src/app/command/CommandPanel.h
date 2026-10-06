@@ -83,6 +83,9 @@ public:
     explicit SelectionField(const QString &hint, QWidget *parent = nullptr);
     void setCount(int n);
     int count() const { return m_count; }
+    // What is picked, by name ("Y axis"), shown instead of "1 selected".
+    void setDetail(const QString &detail);
+    QString text() const;
     void setActive(bool on);
     bool active() const { return m_active; }
 
@@ -98,7 +101,7 @@ private:
 
     QLabel *m_text;
     QToolButton *m_clear;
-    QString m_hint;
+    QString m_hint, m_detail;
     int m_count = 0;
     bool m_active = false;
 };

@@ -18,6 +18,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPlainTextEdit>
+#include <QPointer>
 
 #include <algorithm>
 #include <cmath>
@@ -1917,8 +1918,11 @@ private:
 
 
 // ---------------------------------------------------------------------------
-// Mirror: pick the geometry (or have it selected), then click the line (or
-// axis) to mirror it about. The mirror image stays symmetric to the original.
+// Mirror and Circular Pattern: Fusion 360-style dialogs, open from the start.
+// The Objects field shows the geometry picked (the sketch selection); the
+// second field the mirror line or the centre point. Clicking a field makes it
+// the one canvas picks go to; its cross clears it. The result is previewed
+// live, and OK makes it (one undo step).
 
 std::set<int> pickedEntities(const SketchEditor &ed) {
     std::set<int> out;
@@ -1927,73 +1931,243 @@ std::set<int> pickedEntities(const SketchEditor &ed) {
     return out;
 }
 
-class MirrorTool final : public SketchTool {
+class PanelSketchTool : public SketchTool {
 public:
     using SketchTool::SketchTool;
-    SketchToolKind kind() const override { return SketchToolKind::Mirror; }
-    QString prompt() const override {
-        return m_phase == Phase::Pick ? tr("Click the geometry to mirror (Enter when done).")
-                                      : tr("Click the line (or axis) to mirror about.");
-    }
+    ~PanelSketchTool() override { close(); }
     void activate() override {
         hud().hide();
-        m_phase = pickedEntities(editor()).empty() ? Phase::Pick : Phase::Line;
-        m_mode.showStatus(prompt());
+        open();
     }
+    void deactivate() override { close(); }
     bool mousePress(QMouseEvent *e) override {
         if(e->button() != Qt::LeftButton) return false;
         SketchEditor &ed = editor();
-        if(m_phase == Phase::Pick) {
+        if(m_field == Field::Objects) {
             const SketchHit hit = ed.hitTest(e->position(), HitPoints | HitCurves | HitText);
             if(hit.kind == SketchHit::Kind::Point || hit.kind == SketchHit::Kind::Curve) ed.select(hit, true);
-            return true;
+        } else if(pickTarget(e->position())) {
+            setField(Field::Target);
+            focusValue();
         }
-        if(const int line = lineAt(e->position())) commit(line);
+        refresh();
         return true;
     }
     bool mouseMove(QMouseEvent *e) override {
-        SketchEditor &ed = editor();
-        if(m_phase == Phase::Pick) {
+        if(m_field == Field::Objects) {
             setHover(e->position(), HitPoints | HitCurves | HitText);
             return true;
         }
-        setHover(e->position(), HitCurves | HitAxes);
-        ed.previewLines.clear();
-        if(const int line = lineAt(e->position())) {
-            QString why;
-            ed.previewLines = ed.mirrorOutline(pickedEntities(ed), line, &why);
-            m_mode.showStatus(why.isEmpty() ? prompt() : why);
+        hoverTarget(e->position());
+        if(!hasTarget()) {
+            // Nothing picked yet: show what picking here would make.
+            const QString why = preview(e->position());
+            if(m_panel && !pickedEntities(editor()).empty())
+                m_panel->setMessage(why.isEmpty() ? needTarget() : why, cad::Severity::Ok);
         }
-        ed.refreshView();
+        editor().refreshView();
         return true;
     }
     bool mouseRelease(QMouseEvent *) override { return true; }
     bool keyPress(QKeyEvent *e) override {
-        if((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && m_phase == Phase::Pick &&
-           !pickedEntities(editor()).empty()) {
-            m_phase = Phase::Line;
-            m_mode.showStatus(prompt());
+        if(e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
+            if(m_field == Field::Objects && !hasTarget() && !pickedEntities(editor()).empty()) setField(Field::Target);
+            else accept();
             return true;
         }
         return commonKey(e);
     }
-    bool cancel() override {
-        if(m_phase != Phase::Line) return false;
-        m_phase = Phase::Pick;
-        editor().clearPreview();
+
+protected:
+    enum class Field { Objects, Target };
+
+    // What the tool is: its title, icon, and the second field.
+    virtual QString title() const = 0;
+    virtual IconId icon() const = 0;
+    virtual QString targetLabel() const = 0;
+    virtual QString targetHint() const = 0;
+    virtual const char *objectsName() const = 0;
+    virtual const char *targetName() const = 0;
+    // More inputs below the two fields (their changes call refresh()).
+    virtual void addInputs(CommandPanel &) {}
+    virtual void focusValue() {}
+    // The second field's pick.
+    virtual bool hasTarget() const = 0;
+    virtual void clearTarget() = 0;
+    virtual QString targetDetail() const = 0;
+    virtual bool pickTarget(QPointF px) = 0;
+    virtual void hoverTarget(QPointF px) = 0;
+    // Draws the preview (with the target, or what picking at `hover` would
+    // give); returns why there is none (empty: fine).
+    virtual QString preview(std::optional<QPointF> hover) = 0;
+    // Makes it; false, and why, if it cannot.
+    virtual bool apply(QString &why) = 0;
+    // "Select the geometry to mirror" and the like.
+    virtual QString needObjects() const = 0;
+    virtual QString needTarget() const = 0;
+
+    CommandPanel *panel() const { return m_panel; }
+    Field field() const { return m_field; }
+    void track(QMetaObject::Connection c) { m_connections.push_back(std::move(c)); }
+    QObject *context() const { return m_link.get(); }
+
+    // Updates the fields, the preview, the message and OK.
+    void refresh() {
+        if(!m_panel) return;
+        SketchEditor &ed = editor();
+        const std::set<int> ids = pickedEntities(ed);
+        m_objects->setCount(int(ids.size()));
+        m_target->setCount(hasTarget() ? 1 : 0);
+        m_target->setDetail(targetDetail());
+        QString why;
+        bool ok = false;
+        ed.previewLines.clear();
+        ed.previewPoints.clear();
+        if(ids.empty()) {
+            why = needObjects();
+        } else if(!hasTarget()) {
+            why = needTarget();
+        } else {
+            why = preview(std::nullopt);
+            ok = why.isEmpty();
+        }
+        m_panel->setMessage(why, ok || ids.empty() || !hasTarget() ? cad::Severity::Ok : cad::Severity::Error);
+        m_panel->setOkEnabled(ok);
         m_mode.showStatus(prompt());
-        return true;
+        ed.refreshView();
     }
 
-    // Tests: as clicking the line.
-    bool mirrorAbout(int line) {
-        m_phase = Phase::Line;
-        return commit(line);
+    void setField(Field f) {
+        m_field = f;
+        if(m_objects) m_objects->setActive(f == Field::Objects);
+        if(m_target) m_target->setActive(f == Field::Target);
+        editor().hover = {};
+        m_mode.showStatus(prompt());
     }
 
 private:
-    enum class Phase { Pick, Line };
+    void open() {
+        m_panel = m_mode.commandPanel();
+        if(!m_panel) return;
+        if(SketchPalette *pal = m_mode.palette()) {
+            m_paletteShown = pal->isVisible();
+            pal->hide();
+        }
+        m_panel->begin(title(), icon());
+        m_objects = m_panel->addSelection(tr("Objects"), tr("Select"), objectsName());
+        m_target = m_panel->addSelection(targetLabel(), targetHint(), targetName());
+        m_link = std::make_unique<QObject>();
+        QObject *ctx = m_link.get();
+        addInputs(*m_panel);
+        track(QObject::connect(m_objects, &SelectionField::activated, ctx, [this] { setField(Field::Objects); }));
+        track(QObject::connect(m_target, &SelectionField::activated, ctx, [this] { setField(Field::Target); }));
+        track(QObject::connect(m_objects, &SelectionField::cleared, ctx, [this] {
+            editor().clearSelection();
+            setField(Field::Objects);
+            refresh();
+        }));
+        track(QObject::connect(m_target, &SelectionField::cleared, ctx, [this] {
+            clearTarget();
+            setField(Field::Target);
+            refresh();
+        }));
+        track(QObject::connect(m_panel, &CommandPanel::accepted, ctx, [this] { accept(); }));
+        track(QObject::connect(m_panel, &CommandPanel::cancelled, ctx,
+                               [this] { m_mode.setTool(SketchToolKind::Select); }));
+        setField(pickedEntities(editor()).empty() ? Field::Objects : Field::Target);
+        refresh();
+    }
 
+    void close() {
+        for(const auto &c : m_connections) QObject::disconnect(c);
+        m_connections.clear();
+        if(m_link) m_link.release()->deleteLater();
+        if(m_panel) {
+            m_panel->end();
+            if(m_paletteShown)
+                if(SketchPalette *pal = m_mode.palette()) pal->show();
+        }
+        m_panel = nullptr;
+        m_objects = m_target = nullptr;
+        m_paletteShown = false;
+    }
+
+    void accept() {
+        if(!m_panel) return;
+        if(pickedEntities(editor()).empty() || !hasTarget()) {
+            refresh();
+            return;
+        }
+        QString why;
+        if(!apply(why)) {
+            m_panel->setMessage(why, cad::Severity::Error);
+            return;
+        }
+        SketchEditor &ed = editor();
+        ed.clearPreview();
+        ed.clearSelection();
+        m_mode.setTool(SketchToolKind::Select);
+    }
+
+    QPointer<CommandPanel> m_panel;
+    SelectionField *m_objects = nullptr, *m_target = nullptr;
+    Field m_field = Field::Objects;
+    bool m_paletteShown = false;
+    std::unique_ptr<QObject> m_link;
+    std::vector<QMetaObject::Connection> m_connections;
+};
+
+// Mirror: the geometry, then the line (or axis) to mirror it about. The
+// mirror image stays symmetric to the original.
+class MirrorTool final : public PanelSketchTool {
+public:
+    using PanelSketchTool::PanelSketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Mirror; }
+    QString prompt() const override {
+        return field() == Field::Objects ? tr("Click the geometry to mirror.")
+                                         : tr("Click the line (or axis) to mirror about.");
+    }
+
+protected:
+    QString title() const override { return tr("Mirror"); }
+    IconId icon() const override { return IconId::Mirror; }
+    QString targetLabel() const override { return tr("Mirror Line"); }
+    QString targetHint() const override { return tr("Select a line"); }
+    const char *objectsName() const override { return "sketchMirrorObjects"; }
+    const char *targetName() const override { return "sketchMirrorLine"; }
+    QString needObjects() const override { return tr("Select the geometry to mirror."); }
+    QString needTarget() const override { return tr("Select the line (or axis) to mirror about."); }
+
+    bool hasTarget() const override { return m_line != 0; }
+    void clearTarget() override { m_line = 0; }
+    QString targetDetail() const override {
+        if(m_line == cad::kSketchXAxis) return tr("X axis");
+        if(m_line == cad::kSketchYAxis) return tr("Y axis");
+        return m_line ? tr("Line") : QString();
+    }
+    bool pickTarget(QPointF px) override {
+        const int line = lineAt(px);
+        if(line) m_line = line;
+        return line != 0;
+    }
+    void hoverTarget(QPointF px) override { setHover(px, HitCurves | HitAxes); }
+    QString preview(std::optional<QPointF> hover) override {
+        SketchEditor &ed = editor();
+        const int line = hover ? lineAt(*hover) : m_line;
+        ed.previewLines.clear();
+        if(!line) return {};
+        QString why;
+        ed.previewLines = ed.mirrorOutline(pickedEntities(ed), line, &why);
+        return why;
+    }
+    bool apply(QString &why) override { return editor().mirrorEntities(pickedEntities(editor()), m_line, &why); }
+    void contributeTool(RenderScene &scene) override {
+        if(m_line)
+            highlight(scene, {SketchHit{m_line > 0 ? SketchHit::Kind::Curve : SketchHit::Kind::Axis, m_line}},
+                      QColor(229, 70, 58));
+    }
+
+private:
     // The line (or axis) under the cursor, or 0.
     int lineAt(QPointF px) const {
         const SketchHit hit = editor().hitTest(px, HitCurves | HitAxes);
@@ -2005,165 +2179,104 @@ private:
         return 0;
     }
 
-    bool commit(int line) {
-        SketchEditor &ed = editor();
-        ed.clearPreview();
-        QString why;
-        const bool ok = ed.mirrorEntities(pickedEntities(ed), line, &why);
-        m_mode.showStatus(ok ? tr("Mirrored. Select more geometry to mirror.") : why);
-        m_phase = ok ? Phase::Pick : m_phase;
-        if(ok) ed.clearSelection();
-        return ok;
-    }
-
-    Phase m_phase = Phase::Pick;
+    int m_line = 0;
 };
 
-// ---------------------------------------------------------------------------
-// Circular Pattern: pick the geometry, click the centre, then type how many
-// in all (the original counts) and over what angle in the panel; the copies
-// show as the values are typed, and OK places them.
-
-class PatternTool final : public SketchTool {
+// Circular Pattern: the geometry, the centre, then how many in all (the
+// original counts) and over what angle; the copies show as they are typed.
+class PatternTool final : public PanelSketchTool {
 public:
-    using SketchTool::SketchTool;
-    ~PatternTool() override { close(); }
+    using PanelSketchTool::PanelSketchTool;
     SketchToolKind kind() const override { return SketchToolKind::CircularPattern; }
     QString prompt() const override {
-        switch(m_phase) {
-        case Phase::Pick: return tr("Click the geometry to copy around a centre (Enter when done).");
-        case Phase::Centre: return tr("Click the centre to copy it around.");
-        case Phase::Count: return tr("Type how many in all and the angle they spread over, then OK.");
-        }
-        return {};
+        if(field() == Field::Objects) return tr("Click the geometry to copy around a centre.");
+        return m_centre ? tr("Type how many in all and the angle they spread over, then OK.")
+                        : tr("Click the centre to copy it around.");
     }
-    void activate() override {
-        hud().hide();
-        m_phase = pickedEntities(editor()).empty() ? Phase::Pick : Phase::Centre;
-        m_mode.showStatus(prompt());
-    }
-    void deactivate() override { close(); }
-    bool mousePress(QMouseEvent *e) override {
-        if(e->button() != Qt::LeftButton) return false;
-        SketchEditor &ed = editor();
-        if(m_phase == Phase::Pick) {
-            const SketchHit hit = ed.hitTest(e->position(), HitPoints | HitCurves | HitText);
-            if(hit.kind == SketchHit::Kind::Point || hit.kind == SketchHit::Kind::Curve) ed.select(hit, true);
-            return true;
-        }
-        if(m_phase == Phase::Centre) {
-            m_snap = ed.snap(e->position());
-            open(m_snap.pos);
-        }
-        return true;
-    }
-    bool mouseMove(QMouseEvent *e) override {
-        SketchEditor &ed = editor();
-        if(m_phase == Phase::Pick) {
-            setHover(e->position(), HitPoints | HitCurves | HitText);
-            return true;
-        }
-        if(m_phase == Phase::Centre) {
-            m_cursor = e->position();
-            m_snap = ed.snap(e->position());
-            ed.previewSnap = m_snap;
-            ed.previewLines = ed.patternOutline(pickedEntities(ed), m_snap.pos, 6, 360.0);
-            ed.previewPoints = {m_snap.pos};
-            ed.refreshView();
-        }
-        return true;
-    }
-    bool mouseRelease(QMouseEvent *) override { return true; }
-    bool keyPress(QKeyEvent *e) override {
-        if(e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
-            if(m_phase == Phase::Pick && !pickedEntities(editor()).empty()) {
-                m_phase = Phase::Centre;
-                m_mode.showStatus(prompt());
-            } else if(m_phase == Phase::Count) {
-                place();
-            }
-            return true;
-        }
-        if(m_phase == Phase::Count) return false; // typing goes to the panel
-        return commonKey(e);
-    }
-    bool cancel() override {
-        if(m_phase == Phase::Pick) return false;
-        close();
-        m_phase = Phase::Centre;
-        editor().clearPreview();
-        m_mode.showStatus(prompt());
-        return true;
-    }
-
-    // Tests: the panel's fields, and placing it at a centre.
-    ValueField *countField() const { return m_count; }
-    ValueField *angleField() const { return m_angle; }
-    void openAt(Vec2 centre) { open(centre); }
 
 protected:
+    QString title() const override { return tr("Circular Pattern"); }
+    IconId icon() const override { return IconId::PatternCircular; }
+    QString targetLabel() const override { return tr("Centre Point"); }
+    QString targetHint() const override { return tr("Select a point"); }
+    const char *objectsName() const override { return "sketchPatternObjects"; }
+    const char *targetName() const override { return "sketchPatternCentre"; }
+    QString needObjects() const override { return tr("Select the geometry to copy around a centre."); }
+    QString needTarget() const override { return tr("Select the centre point."); }
+
+    void addInputs(CommandPanel &p) override {
+        const auto eval = [this](const std::string &expr, cad::ValueKind k) { return editor().evaluate(expr, k); };
+        m_count = p.addValue(tr("Quantity"), cad::ValueKind::Scalar, eval, "sketchPatternCount");
+        m_count->setToolTip(tr("How many around the centre, the original included"));
+        m_count->setExpression(QStringLiteral("6"));
+        m_angle = p.addAngle(tr("Angle"), eval, "sketchPatternAngle", QColor(229, 70, 58));
+        m_angle->setToolTip(tr("The angle the copies spread over (360°: all the way round)"));
+        m_angle->setExpression(QString::fromStdString(SketchEditor::formatExpression(2 * cad::kPi, cad::ValueKind::Angle)));
+        for(ValueField *f : {m_count, m_angle})
+            track(QObject::connect(f, &ValueField::revalidated, context(), [this] { refresh(); }));
+    }
+    void focusValue() override {
+        if(!m_count) return;
+        m_count->setFocus();
+        m_count->selectAll();
+    }
+
+    bool hasTarget() const override { return m_centre.has_value(); }
+    void clearTarget() override { m_centre.reset(); }
+    QString targetDetail() const override {
+        if(!m_centre) return {};
+        switch(m_centreKind) {
+        case SketchSnap::Kind::Origin: return tr("Origin");
+        case SketchSnap::Kind::Point: return tr("Point");
+        case SketchSnap::Kind::Midpoint: return tr("Midpoint");
+        default: return QStringLiteral("(%1, %2)").arg(m_centre->x, 0, 'g', 4).arg(m_centre->y, 0, 'g', 4);
+        }
+    }
+    bool pickTarget(QPointF px) override {
+        m_snap = editor().snap(px);
+        m_centre = m_snap.pos;
+        m_centreKind = m_snap.kind;
+        return true;
+    }
+    void hoverTarget(QPointF px) override {
+        m_cursor = px;
+        m_snap = editor().snap(px);
+        editor().previewSnap = m_snap;
+    }
+    QString preview(std::optional<QPointF> hover) override {
+        SketchEditor &ed = editor();
+        const Vec2 centre = hover ? m_snap.pos : *m_centre;
+        ed.previewLines.clear();
+        ed.previewPoints = {centre};
+        int count = 0;
+        double angle = 0;
+        QString why;
+        if(values(count, angle, why)) ed.previewLines = ed.patternOutline(pickedEntities(ed), centre, count, angle, &why);
+        return why;
+    }
+    bool apply(QString &why) override {
+        int count = 0;
+        double angle = 0;
+        if(!values(count, angle, why)) return false;
+        if(!editor().patternEntities(pickedEntities(editor()), *m_centre, count, angle, &why)) return false;
+        m_mode.showStatus(tr("%1 in all.").arg(count));
+        return true;
+    }
     void paintToolOverlay(QPainter &p) override {
-        if(m_phase == Phase::Centre)
+        if(field() == Field::Target && !m_centre)
             if(auto id = snapHint(m_snap)) paintHint(p, m_cursor, *id);
     }
 
 private:
-    enum class Phase { Pick, Centre, Count };
-
-    CommandPanel *panel() const { return m_mode.commandPanel(); }
-
-    void open(Vec2 centre) {
-        CommandPanel *p = panel();
-        if(!p) return;
-        close();
-        m_centre = centre;
-        m_ids = pickedEntities(editor());
-        m_phase = Phase::Count;
-        if(SketchPalette *pal = m_mode.palette()) {
-            m_paletteShown = pal->isVisible();
-            pal->hide();
-        }
-        const auto eval = [this](const std::string &expr, cad::ValueKind k) { return editor().evaluate(expr, k); };
-        p->begin(tr("Circular Pattern"), IconId::PatternCircular);
-        m_count = p->addValue(tr("Count"), cad::ValueKind::Scalar, eval, "sketchPatternCount");
-        m_count->setToolTip(tr("How many around the centre, the original included"));
-        m_count->setExpression(QStringLiteral("6"));
-        m_angle = p->addAngle(tr("Angle"), eval, "sketchPatternAngle", QColor(229, 70, 58));
-        m_angle->setExpression(QString::fromStdString(SketchEditor::formatExpression(2 * cad::kPi, cad::ValueKind::Angle)));
-        m_open = true;
-        m_link = std::make_unique<QObject>();
-        QObject *ctx = m_link.get();
-        for(ValueField *f : {m_count, m_angle})
-            m_connections.push_back(QObject::connect(f, &ValueField::revalidated, ctx, [this] { preview(); }));
-        m_connections.push_back(QObject::connect(p, &CommandPanel::accepted, ctx, [this] { place(); }));
-        m_connections.push_back(QObject::connect(p, &CommandPanel::cancelled, ctx, [this] { cancel(); }));
-        m_count->setFocus();
-        m_count->selectAll();
-        preview();
-        m_mode.showStatus(prompt());
-    }
-
-    void close() {
-        for(const auto &c : m_connections) QObject::disconnect(c);
-        m_connections.clear();
-        if(m_link) m_link.release()->deleteLater();
-        if(m_open && panel()) panel()->end();
-        if(m_open && m_paletteShown)
-            if(SketchPalette *pal = m_mode.palette()) pal->show();
-        m_open = false;
-        m_paletteShown = false;
-        m_count = m_angle = nullptr;
-    }
-
     // The count and angle as typed (false, and why, if they are not usable).
     bool values(int &count, double &angle, QString &why) const {
         if(!m_count || !m_angle || !m_count->valid() || !m_angle->valid()) {
-            why = tr("Type the count and the angle.");
+            why = tr("Type the quantity and the angle.");
             return false;
         }
         const double c = *m_count->value();
         if(std::abs(c - std::round(c)) > 1e-9 || c < 2 || c > 360) {
-            why = tr("The count must be a whole number from 2 to 360.");
+            why = tr("The quantity must be a whole number from 2 to 360.");
             return false;
         }
         count = int(std::lround(c));
@@ -2171,50 +2284,11 @@ private:
         return true;
     }
 
-    void preview() {
-        if(!m_open) return;
-        SketchEditor &ed = editor();
-        ed.previewLines.clear();
-        ed.previewPoints = {m_centre};
-        int count = 0;
-        double angle = 0;
-        QString why;
-        if(values(count, angle, why)) ed.previewLines = ed.patternOutline(m_ids, m_centre, count, angle, &why);
-        panel()->setMessage(why, why.isEmpty() ? cad::Severity::Ok : cad::Severity::Error);
-        ed.refreshView();
-    }
-
-    void place() {
-        if(!m_open) return;
-        int count = 0;
-        double angle = 0;
-        QString why;
-        if(!values(count, angle, why)) {
-            panel()->setMessage(why, cad::Severity::Error);
-            return;
-        }
-        SketchEditor &ed = editor();
-        const bool ok = ed.patternEntities(m_ids, m_centre, count, angle, &why);
-        if(!ok) {
-            panel()->setMessage(why, cad::Severity::Error);
-            return;
-        }
-        close();
-        ed.clearPreview();
-        ed.clearSelection();
-        m_phase = Phase::Pick;
-        m_mode.showStatus(tr("%1 in all. Select more geometry to copy around a centre.").arg(count));
-    }
-
-    Phase m_phase = Phase::Pick;
+    std::optional<Vec2> m_centre;
+    SketchSnap::Kind m_centreKind = SketchSnap::Kind::None;
     SketchSnap m_snap;
     QPointF m_cursor;
-    Vec2 m_centre;
-    std::set<int> m_ids;
-    bool m_open = false, m_paletteShown = false;
     ValueField *m_count = nullptr, *m_angle = nullptr;
-    std::unique_ptr<QObject> m_link;
-    std::vector<QMetaObject::Connection> m_connections;
 };
 
 // ---------------------------------------------------------------------------

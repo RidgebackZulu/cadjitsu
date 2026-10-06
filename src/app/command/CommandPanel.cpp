@@ -152,6 +152,13 @@ void SelectionField::setCount(int n) {
     restyle();
 }
 
+void SelectionField::setDetail(const QString &detail) {
+    m_detail = detail;
+    restyle();
+}
+
+QString SelectionField::text() const { return m_text->text(); }
+
 void SelectionField::setActive(bool on) {
     m_active = on;
     restyle();
@@ -162,7 +169,7 @@ void SelectionField::mousePressEvent(QMouseEvent *e) {
 }
 
 void SelectionField::restyle() {
-    m_text->setText(m_count > 0 ? tr("%n selected", nullptr, m_count) : m_hint);
+    m_text->setText(m_count <= 0 ? m_hint : m_detail.isEmpty() ? tr("%n selected", nullptr, m_count) : m_detail);
     m_clear->setVisible(m_count > 0);
     setStyleSheet(m_active ? QStringLiteral("cadjitsu--SelectionField { border: 1px solid #1a66c9; border-radius: 3px;"
                                             " background: #e3efff; }")
