@@ -146,6 +146,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
     connect(m_viewport, &Viewport::contextMenuRequested, this, [this](const QPoint &globalPos, const PickHit &) {
         if(m_sketch->pickingPlane()) return;
         if(m_sketch->active() && m_sketch->cancelOperation()) return; // right-click ends a line chain first
+        if(m_sketch->active() && showSketchEntityMenu(globalPos)) return;
         showMarkingMenu(m_viewport->mapFromGlobal(globalPos));
     });
     connect(m_recompute, &RecomputeService::finished, this, &MainWindow::onEvaluation);
@@ -165,6 +166,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
         QTimer::singleShot(0, this, [this, id] { editFeature(id); });
     });
     connect(m_browser, &BrowserTree::editSectionRequested, this, &MainWindow::editSection);
+    connect(m_browser, &BrowserTree::deleteSketchRequested, this, [this](cad::FeatureId id) {
+        // Deferred: the browser rebuilds once the sketch is gone.
+        QTimer::singleShot(0, this, [this, id] { deleteSketch(id); });
+    });
     connect(m_browser, &BrowserTree::materialRequested, this, [this](const std::vector<cad::BodyId> &ids) { openRenderDialog(ids); });
     connect(m_viewport, &Viewport::renderSettingsRequested, this, [this] { openRenderDialog(); });
     m_document->changed = [this] { onDocumentChanged(); };
@@ -524,13 +529,60 @@ void MainWindow::editFeature(cad::FeatureId id) {
     }
 }
 
+bool MainWindow::deleteSketch(cad::FeatureId id, bool ask) {
+    const cad::FeaturePtr f = m_document->feature(id);
+    if(!f || f->type() != cad::FeatureType::Sketch) return false;
+    if(ask) {
+        QStringList users;
+        for(cad::FeatureId d : m_document->dependents(id))
+            if(const cad::FeaturePtr u = m_document->feature(d)) users << QString::fromStdString(u->name);
+        if(!users.isEmpty() &&
+           QMessageBox::question(this, tr("Delete Sketch"),
+                                 tr("%1 is used by %2, which will fail without it. Delete it anyway?")
+                                     .arg(QString::fromStdString(f->name), users.join(QStringLiteral(", "))),
+                                 QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes)
+            return false;
+    }
+    if(m_sketch->active() && m_sketch->editor()->featureId() == id) m_sketch->finish();
+    if(m_commands->active()) m_commands->cancel();
+    const bool ok = m_document->deleteFeature(id);
+    if(ok) statusBar()->showMessage(tr("Deleted %1.").arg(QString::fromStdString(f->name)), 4000);
+    return ok;
+}
+
+bool MainWindow::showSketchEntityMenu(const QPoint &globalPos) {
+    SketchEditor *ed = m_sketch->editor();
+    if(!ed) return false;
+    const SketchHit hit = ed->hitTest(m_viewport->mapFromGlobal(globalPos), HitPoints | HitCurves | HitText);
+    if(hit.kind != SketchHit::Kind::Curve && hit.kind != SketchHit::Kind::Point) return false;
+    // Right-clicking something not selected picks just it.
+    if(!ed->isSelected(hit)) ed->select(hit, false);
+    bool anyNormal = false;
+    for(int id : ed->selectedEntities)
+        if(const cad::SkEntity *e = ed->sketch().find(id)) anyNormal |= !e->construction;
+    QMenu menu(this);
+    QAction *toggle = menu.addAction(icon(IconId::Construction), anyNormal ? tr("Make Construction") : tr("Make Normal"),
+                                     this, [this] { m_sketch->toggleConstruction(); });
+    toggle->setShortcut(QKeySequence(Qt::Key_X));
+    menu.addSeparator();
+    menu.addAction(action(QStringLiteral("sketchMirror")));
+    menu.addAction(action(QStringLiteral("sketchCircularPattern")));
+    menu.addAction(action(QStringLiteral("sketchMove")));
+    menu.addSeparator();
+    menu.addAction(action(QStringLiteral("sketchDelete")));
+    m_sketchEntityMenu = &menu;
+    menu.exec(globalPos);
+    m_sketchEntityMenu = nullptr;
+    return true;
+}
+
 void MainWindow::showMarkingMenu(QPoint canvasPos) {
     auto a = [this](const char *name) { return action(QString::fromLatin1(name)); };
     if(m_sketch->active()) {
         m_marking->setRing({a("finishSketch"), a("sketchLine"), a("sketchRectangle"), a("sketchCircle"),
                             a("sketchDelete"), a("redo"), a("undo"), a("sketchDimension")});
         m_marking->setList({a("sketchLookAt"), a("sketchConstruction"), a("sketchArc"), a("sketchPoint"),
-                            a("sketchCenterRectangle")});
+                            a("sketchCenterRectangle"), a("sketchMirror"), a("sketchCircularPattern"), a("sketchProject")});
     } else {
         QAction *repeat = a("repeatCommand");
         QAction *last = action(m_lastCommand);
@@ -701,6 +753,9 @@ void MainWindow::buildActions() {
         {"sketchMove", SketchToolKind::Move, IconId::Move, QKeySequence(Qt::Key_M)},
         {"sketchOffset", SketchToolKind::Offset, IconId::Offset, QKeySequence(Qt::Key_O)},
         {"sketchText", SketchToolKind::Text, IconId::Text, QKeySequence(Qt::Key_T)},
+        {"sketchMirror", SketchToolKind::Mirror, IconId::Mirror, {}},
+        {"sketchCircularPattern", SketchToolKind::CircularPattern, IconId::PatternCircular, {}},
+        {"sketchProject", SketchToolKind::Project, IconId::Project, QKeySequence(Qt::Key_P)},
         {"constraintCoincident", SketchToolKind::Coincident, IconId::Coincident, {}},
         {"constraintHorizontalVertical", SketchToolKind::HorizontalVertical, IconId::HorizontalVertical, {}},
         {"constraintParallel", SketchToolKind::Parallel, IconId::Parallel, {}},
@@ -733,6 +788,17 @@ void MainWindow::buildActions() {
     m_actions[QStringLiteral("sketchOffset")]->setToolTip(
         tr("<b>Offset (O)</b><p>Copies the selected sketch curves a specified distance from the original curves.</p>"
            "<p>Select the curves to offset then specify the offset distance.</p>"));
+    m_actions[QStringLiteral("sketchMirror")]->setToolTip(
+        tr("<b>Mirror</b><p>Mirrors sketch geometry about a line.</p><p>Select the geometry to mirror (Enter), then "
+           "click the line or axis to mirror it about. The mirror image stays symmetric to the original.</p>"));
+    m_actions[QStringLiteral("sketchCircularPattern")]->setToolTip(
+        tr("<b>Circular Pattern</b><p>Copies sketch geometry around a centre point.</p><p>Select the geometry "
+           "(Enter), click the centre, then type how many in all and the angle they spread over; the copies show "
+           "as you type.</p>"));
+    m_actions[QStringLiteral("sketchProject")]->setToolTip(
+        tr("<b>Project (P)</b><p>Projects lines, curves and points of another sketch (on another plane) onto this "
+           "one. Projected geometry is purple and follows the original when it changes; it can be used like any "
+           "other line, and made construction geometry (X).</p>"));
     m_sketchOnly.push_back(makeAction("sketchConstruction", tr("Normal / Construction"), IconId::Construction,
                                       QKeySequence(Qt::Key_X), [this] { m_sketch->toggleConstruction(); }));
     QAction *del = makeAction("sketchDelete", tr("Delete"), IconId::Delete, QKeySequence::Delete,
@@ -810,6 +876,9 @@ void MainWindow::buildRibbon() {
     RibbonGroup *modifySketch = m_sketchTab->addGroup(tr("MODIFY"));
     modifySketch->addAction(action(QStringLiteral("sketchMove")));
     modifySketch->addAction(action(QStringLiteral("sketchOffset")));
+    modifySketch->addAction(action(QStringLiteral("sketchMirror")));
+    modifySketch->addAction(action(QStringLiteral("sketchCircularPattern")));
+    modifySketch->addAction(action(QStringLiteral("sketchProject")));
     RibbonGroup *constraints = m_sketchTab->addGroup(tr("CONSTRAINTS"));
     for(const char *name : {"constraintCoincident", "constraintHorizontalVertical", "constraintParallel",
                             "constraintPerpendicular", "constraintTangent", "constraintEqual", "constraintMidpoint",

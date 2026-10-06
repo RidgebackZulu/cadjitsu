@@ -339,6 +339,15 @@ bool SketchMode::enter(cad::FeatureId id, bool isNew, bool animate) {
     };
     m_editor = std::make_unique<SketchEditor>(m_viewport, *base, frame, provider, [doc] { return doc->allocateParamName(); });
     m_editor->setOptions(m_palette->options());
+    // Projected geometry: where its sources are now.
+    if(const int index = m_doc.indexOf(id); index >= 0)
+        if(const cad::StatePtr before = m_doc.stateAt(index)) {
+            m_editor->refreshProjections([&](cad::FeatureId src) -> const cad::SketchResult * {
+                auto it = before->sketches.find(src);
+                return it == before->sketches.end() ? nullptr : it->second.get();
+            });
+            m_editor->clearUndoModified();
+        }
     m_isNew = isNew;
     connect(m_editor.get(), &SketchEditor::changed, this, [this] {
         emit statsChanged(m_editor->selectionStats());

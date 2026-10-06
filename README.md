@@ -117,6 +117,9 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 | Point | | |
 | Sketch dimension | D | the value box opens when the dimension is placed |
 | Text | T | a panel: text, font, size, X / Y, angle, Reverse |
+| Mirror | | pick the geometry, then the line or axis to mirror about |
+| Circular Pattern | | pick the geometry and the centre; a panel: count, angle |
+| Project | P | click lines, curves and points of another sketch |
 
 - Points snap to existing points, the origin, midpoints, quadrants, curves and the sketch axes.
 - Lines within 3° of level or plumb become horizontal or vertical.
@@ -128,6 +131,15 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - Every letter is a region: extrude it to raise the text, or cut it into a plate. Clicking one letter in Extrude picks the whole text (Shift+click for one letter). Text inside another region cuts its letters out of it, and the insides of letters (an O's middle) are regions of their own.
 - Double-click a text to change it; drag it to move its origin point, which can be dimensioned and constrained like any point. A design that names a font this computer lacks uses DejaVu Sans, and says so.
 
+**Mirror, Circular Pattern and Project** (SKETCH > MODIFY, and on the right-click menu)
+- **Mirror:** select the geometry (Enter), then click a line or one of the sketch axes. Hovering the line shows the mirror image. The copies are held symmetric to the originals, so they follow when the originals change. Points on the mirror line are shared, so half an outline drawn up to the line becomes one closed profile.
+- **Circular Pattern:** select the geometry (Enter), click the centre, then type **Count** (how many in all, the original included) and the **Angle** they spread over (360 by default). The copies show as you type; OK places them. Their dimensions follow the original's.
+- **Project (P):** the other sketches' geometry shows faintly in purple. Click a line, circle, arc or point of another sketch (usually on another plane) to bring it onto this one. Projected geometry is purple and fixed. It stays linked: change the original and it follows. It can bound profiles like any other line, and can be made construction geometry and back. Lines and points project onto any plane; circles and arcs only onto a parallel one. You can only project from sketches earlier in the timeline. If the original is deleted, the projection stays where it was, with a warning on the sketch.
+
+**Construction geometry**
+- Press **X**, or right-click a line and choose **Make Construction**, to turn selected geometry into construction geometry; do the same again to make it normal. Construction lines are dotted orange.
+- Construction geometry is a reference for drawing (centre lines, guide circles, layout). It bounds no profile, so it is never extruded or used for solids.
+
 **Editing**
 - **Dimensions:** double-click a dimension to change it. The value box accepts expressions such as `2*d1` or `1 in`. A dimension that would over-constrain the sketch becomes a driven (reference) dimension.
 - **Constraints:** coincident, horizontal/vertical, parallel, perpendicular, tangent, equal, midpoint, concentric, fix and symmetric. Apply them to the current selection, or pick the entities after choosing the tool. A constraint that repeats or contradicts others is refused.
@@ -135,11 +147,13 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - **Other keys:** Delete removes the selection, X toggles construction geometry, and Esc steps back to Select.
 
 **Display**
-- Fully constrained geometry is black, under-constrained geometry blue, and construction geometry orange dashed.
+- Fully constrained geometry is black, under-constrained geometry blue, construction geometry dotted orange, and projected geometry purple.
 - Closed regions (profiles) are shaded.
 - Selecting anything shows its length, radius, diameter, area and other stats at the bottom right.
 
 ## Editing a sketch
+
+Right-click a sketch in the browser for **Edit Sketch** or **Delete**. Deleting a sketch that features still use asks first, because those features then fail; Undo brings it back.
 
 - **Select** (the pointer at the left of the SKETCH ribbon, or Esc) puts down the drawing tool, so you can pick geometry and dimensions to change them.
 - Double-click a line, circle or arc to type its length, diameter or radius (its dimension, or a new one beside it); the sketch re-solves at once. Double-click a dimension to change it. Shift + double-click selects a chain of connected curves.

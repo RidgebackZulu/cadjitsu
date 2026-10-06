@@ -32,6 +32,8 @@ public:
 signals:
     void editSketchRequested(cad::FeatureId id);
     void editSectionRequested(int id);
+    // "Delete" on a sketch.
+    void deleteSketchRequested(cad::FeatureId id);
     // "Material..." on bodies.
     void materialRequested(const std::vector<cad::BodyId> &ids);
 

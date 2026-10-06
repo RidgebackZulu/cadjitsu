@@ -153,6 +153,11 @@ text, extrude the plate, then the letters). For FDM: letters 5 mm or taller with
 - `set_visibility {"planes": ["Plane1"], "folders": ["sketches"], "visible": false}` - show or hide bodies,
   sketches, construction planes, or whole browser folders (`bodies`, `sketches`, `construction`, `origin`); a
   hidden folder keeps each item's own setting. Tidy up before a `screenshot`.
+- `sketch_mirror` mirrors geometry about a sketch line or axis (symmetric halves: draw half up to the axis,
+  mirror it); `sketch_pattern` copies geometry around a centre (bolt circles, spokes); `project_to_sketch`
+  brings lines of an earlier sketch (usually on another plane) onto this one, linked so they follow;
+  `set_construction` turns geometry into construction lines (references that make no profile). Entity ids
+  are in each sketch's `curves` (get_design, create_sketch, add_to_sketch).
 - `add_to_sketch` adds geometry to an existing sketch. Bodies already made from it keep their shape; the new
   regions can be extruded as new bodies.
 

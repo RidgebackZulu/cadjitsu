@@ -31,6 +31,7 @@ constexpr std::array kIcons = {
     Entry{IconId::Render, "render"},
     Entry{IconId::Sketch, "sketch"},
     Entry{IconId::FinishSketch, "finish-sketch"},
+    Entry{IconId::Project, "project"},
     Entry{IconId::Line, "line"},
     Entry{IconId::Rectangle, "rectangle"},
     Entry{IconId::CenterRectangle, "center-rectangle"},

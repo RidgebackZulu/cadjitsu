@@ -28,6 +28,9 @@
 #include "measure/MeasureBetween.h"
 #include "measure/Overhang.h"
 #include "sketch/SketchOffset.h"
+#include "sketch/SketchOps.h"
+#include "sketch/SketchProject.h"
+#include "sketch/SketchSolver.h"
 #include "sketch/SketchText.h"
 #include "topo/Resolver.h"
 
@@ -133,6 +136,36 @@ json xyz(const std::string &d) {
 }
 json arrayOf(json item, const std::string &d) { return {{"type", "array"}, {"items", item}, {"description", d}}; }
 json number(const std::string &d) { return {{"type", "number"}, {"description", d}}; }
+
+// A sketch's curves (and lone points), with their ids for the sketch tools.
+json curvesJson(const cad::Sketch &s) {
+    std::set<int> used;
+    for(const auto &e : s.entities)
+        if(e.isCurve() || e.isText())
+            for(int p : {e.a, e.b, e.c}) used.insert(p);
+    json out = json::array();
+    auto xy = [&](int p) {
+        const cad::Vec2 v = s.pointPos(p);
+        return json::array({std::round(v.x * 1000) / 1000, std::round(v.y * 1000) / 1000});
+    };
+    for(const auto &e : s.entities) {
+        json j{{"id", e.id}};
+        switch(e.type) {
+        case cad::SkType::Line: j["type"] = "line", j["from"] = xy(e.a), j["to"] = xy(e.b); break;
+        case cad::SkType::Circle: j["type"] = "circle", j["center"] = xy(e.a), j["radius"] = std::round(e.r * 1000) / 1000; break;
+        case cad::SkType::Arc: j["type"] = "arc", j["center"] = xy(e.a), j["start"] = xy(e.b), j["end"] = xy(e.c); break;
+        case cad::SkType::Text: j["type"] = "text", j["text"] = e.text, j["origin"] = xy(e.a); break;
+        case cad::SkType::Point:
+            if(used.count(e.id)) continue;
+            j["type"] = "point", j["at"] = xy(e.id);
+            break;
+        }
+        if(e.construction) j["construction"] = true;
+        if(e.isProjected()) j["projected_from"] = {{"sketch", e.projSketch}, {"entity", e.projEntity}};
+        out.push_back(j);
+    }
+    return out;
+}
 
 // The render settings as the tools name them.
 json renderJson(const cad::RenderSettings &s) {
@@ -342,6 +375,7 @@ void McpTools::define() {
                       {"y_axis", dir(sk.frame.YDirection())},
                       {"normal", dir(sk.frame.Direction())}}},
                     {"profiles", profiles},
+                    {"curves", curvesJson(sk.sketch)},
                     {"degrees_of_freedom", sk.dof},
                     {"status", severity(sk.status.severity)},
                     {"message", sk.status.message}};
@@ -734,6 +768,151 @@ void McpTools::define() {
             r["entities"] = created;
             r["parameters"] = params;
             return r;
+        });
+
+    // Sketch Mirror, Circular Pattern, Project and construction geometry.
+    auto editSketch = [&doc, begin, settle, featureOf, sketchResultOf, sketchJson](
+                          const json &a, const std::string &label,
+                          const std::function<void(cad::Sketch &, const cad::SketchResult &, const cad::StatePtr &)> &fn) {
+        begin();
+        const cad::FeaturePtr f = featureOf(a.at("sketch"));
+        if(f->type() != cad::FeatureType::Sketch) fail("feature " + f->name + " is not a sketch");
+        const cad::StatePtr before = settle();
+        auto sf = std::static_pointer_cast<cad::SketchFeature>(f->clone());
+        fn(sf->sketch, *sketchResultOf(before, f->id), before);
+        doc.replaceFeature(sf, label + " in " + f->name + " (MCP)");
+        const cad::StatePtr st = settle();
+        json r = sketchJson(*sketchResultOf(st, f->id));
+        r["sketch"] = f->id;
+        return r;
+    };
+    auto entityIds = [](const json &a) {
+        std::vector<int> ids;
+        for(const json &v : a.value("entities", json::array())) {
+            if(!v.is_number_integer()) fail("entities are entity ids (integers; see get_design's sketch curves)");
+            ids.push_back(v.get<int>());
+        }
+        if(ids.empty()) fail("give the entities (ids from the sketch's curves)");
+        return ids;
+    };
+    auto solvedOrFail = [](cad::Sketch &s, const std::string &what) {
+        cad::Sketch probe = s;
+        const cad::SolveOutcome r = cad::solveSketch(probe, [](const std::string &, double &) { return false; });
+        if(!r.ok) fail(what + ": " + r.message);
+    };
+
+    add("sketch_mirror",
+        "Mirrors sketch geometry about a line of the sketch (or its x / y axis), like the sketch Mirror tool: the "
+        "copies stay symmetric to the originals. Points on the mirror line are shared, so half an outline drawn up "
+        "to the line becomes one closed profile. One undo step. Returns the sketch's curves and profiles.",
+        {{"sketch", integer("sketch feature id")},
+         {"entities", arrayOf(integer("entity id"), "the curves / points / texts to mirror (ids from the sketch's curves)")},
+         {"line", {{"anyOf", json::array({{{"type", "integer"}}, {{"type", "string"}, {"enum", {"x_axis", "y_axis"}}}})},
+                   {"description", "the line to mirror about: a line entity id, \"x_axis\" or \"y_axis\""}}}},
+        {"sketch", "entities", "line"}, [editSketch, entityIds, solvedOrFail](const json &a) {
+            const std::vector<int> ids = entityIds(a);
+            int line = 0;
+            if(a.at("line").is_string()) {
+                const std::string l = a["line"].get<std::string>();
+                line = l == "x_axis" ? cad::kSketchXAxis : l == "y_axis" ? cad::kSketchYAxis : 0;
+                if(!line) fail("line must be a line id, \"x_axis\" or \"y_axis\"");
+            } else {
+                line = a["line"].get<int>();
+            }
+            json made;
+            json r = editSketch(a, "Mirror", [&](cad::Sketch &s, const cad::SketchResult &, const cad::StatePtr &) {
+                std::vector<int> created;
+                std::string why;
+                if(!cad::mirrorEntities(s, ids, line, created, why)) fail(why);
+                solvedOrFail(s, "the mirror image cannot be solved");
+                made = created;
+            });
+            r["created"] = made;
+            return r;
+        });
+
+    add("sketch_pattern",
+        "Circular pattern in a sketch, like the sketch Circular Pattern tool: copies of geometry spread evenly around "
+        "a centre point. `count` is how many in all (the original included); `angle` the angle they spread over "
+        "(default 360: all the way round). Dimensions of the copies follow the original's. One undo step.",
+        {{"sketch", integer("sketch feature id")},
+         {"entities", arrayOf(integer("entity id"), "the curves / points / texts to copy")},
+         {"center", xy("the centre (sketch coordinates)")},
+         {"count", integer("how many in all, 2-360")},
+         {"angle", number("degrees, default 360")}},
+        {"sketch", "entities", "center", "count"}, [editSketch, entityIds, solvedOrFail](const json &a) {
+            const std::vector<int> ids = entityIds(a);
+            const cad::Vec2 c = vec2Arg(a.at("center"), "center");
+            const int count = a.at("count").get<int>();
+            const double angle = a.value("angle", 360.0);
+            json made;
+            json r = editSketch(a, "Circular Pattern", [&](cad::Sketch &s, const cad::SketchResult &, const cad::StatePtr &) {
+                std::vector<int> created;
+                std::string why;
+                if(!cad::patternEntities(s, ids, c, count, angle, created, why)) fail(why);
+                solvedOrFail(s, "the pattern cannot be solved");
+                made = created;
+            });
+            r["created"] = made;
+            return r;
+        });
+
+    add("project_to_sketch",
+        "Projects lines, curves and points of another sketch (usually on another plane) onto a sketch, like the "
+        "sketch Project tool. Projected geometry stays linked: when the original changes, it follows. It is fixed in "
+        "this sketch, can bound profiles like any line, and can be made construction geometry (set_construction). "
+        "Circles and arcs project only onto a parallel plane. The other sketch must come before this one in the "
+        "timeline. One undo step.",
+        {{"sketch", integer("the sketch to project onto")},
+         {"from_sketch", integer("the sketch to project from")},
+         {"entities", arrayOf(integer("entity id"), "what to project (default: all its curves)")}},
+        {"sketch", "from_sketch"}, [&doc, editSketch, featureOf](const json &a) {
+            const cad::FeaturePtr from = featureOf(a.at("from_sketch"));
+            const cad::FeaturePtr to = featureOf(a.at("sketch"));
+            if(from->type() != cad::FeatureType::Sketch) fail("feature " + from->name + " is not a sketch");
+            if(doc.indexOf(from->id) >= doc.indexOf(to->id))
+                fail(from->name + " comes after " + to->name + " in the timeline: project from an earlier sketch");
+            json made = json::array();
+            json r = editSketch(a, "Project", [&](cad::Sketch &s, const cad::SketchResult &target, const cad::StatePtr &st) {
+                auto it = st->sketches.find(from->id);
+                if(it == st->sketches.end()) fail(from->name + " has no result (is it suppressed?)");
+                const cad::SketchResult &src = *it->second;
+                std::vector<int> ids;
+                if(a.contains("entities") && !a["entities"].empty()) {
+                    for(const json &v : a["entities"]) ids.push_back(v.get<int>());
+                } else {
+                    for(const auto &e : src.sketch.entities)
+                        if(e.isCurve() && cad::canProject(src, e, target.frame)) ids.push_back(e.id);
+                }
+                if(ids.empty()) fail("nothing to project");
+                for(int id : ids) {
+                    std::vector<int> created;
+                    std::string why;
+                    if(!cad::projectEntity(s, target.frame, src, id, created, why))
+                        fail("entity " + std::to_string(id) + ": " + why);
+                    for(int c : created) made.push_back(c);
+                }
+            });
+            r["created"] = made;
+            return r;
+        });
+
+    add("set_construction",
+        "Makes sketch geometry construction geometry (dotted, a reference for drawing: it bounds no profile and is "
+        "never extruded) or normal again. One undo step.",
+        {{"sketch", integer("sketch feature id")},
+         {"entities", arrayOf(integer("entity id"), "the curves / points")},
+         {"construction", boolean("true: construction (default); false: normal")}},
+        {"sketch", "entities"}, [editSketch, entityIds](const json &a) {
+            const std::vector<int> ids = entityIds(a);
+            const bool on = a.value("construction", true);
+            return editSketch(a, on ? "Construction" : "Normal", [&](cad::Sketch &s, const cad::SketchResult &, const cad::StatePtr &) {
+                for(int id : ids) {
+                    cad::SkEntity *e = s.find(id);
+                    if(!e) fail("no entity " + std::to_string(id) + " in this sketch");
+                    e->construction = on;
+                }
+            });
         });
 
     add("offset_sketch",

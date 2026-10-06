@@ -159,7 +159,7 @@ private slots:
             QVERIFY(t.contains("inputSchema") && t.contains("description"));
         }
         for(const char *n : {"get_design", "create_sketch", "extrude", "fillet", "chamfer", "hole", "combine", "list_edges",
-                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text", "set_material", "set_render", "render_image"})
+                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text", "set_material", "set_render", "render_image", "sketch_mirror", "sketch_pattern", "project_to_sketch", "set_construction"})
             QVERIFY2(names.count(n), n);
         // The session ends: back to listening.
         QCOMPARE(post({}, kToken, {}, QStringLiteral("/mcp"), "DELETE").status, 200);
@@ -510,6 +510,53 @@ private slots:
         QVERIFY(!tool("undo", json::object()).first);
         QCOMPARE(m_window->document().bodyMaterial(a), cad::defaultBodyMaterial());
         QCOMPARE(m_window->document().bodyMaterial(b), cad::defaultBodyMaterial());
+    }
+
+    void sketchMirrorPatternProjectAndConstruction() {
+        initialize();
+        // An open U onto the Y axis, then mirrored about it: one closed profile.
+        const auto [e0, u] = tool("create_sketch", {{"plane", "XY"},
+                                                    {"entities", {{{"type", "polyline"},
+                                                                   {"points", {{0, 0}, {20, 0}, {20, 10}, {0, 10}}}}}}});
+        QVERIFY2(!e0, u.dump().c_str());
+        const int sketch = u["sketch"];
+        std::vector<int> lines;
+        for(const json &c : u["curves"])
+            if(c["type"] == "line") lines.push_back(c["id"]);
+        QCOMPARE(int(lines.size()), 3);
+        QCOMPARE(int(u["profiles"].size()), 0);
+        const auto [e1, m] = tool("sketch_mirror", {{"sketch", sketch}, {"entities", lines}, {"line", "y_axis"}});
+        QVERIFY2(!e1, m.dump().c_str());
+        QCOMPARE(int(m["profiles"].size()), 1);
+        QCOMPARE(m["profiles"][0]["area_mm2"].get<double>(), 400.0);
+        QVERIFY(tool("sketch_mirror", {{"sketch", sketch}, {"entities", lines}, {"line", "z_axis"}}).first);
+        // A circle copied around the origin: 6 in all.
+        const auto [e2, c] = tool("add_to_sketch", {{"sketch", sketch},
+                                                    {"entities", {{{"type", "circle"}, {"center", {0, 30}}, {"radius", 3}}}}});
+        QVERIFY2(!e2, c.dump().c_str());
+        const int circle = c["entities"][0]["id"];
+        const auto [e3, p] = tool("sketch_pattern", {{"sketch", sketch}, {"entities", {circle}}, {"center", {0, 0}}, {"count", 6}});
+        QVERIFY2(!e3, p.dump().c_str());
+        int circles = 0;
+        for(const json &cv : p["curves"]) circles += cv["type"] == "circle";
+        QCOMPARE(circles, 6);
+        QVERIFY(tool("sketch_pattern", {{"sketch", sketch}, {"entities", {circle}}, {"center", {0, 0}}, {"count", 1}}).first);
+        // Construction: the mirrored outline stops being a profile.
+        const auto [e4, k] = tool("set_construction", {{"sketch", sketch}, {"entities", lines}});
+        QVERIFY2(!e4, k.dump().c_str());
+        QCOMPARE(int(k["profiles"].size()), 6); // just the circles
+        QVERIFY(!tool("set_construction", {{"sketch", sketch}, {"entities", lines}, {"construction", false}}).first);
+        // A sketch on XZ projecting all of it that can be (lines, not circles: a tilted plane).
+        const auto [e5, side] = tool("create_sketch", {{"plane", "XZ"},
+                                                       {"entities", {{{"type", "line"}, {"from", {-50, 40}}, {"to", {50, 40}}}}}});
+        QVERIFY2(!e5, side.dump().c_str());
+        const auto [e6, pr] = tool("project_to_sketch", {{"sketch", side["sketch"]}, {"from_sketch", sketch}});
+        QVERIFY2(!e6, pr.dump().c_str());
+        int projected = 0;
+        for(const json &cv : pr["curves"]) projected += cv.contains("projected_from");
+        QCOMPARE(projected, 6);
+        // Projecting from a later sketch is refused.
+        QVERIFY(tool("project_to_sketch", {{"sketch", sketch}, {"from_sketch", side["sketch"]}}).first);
     }
 
     void renderSettingsAndAPicture() {

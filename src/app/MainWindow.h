@@ -18,6 +18,7 @@
 class QAction;
 class QActionGroup;
 class QLabel;
+class QMenu;
 
 namespace cadjitsu {
 
@@ -107,6 +108,13 @@ public:
     McpButton *mcpButton() const { return m_mcpButton; }
     McpTools *mcpTools() const { return m_mcpTools.get(); }
     McpDialog *openMcpDialog();
+    // Deletes a sketch (finishing it first if it is open). With `ask`, asks
+    // first when other features use it. False if not deleted.
+    bool deleteSketch(cad::FeatureId id, bool ask = true);
+    // Right-click on sketch geometry: Construction / Normal, Mirror, Pattern,
+    // Delete. False if there is no sketch geometry there.
+    bool showSketchEntityMenu(const QPoint &globalPos);
+    QMenu *sketchEntityMenu() const { return m_sketchEntityMenu; } // while open (tests)
     // The Render dialog (materials, plate, lighting), for these bodies (all if none).
     RenderDialog *openRenderDialog(const std::vector<cad::BodyId> &bodies = {});
     // Ends an open sketch or command (and closes menus) before other edits.
@@ -158,6 +166,7 @@ private:
     McpButton *m_mcpButton = nullptr;
     QPointer<McpDialog> m_mcpDialog;
     QPointer<RenderDialog> m_renderDialog;
+    QMenu *m_sketchEntityMenu = nullptr;
     QString m_path;
     QString m_lastCommand;
     std::map<QString, QAction *> m_actions;

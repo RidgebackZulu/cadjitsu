@@ -282,6 +282,15 @@ void BrowserTree::contextMenuEvent(QContextMenuEvent *e) {
         menu.exec(e->globalPos());
         return;
     }
+    if(kind == SketchItem) {
+        const cad::FeatureId id = item->data(0, IdRole).toInt();
+        QMenu menu(this);
+        menu.addAction(icon(IconId::Sketch), tr("Edit Sketch"), this, [this, id] { emit editSketchRequested(id); });
+        menu.addSeparator();
+        menu.addAction(icon(IconId::Delete), tr("Delete"), this, [this, id] { emit deleteSketchRequested(id); });
+        menu.exec(e->globalPos());
+        return;
+    }
     if(kind != SectionItem) return;
     const int id = item->data(0, IdRole).toInt();
     const cad::SectionAnalysis *s = m_doc.section(id);

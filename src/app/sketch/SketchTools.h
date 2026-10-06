@@ -40,6 +40,9 @@ enum class SketchToolKind {
     Move,
     Offset,
     Text,
+    Mirror,
+    CircularPattern,
+    Project,
 };
 
 QString sketchToolName(SketchToolKind kind);

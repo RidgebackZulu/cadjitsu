@@ -63,6 +63,48 @@ Adds geometry to an existing sketch (one undo step). Bodies already made from th
 | `entities` **(required)** | array of objects | Sketch geometry in the sketch's own 2D coordinates (mm). On XY these are world X, Y; on XZ, world X and Z; on YZ, world Y and Z; on a face or construction plane, see the frame this tool returns. |
 | `sketch` **(required)** | integer | sketch feature id |
 
+## `sketch_mirror`
+
+Mirrors sketch geometry about a line of the sketch (or its x / y axis), like the sketch Mirror tool: the copies stay symmetric to the originals. Points on the mirror line are shared, so half an outline drawn up to the line becomes one closed profile. One undo step. Returns the sketch's curves and profiles.
+
+| Argument | Type | Description |
+|---|---|---|
+| `entities` **(required)** | array of integer | the curves / points / texts to mirror (ids from the sketch's curves) |
+| `line` **(required)** | integer or string | the line to mirror about: a line entity id, "x_axis" or "y_axis" |
+| `sketch` **(required)** | integer | sketch feature id |
+
+## `sketch_pattern`
+
+Circular pattern in a sketch, like the sketch Circular Pattern tool: copies of geometry spread evenly around a centre point. `count` is how many in all (the original included); `angle` the angle they spread over (default 360: all the way round). Dimensions of the copies follow the original's. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `angle` | number | degrees, default 360 |
+| `center` **(required)** | [x, y] | the centre (sketch coordinates) |
+| `count` **(required)** | integer | how many in all, 2-360 |
+| `entities` **(required)** | array of integer | the curves / points / texts to copy |
+| `sketch` **(required)** | integer | sketch feature id |
+
+## `project_to_sketch`
+
+Projects lines, curves and points of another sketch (usually on another plane) onto a sketch, like the sketch Project tool. Projected geometry stays linked: when the original changes, it follows. It is fixed in this sketch, can bound profiles like any line, and can be made construction geometry (set_construction). Circles and arcs project only onto a parallel plane. The other sketch must come before this one in the timeline. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `entities` | array of integer | what to project (default: all its curves) |
+| `from_sketch` **(required)** | integer | the sketch to project from |
+| `sketch` **(required)** | integer | the sketch to project onto |
+
+## `set_construction`
+
+Makes sketch geometry construction geometry (dotted, a reference for drawing: it bounds no profile and is never extruded) or normal again. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `construction` | boolean | true: construction (default); false: normal |
+| `entities` **(required)** | array of integer | the curves / points |
+| `sketch` **(required)** | integer | sketch feature id |
+
 ## `offset_sketch`
 
 Offset (like Fusion's sketch Offset): copies sketch curves a distance to one side, joined up at the corners, held there by ONE new offset dimension (a parameter you can change later). Pick curves by entity id (`curves`, e.g. from add_to_sketch) or by points on or near them (`near`, sketch coordinates); with `chain` (default) each picks everything joined to it end to end, so one point on a rectangle takes the whole outline. Shell a part: offset its outline inwards by the wall thickness, then extrude the ring between the two. Clearances for lids and fits work the same way (e.g. 0.2 mm).

@@ -643,6 +643,25 @@ def sketch():
     return s
 
 
+def project():
+    """A purple line on a raised plane, dropped by dashed arrows onto the sketch below."""
+    iso = Iso(30, 40, 1.0)
+    P = iso.p
+    s = iso.floor_shadow(-16, -16, 32, 32, 1.0)
+    s += iso_sheet(iso, -17, -17, 34, 34)
+    upper = 20
+    s += poly([P(-13, -13, upper), P(13, -13, upper), P(13, 13, upper), P(-13, 13, upper)], "url(#planeFill)", "#C8620C",
+              1.6, 'fill-opacity="0.85"')
+    a, b = (-8, 6), (8, -6)
+    s += line(P(a[0], a[1], upper), P(b[0], b[1], upper), "#7A2DB8", 3.2)
+    for x, y in (a, b):
+        s += line(P(x, y, upper - 3), P(x, y, 3), "#7A2DB8", 1.6, 'stroke-dasharray="2.5,2"')
+        tip = P(x, y, 1.5)
+        s += poly([(tip[0], tip[1]), (tip[0] - 2.6, tip[1] - 4.2), (tip[0] + 2.6, tip[1] - 4.2)], "#7A2DB8", None)
+    s += line(P(a[0], a[1], 0), P(b[0], b[1], 0), "#9B4BDB", 3.6)
+    return s
+
+
 def finish_sketch():
     iso = Iso(28, 34, 1.0)
     s = iso.floor_shadow(-15, -15, 30, 30, 1.0)
@@ -1136,7 +1155,7 @@ ICONS = {
     "camera": camera, "render": render,
     "sketch": sketch, "finish-sketch": finish_sketch, "line": line_tool, "rectangle": rectangle,
     "center-rectangle": center_rectangle, "circle": circle_tool, "arc": arc, "point": point, "dimension": dimension,
-    "construction": construction, "look-at": look_at,
+    "construction": construction, "look-at": look_at, "project": project,
     "coincident": g_coincident, "horizontal": g_horizontal, "vertical": g_vertical, "horizontal-vertical": g_hv,
     "parallel": g_parallel, "perpendicular": g_perpendicular, "tangent": g_tangent, "equal": g_equal,
     "midpoint": g_midpoint, "concentric": g_concentric, "fix": g_fix, "symmetric": g_symmetric,

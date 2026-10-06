@@ -1,6 +1,7 @@
 #include "sketch/SketchTools.h"
 
 #include "command/CommandPanel.h"
+#include "model/ModelView.h"
 #include "sketch/HeadsUpInput.h"
 #include "sketch/SketchMode.h"
 #include "sketch/SketchOffset.h"
@@ -13,6 +14,7 @@
 #include <QComboBox>
 #include <QIcon>
 #include <QKeyEvent>
+#include <QLineF>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPlainTextEdit>
@@ -84,6 +86,9 @@ QString sketchToolName(SketchToolKind k) {
     case SketchToolKind::Move: return SketchTool::tr("Move / Copy");
     case SketchToolKind::Offset: return SketchTool::tr("Offset");
     case SketchToolKind::Text: return SketchTool::tr("Text");
+    case SketchToolKind::Mirror: return SketchTool::tr("Mirror");
+    case SketchToolKind::CircularPattern: return SketchTool::tr("Circular Pattern");
+    case SketchToolKind::Project: return SketchTool::tr("Project");
     }
     return {};
 }
@@ -1910,6 +1915,446 @@ private:
     std::vector<SketchHit> m_picks;
 };
 
+
+// ---------------------------------------------------------------------------
+// Mirror: pick the geometry (or have it selected), then click the line (or
+// axis) to mirror it about. The mirror image stays symmetric to the original.
+
+std::set<int> pickedEntities(const SketchEditor &ed) {
+    std::set<int> out;
+    for(int id : ed.selectedEntities)
+        if(id > 0) out.insert(id);
+    return out;
+}
+
+class MirrorTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Mirror; }
+    QString prompt() const override {
+        return m_phase == Phase::Pick ? tr("Click the geometry to mirror (Enter when done).")
+                                      : tr("Click the line (or axis) to mirror about.");
+    }
+    void activate() override {
+        hud().hide();
+        m_phase = pickedEntities(editor()).empty() ? Phase::Pick : Phase::Line;
+        m_mode.showStatus(prompt());
+    }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        SketchEditor &ed = editor();
+        if(m_phase == Phase::Pick) {
+            const SketchHit hit = ed.hitTest(e->position(), HitPoints | HitCurves | HitText);
+            if(hit.kind == SketchHit::Kind::Point || hit.kind == SketchHit::Kind::Curve) ed.select(hit, true);
+            return true;
+        }
+        if(const int line = lineAt(e->position())) commit(line);
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        SketchEditor &ed = editor();
+        if(m_phase == Phase::Pick) {
+            setHover(e->position(), HitPoints | HitCurves | HitText);
+            return true;
+        }
+        setHover(e->position(), HitCurves | HitAxes);
+        ed.previewLines.clear();
+        if(const int line = lineAt(e->position())) {
+            QString why;
+            ed.previewLines = ed.mirrorOutline(pickedEntities(ed), line, &why);
+            m_mode.showStatus(why.isEmpty() ? prompt() : why);
+        }
+        ed.refreshView();
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override {
+        if((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && m_phase == Phase::Pick &&
+           !pickedEntities(editor()).empty()) {
+            m_phase = Phase::Line;
+            m_mode.showStatus(prompt());
+            return true;
+        }
+        return commonKey(e);
+    }
+    bool cancel() override {
+        if(m_phase != Phase::Line) return false;
+        m_phase = Phase::Pick;
+        editor().clearPreview();
+        m_mode.showStatus(prompt());
+        return true;
+    }
+
+    // Tests: as clicking the line.
+    bool mirrorAbout(int line) {
+        m_phase = Phase::Line;
+        return commit(line);
+    }
+
+private:
+    enum class Phase { Pick, Line };
+
+    // The line (or axis) under the cursor, or 0.
+    int lineAt(QPointF px) const {
+        const SketchHit hit = editor().hitTest(px, HitCurves | HitAxes);
+        if(hit.kind == SketchHit::Kind::Axis) return hit.id;
+        if(hit.kind == SketchHit::Kind::Curve) {
+            const SkEntity *e = editor().sketch().find(hit.id);
+            if(e && e->type == cad::SkType::Line && !pickedEntities(editor()).count(hit.id)) return hit.id;
+        }
+        return 0;
+    }
+
+    bool commit(int line) {
+        SketchEditor &ed = editor();
+        ed.clearPreview();
+        QString why;
+        const bool ok = ed.mirrorEntities(pickedEntities(ed), line, &why);
+        m_mode.showStatus(ok ? tr("Mirrored. Select more geometry to mirror.") : why);
+        m_phase = ok ? Phase::Pick : m_phase;
+        if(ok) ed.clearSelection();
+        return ok;
+    }
+
+    Phase m_phase = Phase::Pick;
+};
+
+// ---------------------------------------------------------------------------
+// Circular Pattern: pick the geometry, click the centre, then type how many
+// in all (the original counts) and over what angle in the panel; the copies
+// show as the values are typed, and OK places them.
+
+class PatternTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    ~PatternTool() override { close(); }
+    SketchToolKind kind() const override { return SketchToolKind::CircularPattern; }
+    QString prompt() const override {
+        switch(m_phase) {
+        case Phase::Pick: return tr("Click the geometry to copy around a centre (Enter when done).");
+        case Phase::Centre: return tr("Click the centre to copy it around.");
+        case Phase::Count: return tr("Type how many in all and the angle they spread over, then OK.");
+        }
+        return {};
+    }
+    void activate() override {
+        hud().hide();
+        m_phase = pickedEntities(editor()).empty() ? Phase::Pick : Phase::Centre;
+        m_mode.showStatus(prompt());
+    }
+    void deactivate() override { close(); }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        SketchEditor &ed = editor();
+        if(m_phase == Phase::Pick) {
+            const SketchHit hit = ed.hitTest(e->position(), HitPoints | HitCurves | HitText);
+            if(hit.kind == SketchHit::Kind::Point || hit.kind == SketchHit::Kind::Curve) ed.select(hit, true);
+            return true;
+        }
+        if(m_phase == Phase::Centre) {
+            m_snap = ed.snap(e->position());
+            open(m_snap.pos);
+        }
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        SketchEditor &ed = editor();
+        if(m_phase == Phase::Pick) {
+            setHover(e->position(), HitPoints | HitCurves | HitText);
+            return true;
+        }
+        if(m_phase == Phase::Centre) {
+            m_cursor = e->position();
+            m_snap = ed.snap(e->position());
+            ed.previewSnap = m_snap;
+            ed.previewLines = ed.patternOutline(pickedEntities(ed), m_snap.pos, 6, 360.0);
+            ed.previewPoints = {m_snap.pos};
+            ed.refreshView();
+        }
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override {
+        if(e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
+            if(m_phase == Phase::Pick && !pickedEntities(editor()).empty()) {
+                m_phase = Phase::Centre;
+                m_mode.showStatus(prompt());
+            } else if(m_phase == Phase::Count) {
+                place();
+            }
+            return true;
+        }
+        if(m_phase == Phase::Count) return false; // typing goes to the panel
+        return commonKey(e);
+    }
+    bool cancel() override {
+        if(m_phase == Phase::Pick) return false;
+        close();
+        m_phase = Phase::Centre;
+        editor().clearPreview();
+        m_mode.showStatus(prompt());
+        return true;
+    }
+
+    // Tests: the panel's fields, and placing it at a centre.
+    ValueField *countField() const { return m_count; }
+    ValueField *angleField() const { return m_angle; }
+    void openAt(Vec2 centre) { open(centre); }
+
+protected:
+    void paintToolOverlay(QPainter &p) override {
+        if(m_phase == Phase::Centre)
+            if(auto id = snapHint(m_snap)) paintHint(p, m_cursor, *id);
+    }
+
+private:
+    enum class Phase { Pick, Centre, Count };
+
+    CommandPanel *panel() const { return m_mode.commandPanel(); }
+
+    void open(Vec2 centre) {
+        CommandPanel *p = panel();
+        if(!p) return;
+        close();
+        m_centre = centre;
+        m_ids = pickedEntities(editor());
+        m_phase = Phase::Count;
+        if(SketchPalette *pal = m_mode.palette()) {
+            m_paletteShown = pal->isVisible();
+            pal->hide();
+        }
+        const auto eval = [this](const std::string &expr, cad::ValueKind k) { return editor().evaluate(expr, k); };
+        p->begin(tr("Circular Pattern"), IconId::PatternCircular);
+        m_count = p->addValue(tr("Count"), cad::ValueKind::Scalar, eval, "sketchPatternCount");
+        m_count->setToolTip(tr("How many around the centre, the original included"));
+        m_count->setExpression(QStringLiteral("6"));
+        m_angle = p->addAngle(tr("Angle"), eval, "sketchPatternAngle", QColor(229, 70, 58));
+        m_angle->setExpression(QString::fromStdString(SketchEditor::formatExpression(2 * cad::kPi, cad::ValueKind::Angle)));
+        m_open = true;
+        m_link = std::make_unique<QObject>();
+        QObject *ctx = m_link.get();
+        for(ValueField *f : {m_count, m_angle})
+            m_connections.push_back(QObject::connect(f, &ValueField::revalidated, ctx, [this] { preview(); }));
+        m_connections.push_back(QObject::connect(p, &CommandPanel::accepted, ctx, [this] { place(); }));
+        m_connections.push_back(QObject::connect(p, &CommandPanel::cancelled, ctx, [this] { cancel(); }));
+        m_count->setFocus();
+        m_count->selectAll();
+        preview();
+        m_mode.showStatus(prompt());
+    }
+
+    void close() {
+        for(const auto &c : m_connections) QObject::disconnect(c);
+        m_connections.clear();
+        if(m_link) m_link.release()->deleteLater();
+        if(m_open && panel()) panel()->end();
+        if(m_open && m_paletteShown)
+            if(SketchPalette *pal = m_mode.palette()) pal->show();
+        m_open = false;
+        m_paletteShown = false;
+        m_count = m_angle = nullptr;
+    }
+
+    // The count and angle as typed (false, and why, if they are not usable).
+    bool values(int &count, double &angle, QString &why) const {
+        if(!m_count || !m_angle || !m_count->valid() || !m_angle->valid()) {
+            why = tr("Type the count and the angle.");
+            return false;
+        }
+        const double c = *m_count->value();
+        if(std::abs(c - std::round(c)) > 1e-9 || c < 2 || c > 360) {
+            why = tr("The count must be a whole number from 2 to 360.");
+            return false;
+        }
+        count = int(std::lround(c));
+        angle = *m_angle->value() * 180.0 / cad::kPi;
+        return true;
+    }
+
+    void preview() {
+        if(!m_open) return;
+        SketchEditor &ed = editor();
+        ed.previewLines.clear();
+        ed.previewPoints = {m_centre};
+        int count = 0;
+        double angle = 0;
+        QString why;
+        if(values(count, angle, why)) ed.previewLines = ed.patternOutline(m_ids, m_centre, count, angle, &why);
+        panel()->setMessage(why, why.isEmpty() ? cad::Severity::Ok : cad::Severity::Error);
+        ed.refreshView();
+    }
+
+    void place() {
+        if(!m_open) return;
+        int count = 0;
+        double angle = 0;
+        QString why;
+        if(!values(count, angle, why)) {
+            panel()->setMessage(why, cad::Severity::Error);
+            return;
+        }
+        SketchEditor &ed = editor();
+        const bool ok = ed.patternEntities(m_ids, m_centre, count, angle, &why);
+        if(!ok) {
+            panel()->setMessage(why, cad::Severity::Error);
+            return;
+        }
+        close();
+        ed.clearPreview();
+        ed.clearSelection();
+        m_phase = Phase::Pick;
+        m_mode.showStatus(tr("%1 in all. Select more geometry to copy around a centre.").arg(count));
+    }
+
+    Phase m_phase = Phase::Pick;
+    SketchSnap m_snap;
+    QPointF m_cursor;
+    Vec2 m_centre;
+    std::set<int> m_ids;
+    bool m_open = false, m_paletteShown = false;
+    ValueField *m_count = nullptr, *m_angle = nullptr;
+    std::unique_ptr<QObject> m_link;
+    std::vector<QMetaObject::Connection> m_connections;
+};
+
+// ---------------------------------------------------------------------------
+// Project: the other sketches' geometry is shown; click a curve or point of
+// one of them to project it onto this sketch. Projected geometry follows its
+// original and is drawn purple.
+
+class ProjectTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Project; }
+    QString prompt() const override {
+        return m_sources.empty() ? tr("There are no other sketches before this one to project from.")
+                                 : tr("Click a line, curve or point of another sketch to project it onto this one.");
+    }
+    void activate() override {
+        hud().hide();
+        gather();
+        m_mode.showStatus(prompt());
+    }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        const Pick pick = pickAt(e->position());
+        if(!pick.source) return true;
+        QString why;
+        if(editor().projectEntity(*pick.source, pick.entity, &why)) m_mode.showStatus(tr("Projected. Click more to project."));
+        else m_mode.showStatus(why);
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        const Pick pick = pickAt(e->position());
+        if(pick.source != m_hover.source || pick.entity != m_hover.entity) {
+            m_hover = pick;
+            editor().refreshView();
+        }
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override { return commonKey(e); }
+
+    // Tests: projects an entity of another sketch, as a click on it would.
+    bool projectFrom(cad::FeatureId sketch, int entity) {
+        for(const auto &src : m_sources)
+            if(src->feature == sketch) return editor().projectEntity(*src, entity);
+        return false;
+    }
+
+protected:
+    void contributeTool(RenderScene &scene) override {
+        LineBatch others;
+        others.color = QColor(150, 60, 210, 110);
+        others.width = 1.4f;
+        others.depthTest = false;
+        LineBatch hot = others;
+        hot.color = QColor(150, 60, 210);
+        hot.width = 3.0f;
+        for(const auto &src : m_sources)
+            for(const auto &e : src->sketch.entities) {
+                if(!e.isCurve()) continue;
+                LineBatch &b = m_hover.source == src.get() && m_hover.entity == e.id ? hot : others;
+                for(const auto &[a, c] : editor().outline(src->sketch, {e.id})) {
+                    b.segments.push_back(world(*src, a));
+                    b.segments.push_back(world(*src, c));
+                }
+            }
+        PointBatch hotPoint;
+        hotPoint.color = QColor(150, 60, 210);
+        hotPoint.outline = Qt::white;
+        hotPoint.size = 9.0f;
+        hotPoint.depthTest = false;
+        if(m_hover.source)
+            if(const SkEntity *e = m_hover.source->sketch.find(m_hover.entity); e && e->type == cad::SkType::Point)
+                hotPoint.points.push_back(world(*m_hover.source, {e->x, e->y}));
+        for(LineBatch *b : {&others, &hot})
+            if(!b->segments.empty()) scene.lines.push_back(*b);
+        if(!hotPoint.points.empty()) scene.points.push_back(hotPoint);
+    }
+
+private:
+    struct Pick {
+        const cad::SketchResult *source = nullptr;
+        int entity = 0;
+    };
+
+    static QVector3D world(const cad::SketchResult &src, Vec2 p) {
+        const gp_Pnt w = src.toWorld(p);
+        return QVector3D(float(w.X()), float(w.Y()), float(w.Z()));
+    }
+
+    // The sketches before this one in the timeline (projecting from a later
+    // one would make each depend on the other).
+    void gather() {
+        m_sources.clear();
+        const cad::StatePtr st = m_mode.modelView() ? m_mode.modelView()->state() : nullptr;
+        if(!st) return;
+        cad::Document &doc = m_mode.document();
+        const cad::FeatureId self = editor().featureId();
+        const int selfIndex = doc.indexOf(self);
+        for(const auto &[id, result] : st->sketches) {
+            if(id == self || !result) continue;
+            const int idx = doc.indexOf(id);
+            if(idx < 0 || (selfIndex >= 0 && idx >= selfIndex)) continue;
+            m_sources.push_back(result);
+        }
+    }
+
+    Pick pickAt(QPointF px) const {
+        const Camera &cam = editor().viewport()->camera();
+        Pick best;
+        double bestD = 9.0; // px
+        auto consider = [&](double d, const cad::SketchResult *src, int id) {
+            if(d < bestD) {
+                bestD = d;
+                best = {src, id};
+            }
+        };
+        for(const auto &src : m_sources) {
+            for(const auto &e : src->sketch.entities) {
+                if(e.type == cad::SkType::Point) {
+                    // Points win over the curves through them.
+                    consider(QLineF(cam.project(world(*src, {e.x, e.y})), px).length() - 3.0, src.get(), e.id);
+                } else if(e.isCurve()) {
+                    for(const auto &[a, c] : editor().outline(src->sketch, {e.id})) {
+                        const QPointF pa = cam.project(world(*src, a)), pc = cam.project(world(*src, c));
+                        const QPointF d = pc - pa;
+                        const double len2 = d.x() * d.x() + d.y() * d.y();
+                        double t = len2 > 0 ? ((px - pa).x() * d.x() + (px - pa).y() * d.y()) / len2 : 0;
+                        t = std::clamp(t, 0.0, 1.0);
+                        consider(QLineF(pa + d * t, px).length(), src.get(), e.id);
+                    }
+                }
+            }
+        }
+        return best;
+    }
+
+    std::vector<std::shared_ptr<const cad::SketchResult>> m_sources;
+    Pick m_hover;
+};
+
 } // namespace
 
 std::unique_ptr<SketchTool> createSketchTool(SketchMode &mode, SketchToolKind kind) {
@@ -1925,6 +2370,9 @@ std::unique_ptr<SketchTool> createSketchTool(SketchMode &mode, SketchToolKind ki
     case SketchToolKind::Move: return std::make_unique<MoveTool>(mode);
     case SketchToolKind::Offset: return std::make_unique<OffsetTool>(mode);
     case SketchToolKind::Text: return std::make_unique<TextTool>(mode);
+    case SketchToolKind::Mirror: return std::make_unique<MirrorTool>(mode);
+    case SketchToolKind::CircularPattern: return std::make_unique<PatternTool>(mode);
+    case SketchToolKind::Project: return std::make_unique<ProjectTool>(mode);
     default: return std::make_unique<ConstraintTool>(mode, kind);
     }
 }

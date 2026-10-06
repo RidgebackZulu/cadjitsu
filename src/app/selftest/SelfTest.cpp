@@ -2114,11 +2114,117 @@ bool renderScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
+// Sketch Mirror, Circular Pattern, construction geometry and Project.
+bool sketchToolsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
+    Viewport *vp = w.viewport();
+    SketchMode *mode = w.sketchMode();
+    bool ok = true;
+    auto check = [&](bool cond, const QString &what) {
+        log << (cond ? "  ok   " : "  FAIL ") << what << "\n";
+        ok &= cond;
+    };
+    auto shot = [&](const char *name) {
+        waitForFrames(vp, 2);
+        processEventsFor(30);
+        w.grab().save(out.filePath(QString::fromLatin1(name)));
+    };
+    auto count = [&](cad::SkType t) {
+        int n = 0;
+        for(const auto &e : mode->editor()->sketch().entities) n += e.type == t;
+        return n;
+    };
+    auto ids = [&](cad::SkType t) {
+        std::vector<int> v;
+        for(const auto &e : mode->editor()->sketch().entities)
+            if(e.type == t) v.push_back(e.id);
+        return v;
+    };
+
+    // A half bracket up to the Y axis, mirrored about it.
+    if(!mode->beginNewSketch(cad::PlaneRef::origin(cad::PlaneRef::Kind::XY), false)) return false;
+    SketchEditor *ed = mode->editor();
+    ed->edit(QStringLiteral("half"), [](cad::Sketch &s) {
+        const int a = s.addPoint(0, 0), b = s.addPoint(30, 0), c = s.addPoint(30, 8), d = s.addPoint(12, 8),
+                  e = s.addPoint(12, 20), f = s.addPoint(0, 20);
+        s.addLine(a, b), s.addLine(b, c), s.addLine(c, d), s.addLine(d, e), s.addLine(e, f);
+        s.addCircle(cad::Vec2(22, 4), 2.2);
+    }, false);
+    vp->fitAll(false);
+    for(int i = 0; i < 2; ++i) vp->camera().zoom(1.6f, vp->camera().target);
+    ed->selectEntities([&] {
+        std::vector<int> v = ids(cad::SkType::Line);
+        for(int c : ids(cad::SkType::Circle)) v.push_back(c);
+        return v;
+    }(), false);
+    w.action(QStringLiteral("sketchMirror"))->trigger();
+    const QPointF axis = ed->toScreen({0, 10});
+    sendMouse(vp, QEvent::MouseMove, axis, Qt::NoButton, Qt::NoButton);
+    check(!ed->previewLines.empty(), QStringLiteral("hovering the Y axis previews the mirror image"));
+    shot("sketchtools_1_mirror_preview.png");
+    clickAt(vp, axis);
+    check(count(cad::SkType::Line) == 10 && count(cad::SkType::Circle) == 2, QStringLiteral("mirrored: 10 lines, 2 circles"));
+    check(ed->profiles().size() >= 2, QStringLiteral("the mirrored outline closes into a profile"));
+    vp->fitAll(false);
+    shot("sketchtools_2_mirrored.png");
+
+    // A circular pattern of a slot-like circle, with its count typed.
+    ed->edit(QStringLiteral("hole"), [](cad::Sketch &s) { s.addCircle(cad::Vec2(0, 40), 3); }, false);
+    const int hole = ids(cad::SkType::Circle).back();
+    ed->selectEntities({hole}, false);
+    w.action(QStringLiteral("sketchCircularPattern"))->trigger();
+    clickAt(vp, ed->toScreen({0, 25}));
+    CommandPanel *panel = w.commandPanel();
+    check(panel && panel->isOpen(), QStringLiteral("the pattern asks for the count"));
+    if(ValueField *n = panel ? panel->findChild<ValueField *>(QStringLiteral("sketchPatternCount")) : nullptr) {
+        n->setExpression(QStringLiteral("5"));
+        vp->fitAll(false);
+        for(int i = 0; i < 2; ++i) vp->camera().zoom(1.6f, vp->camera().target);
+        shot("sketchtools_3_pattern_preview.png");
+        panel->okButton()->click();
+    }
+    check(count(cad::SkType::Circle) == 7, QStringLiteral("5 circles around the centre (and the two mirrored)"));
+
+    // Two lines as construction: dotted.
+    ed->edit(QStringLiteral("guides"), [](cad::Sketch &s) {
+        s.addLine(cad::Vec2(-40, 25), cad::Vec2(40, 25), true);
+        s.addCircle(cad::Vec2(0, 25), 15, true);
+    }, false);
+    vp->fitAll(false);
+    shot("sketchtools_4_construction.png");
+    const cad::FeatureId base = ed->featureId();
+    mode->finish();
+    w.waitForModel();
+
+    // A sketch on XZ projecting the bracket's bottom edge and a hole.
+    if(!mode->beginNewSketch(cad::PlaneRef::origin(cad::PlaneRef::Kind::XZ), false)) return false;
+    ed = mode->editor();
+    w.action(QStringLiteral("sketchProject"))->trigger();
+    vp->setStandardView(StandardView::Home, false);
+    vp->fitAll(false);
+    waitForFrames(vp, 2);
+    const QPointF edge = vp->camera().project(QVector3D(-15, 0, 0));
+    sendMouse(vp, QEvent::MouseMove, edge, Qt::NoButton, Qt::NoButton);
+    clickAt(vp, edge);
+    int projected = 0;
+    for(const auto &e : ed->sketch().entities) projected += e.isProjected() && e.type == cad::SkType::Line;
+    check(projected == 1, QStringLiteral("the bottom edge projects onto the XZ sketch"));
+    ed->edit(QStringLiteral("rise"), [](cad::Sketch &s) {
+        s.addRectangle({-30, 0}, {30, 15});
+    }, false);
+    shot("sketchtools_5_project.png");
+    mode->finish();
+    w.waitForModel();
+    const cad::FeaturePtr f = w.document().feature(base);
+    check(f != nullptr, QStringLiteral("the bracket sketch is there"));
+    return ok;
+}
+
 const std::map<QString, Scenario> &scenarios() {
     static const std::map<QString, Scenario> s = {
         {QStringLiteral("smoke"), smokeScenario},
         {QStringLiteral("views"), viewsScenario},
         {QStringLiteral("sketch"), sketchScenario},
+        {QStringLiteral("sketchtools"), sketchToolsScenario},
         {QStringLiteral("plate"), plateScenario},
         {QStringLiteral("features"), featuresScenario},
         {QStringLiteral("section"), sectionScenario},

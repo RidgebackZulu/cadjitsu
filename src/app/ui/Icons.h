@@ -16,7 +16,7 @@ namespace cadjitsu {
 // device pixel ratio it is shown at.
 enum class IconId {
     Home, Orbit, Pan, Zoom, Fit, Display, Grid, Camera, Render,
-    Sketch, FinishSketch, Line, Rectangle, CenterRectangle, Circle, Arc, Point, Dimension, Construction, LookAt,
+    Sketch, FinishSketch, Project, Line, Rectangle, CenterRectangle, Circle, Arc, Point, Dimension, Construction, LookAt,
     Coincident, Horizontal, Vertical, HorizontalVertical, Parallel, Perpendicular, Tangent, Equal, Midpoint,
     Concentric, Fix, Symmetric,
     Extrude, Fillet, Chamfer, Hole, Combine, Plane, Section, Measure, Overhang, Split, Move, Offset, Select, Draft, Mirror, PatternRect, PatternCircular, Thread, Text, Emboss,

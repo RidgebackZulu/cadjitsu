@@ -6,6 +6,9 @@
 #include "viewport/OverlayPaint.h"
 #include "viewport/Viewport.h"
 
+#include "sketch/SketchOps.h"
+#include "sketch/SketchProject.h"
+
 #include "measure/Measure.h"
 #include "sketch/SketchOffset.h"
 #include "sketch/SketchText.h"
@@ -35,6 +38,8 @@ namespace {
 const QColor kFixedColor(24, 26, 30);
 const QColor kFreeColor(26, 101, 201);
 const QColor kConstructionColor(240, 140, 0);
+// Geometry projected from another sketch.
+const QColor kProjectedColor(150, 60, 210);
 const QColor kSelectedColor(58, 163, 255);
 const QColor kHoverColor(120, 185, 255);
 const QColor kFailedColor(214, 44, 44);
@@ -410,6 +415,123 @@ std::vector<std::pair<Vec2, Vec2>> SketchEditor::movedOutline(const std::set<int
         }
     }
     return out;
+}
+
+std::vector<std::pair<Vec2, Vec2>> SketchEditor::outline(const cad::Sketch &s, const std::vector<int> &ids) const {
+    std::vector<std::pair<Vec2, Vec2>> out;
+    for(int id : ids) {
+        const SkEntity *e = s.find(id);
+        if(!e || id <= 0) continue;
+        if(e->isText()) {
+            for(const auto &piece : cad::sketchTextLetters(s, *e).pieces)
+                for(const auto &loop : piece)
+                    for(size_t i = 0; i < loop.size(); ++i) out.push_back({loop[i], loop[(i + 1) % loop.size()]});
+            continue;
+        }
+        if(!e->isCurve()) continue;
+        // (polyline() reads the editor's own sketch: this one may differ.)
+        const auto pl = [&] {
+            std::vector<Vec2> pts;
+            if(e->type == SkType::Line) return std::vector<Vec2>{s.pointPos(e->a), s.pointPos(e->b)};
+            const Vec2 c = s.pointPos(e->a);
+            double a0 = 0, a1 = 2 * cad::kPi, r = e->r;
+            if(e->type == SkType::Arc) {
+                const Vec2 p0 = s.pointPos(e->b), p1 = s.pointPos(e->c);
+                r = (p0 - c).length();
+                a0 = std::atan2(p0.y - c.y, p0.x - c.x);
+                a1 = std::atan2(p1.y - c.y, p1.x - c.x);
+                while(a1 <= a0) a1 += 2 * cad::kPi;
+            }
+            const int n = std::max(8, int(64 * (a1 - a0) / (2 * cad::kPi)));
+            for(int i = 0; i <= n; ++i) {
+                const double t = a0 + (a1 - a0) * i / n;
+                pts.push_back(c + Vec2(std::cos(t), std::sin(t)) * r);
+            }
+            return pts;
+        }();
+        for(size_t i = 0; i + 1 < pl.size(); ++i) out.push_back({pl[i], pl[i + 1]});
+    }
+    return out;
+}
+
+namespace {
+
+std::vector<int> asVector(const std::set<int> &ids) {
+    std::vector<int> v;
+    for(int id : ids)
+        if(id > 0) v.push_back(id);
+    return v;
+}
+
+} // namespace
+
+std::vector<std::pair<Vec2, Vec2>> SketchEditor::mirrorOutline(const std::set<int> &ids, int lineId, QString *error) const {
+    cad::Sketch s = sketch();
+    std::vector<int> made;
+    std::string why;
+    if(!cad::mirrorEntities(s, asVector(ids), lineId, made, why)) {
+        if(error) *error = QString::fromStdString(why);
+        return {};
+    }
+    return outline(s, made);
+}
+
+std::vector<std::pair<Vec2, Vec2>> SketchEditor::patternOutline(const std::set<int> &ids, Vec2 centre, int count,
+                                                                double totalAngle, QString *error) const {
+    cad::Sketch s = sketch();
+    std::vector<int> made;
+    std::string why;
+    if(!cad::patternEntities(s, asVector(ids), centre, count, totalAngle, made, why)) {
+        if(error) *error = QString::fromStdString(why);
+        return {};
+    }
+    return outline(s, made);
+}
+
+bool SketchEditor::mirrorEntities(const std::set<int> &ids, int lineId, QString *error) {
+    cad::Sketch work = sketch();
+    std::vector<int> made;
+    std::string why;
+    if(!cad::mirrorEntities(work, asVector(ids), lineId, made, why)) {
+        if(error) *error = QString::fromStdString(why);
+        emit message(tr("Mirror: %1.").arg(QString::fromStdString(why)));
+        return false;
+    }
+    if(!commit(tr("Mirror"), std::move(work), {})) return false;
+    selectEntities(made, false);
+    return true;
+}
+
+bool SketchEditor::patternEntities(const std::set<int> &ids, Vec2 centre, int count, double totalAngle, QString *error) {
+    cad::Sketch work = sketch();
+    std::vector<int> made;
+    std::string why;
+    if(!cad::patternEntities(work, asVector(ids), centre, count, totalAngle, made, why)) {
+        if(error) *error = QString::fromStdString(why);
+        emit message(tr("Circular pattern: %1.").arg(QString::fromStdString(why)));
+        return false;
+    }
+    return commit(tr("Circular Pattern"), std::move(work), {});
+}
+
+bool SketchEditor::projectEntity(const cad::SketchResult &source, int entityId, QString *error) {
+    cad::Sketch work = sketch();
+    std::vector<int> made;
+    std::string why;
+    if(!cad::projectEntity(work, m_frame, source, entityId, made, why)) {
+        if(error) *error = QString::fromStdString(why);
+        emit message(tr("Project: %1.").arg(QString::fromStdString(why)));
+        return false;
+    }
+    if(made.empty()) return true; // projected already
+    return commit(tr("Project"), std::move(work), {});
+}
+
+void SketchEditor::refreshProjections(const std::function<const cad::SketchResult *(cad::FeatureId)> &sourceOf) {
+    std::vector<std::string> warnings;
+    cad::refreshProjections(sketch(), m_frame, sourceOf, warnings);
+    solve();
+    emitChanged();
 }
 
 bool SketchEditor::moveEntities(const std::set<int> &ids, Vec2 pivot, Vec2 delta, double angle, bool copy) {
@@ -1417,13 +1539,14 @@ void SketchEditor::contribute(RenderScene &scene) const {
         b.width = width;
         return b;
     };
-    LineBatch construction = batch(kConstructionColor, 1.3f), fixed = batch(kFixedColor, 1.7f),
+    LineBatch projected = batch(kProjectedColor, 1.9f), projectedConstruction = batch(kProjectedColor, 1.5f);
+    LineBatch construction = batch(kConstructionColor, 1.5f), fixed = batch(kFixedColor, 1.7f),
               freeB = batch(kFreeColor, 1.7f), failedB = batch(kFailedColor, 2.0f), hov = batch(kHoverColor, 2.8f),
               sel = batch(kSelectedColor, 2.8f);
-    // Construction geometry is dashed along whole curves (about 6 px on, 5 px off).
+    // Construction geometry is dotted along whole curves (2 px dots, 4 px apart).
     const double dashUnits = [&] {
         const auto c = toSketch(QPointF(m_viewport->width() / 2.0, m_viewport->height() / 2.0));
-        return sketchUnitsPerPixel(c.value_or(Vec2())) * 6.0;
+        return sketchUnitsPerPixel(c.value_or(Vec2())) * 2.0;
     }();
     auto addPolyline = [&](LineBatch &b, const std::vector<Vec2> &pl, bool dashed) {
         if(pl.size() < 2) return;
@@ -1439,7 +1562,7 @@ void SketchEditor::contribute(RenderScene &scene) const {
         for(size_t k = 1; k < pl.size(); ++k) cum[k] = cum[k - 1] + distance(pl[k - 1], pl[k]);
         const double total = cum.back();
         if(total < 1e-12) return;
-        const double on = std::max({dashUnits, total / 300.0, 1e-9}), period = on * 11.0 / 6.0;
+        const double on = std::max({dashUnits, total / 600.0, 1e-9}), period = on * 3.0;
         size_t seg = 0; // segment containing the current dash start
         auto pointAt = [&](double len, size_t from) {
             while(from + 2 < pl.size() && cum[from + 1] < len) ++from;
@@ -1466,7 +1589,8 @@ void SketchEditor::contribute(RenderScene &scene) const {
     };
     for(const auto &e : s.entities) {
         if((!e.isCurve() && !e.isText()) || previewHidden.count(e.id)) continue;
-        LineBatch &base = e.construction   ? construction
+        LineBatch &base = e.isProjected() ? (e.construction ? projectedConstruction : projected)
+                          : e.construction   ? construction
                           : failed.count(e.id) ? failedB
                           : freeEnts.count(e.id) ? freeB
                                                  : fixed;
@@ -1485,7 +1609,7 @@ void SketchEditor::contribute(RenderScene &scene) const {
         b->segments.push_back(toWorld(d * -ext));
         b->segments.push_back(toWorld(d * ext));
     }
-    for(LineBatch *b : {&construction, &fixed, &freeB, &failedB, &hov, &sel})
+    for(LineBatch *b : {&construction, &projected, &projectedConstruction, &fixed, &freeB, &failedB, &hov, &sel})
         if(!b->segments.empty()) scene.lines.push_back(*b);
 
     // Points: white with a coloured ring.
@@ -1498,13 +1622,15 @@ void SketchEditor::contribute(RenderScene &scene) const {
     };
     PointBatch fixedP = points(Qt::white, kFixedColor, 7.0f), freeP = points(Qt::white, kFreeColor, 7.0f),
                failedP = points(Qt::white, kFailedColor, 7.5f), hovP = points(kHoverColor, kHoverColor.darker(130), 9.0f),
-               selP = points(kSelectedColor, kSelectedColor.darker(140), 9.0f);
+               selP = points(kSelectedColor, kSelectedColor.darker(140), 9.0f),
+               projP = points(Qt::white, kProjectedColor, 7.0f);
     for(const auto &e : s.entities) {
         if(e.type != SkType::Point) continue;
         const QVector3D w = toWorld({e.x, e.y});
         if(selected.count(e.id)) selP.points.push_back(w);
         else if(hot.count(e.id)) hovP.points.push_back(w);
         else if(!m_options.points) continue;
+        else if(e.isProjected()) projP.points.push_back(w);
         else if(failed.count(e.id)) failedP.points.push_back(w);
         else if(freeEnts.count(e.id)) freeP.points.push_back(w);
         else fixedP.points.push_back(w);
@@ -1514,7 +1640,7 @@ void SketchEditor::contribute(RenderScene &scene) const {
     if(selected.count(cad::kSketchOrigin)) origin = points(kSelectedColor, Qt::white, 9.0f);
     else if(hot.count(cad::kSketchOrigin)) origin = points(kHoverColor, Qt::white, 9.0f);
     origin.points.push_back(toWorld({0, 0}));
-    for(PointBatch *b : {&origin, &fixedP, &freeP, &failedP, &hovP, &selP})
+    for(PointBatch *b : {&origin, &fixedP, &freeP, &failedP, &projP, &hovP, &selP})
         if(!b->points.empty()) scene.points.push_back(*b);
 
     // Geometry being drawn by the active tool.

@@ -5,6 +5,7 @@
 #include "expr/ParamTable.h"
 #include "features/SketchFeature.h"
 #include "sketch/ProfileBuilder.h"
+#include "sketch/SketchResult.h"
 #include "sketch/SketchSolver.h"
 
 #include <gp_Ax3.hxx>
@@ -144,6 +145,22 @@ public:
     // Where those entities would be drawn after such a move (preview segments).
     std::vector<std::pair<cad::Vec2, cad::Vec2>> movedOutline(const std::set<int> &ids, cad::Vec2 pivot, cad::Vec2 delta,
                                                               double angle) const;
+    // Mirror: copies of `ids` mirrored about a line or axis, held symmetric to
+    // the originals (one undo step).
+    bool mirrorEntities(const std::set<int> &ids, int lineId, QString *error = nullptr);
+    // Circular pattern: `count` - 1 copies of `ids` turned about `centre` over
+    // `totalAngle` degrees (one undo step).
+    bool patternEntities(const std::set<int> &ids, cad::Vec2 centre, int count, double totalAngle, QString *error = nullptr);
+    // What those would add (preview segments); empty, with `error`, if they cannot.
+    std::vector<std::pair<cad::Vec2, cad::Vec2>> mirrorOutline(const std::set<int> &ids, int lineId, QString *error = nullptr) const;
+    std::vector<std::pair<cad::Vec2, cad::Vec2>> patternOutline(const std::set<int> &ids, cad::Vec2 centre, int count,
+                                                                double totalAngle, QString *error = nullptr) const;
+    // Projects a curve or point of another sketch onto this one (one undo step).
+    bool projectEntity(const cad::SketchResult &source, int entityId, QString *error = nullptr);
+    // Moves projected geometry to where its sources are now (no undo step).
+    void refreshProjections(const std::function<const cad::SketchResult *(cad::FeatureId)> &sourceOf);
+    // The segments entities of `s` are drawn with (sketch coordinates).
+    std::vector<std::pair<cad::Vec2, cad::Vec2>> outline(const cad::Sketch &s, const std::vector<int> &ids) const;
     // Adds a driving dimension with the current measured value; falls back to a
     // driven (reference) dimension if it would over-constrain the sketch.
     int addDimension(cad::SkCon type, int e1, int e2, cad::Vec2 label, bool supplementary = false,
@@ -162,6 +179,7 @@ public:
     bool canRedo() const { return !m_redo.empty(); }
     QString undoLabel() const { return m_undo.empty() ? QString() : m_undo.back().label; }
     bool modified() const { return m_modified; }
+    void clearUndoModified() { m_modified = false; }
 
     // Solves the working copy; `dragged` points are kept at their positions.
     void solve(const std::vector<int> &dragged = {}, bool analyse = true);
