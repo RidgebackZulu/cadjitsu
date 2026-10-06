@@ -80,6 +80,9 @@ public:
     void setBodyMaterial(const BodyId &id, const std::optional<BodyMaterial> &m, const std::vector<BodyId> &existing = {});
     void setBodyMaterials(const std::vector<BodyId> &ids, const std::optional<BodyMaterial> &m,
                           const std::vector<BodyId> &existing = {});
+    // Each body its own material, still one undo step.
+    void setBodyMaterials(const std::vector<std::pair<BodyId, std::optional<BodyMaterial>>> &changes,
+                          const std::vector<BodyId> &existing = {});
     std::optional<BodyMaterial> explicitBodyMaterial(const BodyId &id) const;
     BodyMaterial bodyMaterial(const BodyId &id) const; // the default when none was chosen
     // How the design is rendered (build plate, lighting, print surface); not an undo step.

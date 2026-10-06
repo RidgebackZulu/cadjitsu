@@ -121,6 +121,8 @@ signals:
     void escapePressed();
     void cameraChanged();
     void displayStyleChanged(cadjitsu::DisplayStyle style);
+    // The display menu's "Render Settings...".
+    void renderSettingsRequested();
 
 protected:
     void initialize(QRhiCommandBuffer *cb) override;
@@ -196,7 +198,7 @@ private:
     QImage m_traced;
     int m_tracedSamples = 0;
     bool m_tracedDenoised = false;
-    std::unordered_map<const cad::MeshData *, std::shared_ptr<cad::rt::TraceMesh>> m_traceMeshes;
+    std::unordered_map<const cad::MeshData *, std::shared_ptr<cad::rt::TraceMesh>> m_traceMeshes; // TraceMeshCache
 };
 
 } // namespace cadjitsu

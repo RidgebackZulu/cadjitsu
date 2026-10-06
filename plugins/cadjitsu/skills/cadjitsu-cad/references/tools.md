@@ -350,6 +350,33 @@ Points the camera: home, front, back, left, right, top, bottom (and fits the mod
 |---|---|---|
 | `view` **(required)** | `home` / `front` / `back` / `left` / `right` / `top` / `bottom` |  |
 
+## `set_render`
+
+How the design is rendered (the Rendered style and render_image): the build plate (the Snapmaker U1's textured or smooth PEI sheet, or none), where the model sits on it (centered, or as_modelled with the print area's front-left corner at the origin, as in a slicer), studio or daylight lighting, the print's layer height and line width and whether layer lines show, whether the canvas refines with the path tracer when the view rests, and draft or final quality. Not an undo step. Switches the canvas to the Rendered style (unless show is false). Returns the settings.
+
+| Argument | Type | Description |
+|---|---|---|
+| `layer_height` | number | mm (0.04-0.6; default 0.2) |
+| `layer_lines` | boolean | show the layer lines |
+| `lighting` | `studio` / `daylight` | studio softboxes, or sun and sky |
+| `line_width` | number | mm (0.1-2; default 0.42) |
+| `placement` | `centered` / `as_modelled` | where the model sits on the plate |
+| `plate` | `textured_pei` / `smooth_pei` / `none` | build plate sheet |
+| `quality` | `draft` / `final` | draft (fast) or final (every pixel, more samples) |
+| `ray_traced` | boolean | refine the canvas with the path tracer when the view rests |
+| `show` | boolean | switch the canvas to the Rendered style (default true) |
+
+## `render_image`
+
+A lifelike, path-traced picture of the current view, as the Rendered style shows it (each body's material, the build plate, the lighting; see set_material and set_render), saved as a PNG. Takes a few seconds to a minute (samples per pixel; denoised). Returns the file's path.
+
+| Argument | Type | Description |
+|---|---|---|
+| `height` | integer | pixels (default 1000) |
+| `path` | string | where to write the PNG (default: a file in the temporary folder) |
+| `samples` | integer | samples per pixel, 4-1024 (default 64) |
+| `width` | integer | pixels (default 1600) |
+
 ## `set_display_style`
 
 Display style of the canvas: shaded_edges, shaded, wireframe or rendered.

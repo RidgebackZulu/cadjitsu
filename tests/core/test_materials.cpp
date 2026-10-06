@@ -140,3 +140,33 @@ TEST_CASE("optics are physical and follow the finish") {
     // sRGB round trip.
     for(float c : {0.0f, 0.02f, 0.5f, 1.0f}) CHECK(linearToSrgb(srgbToLinear(c)) == doctest::Approx(c).epsilon(1e-4));
 }
+
+TEST_CASE("changing a material keeps what is not given; several bodies are one undo step") {
+    const BodyMaterial gold = mat(PrintMaterial::PLA, Finish::Silk, "Silk Gold");
+    // Only the filament.
+    BodyMaterial m = withChanges(gold, PrintMaterial::PETG, std::nullopt, std::nullopt);
+    CHECK((m.material == PrintMaterial::PETG));
+    CHECK((m.colorName == "Silk Gold"));
+    // A finish the colour does not come in: that finish's first colour.
+    m = withChanges(gold, std::nullopt, Finish::Translucent, std::nullopt);
+    CHECK((m.finish == Finish::Translucent));
+    CHECK((m.colorName == colorsFor(Finish::Translucent).front()->name));
+    // A colour given with the finish wins.
+    m = withChanges(gold, std::nullopt, Finish::Matte, std::make_pair(0x123456u, std::string()));
+    CHECK(m.rgb == 0x123456u);
+    CHECK(m.colorName.empty());
+
+    Document doc;
+    const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {0, 0}, {20, 10}));
+    doc.addFeature(extrudeAll(doc, s, "5 mm"));
+    const FeatureId s2 = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {30, 0}, {40, 10}));
+    doc.addFeature(extrudeAll(doc, s2, "5 mm"));
+    const std::vector<std::pair<BodyId, std::optional<BodyMaterial>>> changes = {
+        {"b2", gold}, {"b4", mat(PrintMaterial::TPU, Finish::Matte, "Jet Black")}};
+    doc.setBodyMaterials(changes);
+    CHECK((doc.bodyMaterial("b2") == gold));
+    CHECK((doc.bodyMaterial("b4").material == PrintMaterial::TPU));
+    doc.undo();
+    CHECK((doc.bodyMaterial("b2") == defaultBodyMaterial()));
+    CHECK((doc.bodyMaterial("b4") == defaultBodyMaterial()));
+}

@@ -14,8 +14,6 @@
 
 namespace cadjitsu {
 
-namespace {
-
 // The body icon with a dot of its filament colour (none when it has the default).
 QIcon bodyIcon(const cad::BodyMaterial &m, bool chosen) {
     const QIcon base = icon(IconId::Body);
@@ -42,6 +40,8 @@ QIcon bodyIcon(const cad::BodyMaterial &m, bool chosen) {
     }
     return out;
 }
+
+namespace {
 
 constexpr int OverriddenRole = Qt::UserRole + 20;
 
@@ -268,7 +268,21 @@ void BrowserTree::onDoubleClicked(QTreeWidgetItem *item, int column) {
 
 void BrowserTree::contextMenuEvent(QContextMenuEvent *e) {
     QTreeWidgetItem *item = itemAt(e->pos());
-    if(!item || Kind(item->data(0, KindRole).toInt()) != SectionItem) return;
+    if(!item) return;
+    const Kind kind = Kind(item->data(0, KindRole).toInt());
+    if(kind == BodyItem) {
+        // The bodies selected in the browser, or this one.
+        std::vector<cad::BodyId> ids;
+        if(item->isSelected())
+            for(QTreeWidgetItem *it : selectedItems())
+                if(Kind(it->data(0, KindRole).toInt()) == BodyItem) ids.push_back(it->data(0, IdRole).toString().toStdString());
+        if(ids.empty()) ids.push_back(item->data(0, IdRole).toString().toStdString());
+        QMenu menu(this);
+        menu.addAction(icon(IconId::Render), tr("Material..."), this, [this, ids] { emit materialRequested(ids); });
+        menu.exec(e->globalPos());
+        return;
+    }
+    if(kind != SectionItem) return;
     const int id = item->data(0, IdRole).toInt();
     const cad::SectionAnalysis *s = m_doc.section(id);
     if(!s) return;

@@ -189,7 +189,15 @@ jobs:
           mkdir -p out/dmg
           cp -R out/Cadjitsu.app out/dmg/
           ln -s /Applications out/dmg/Applications
-          hdiutil create -volname "Cadjitsu $CADJITSU_LABEL" -srcfolder out/dmg -format UDZO -ov "out/Cadjitsu-$CADJITSU_LABEL-macOS.dmg"
+          # hdiutil can fail with "Resource busy" while the system still scans
+          # the freshly written bundle: wait and try again.
+          for attempt in 1 2 3 4; do
+            hdiutil create -volname "Cadjitsu $CADJITSU_LABEL" -srcfolder out/dmg -format UDZO -ov \
+              "out/Cadjitsu-$CADJITSU_LABEL-macOS.dmg" && break
+            [ "$attempt" -eq 4 ] && exit 1
+            echo "hdiutil failed (attempt $attempt); retrying"
+            sleep $((attempt * 10))
+          done
 
       - name: Test the app from the disk image (Homebrew hidden)
         run: |

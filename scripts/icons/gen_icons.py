@@ -44,6 +44,7 @@ DEFS = """
 <linearGradient id="planeFill" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFC56B" stop-opacity="0.85"/><stop offset="1" stop-color="#F58A1F" stop-opacity="0.55"/></linearGradient>
 <radialGradient id="shadow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#0B1A30" stop-opacity="0.34"/><stop offset="1" stop-color="#0B1A30" stop-opacity="0"/></radialGradient>
 <radialGradient id="iris" cx="0.4" cy="0.35" r="0.65"><stop offset="0" stop-color="#8CC4FF"/><stop offset="0.6" stop-color="#2F7BE0"/><stop offset="1" stop-color="#174A9A"/></radialGradient>
+<radialGradient id="ball" cx="0.35" cy="0.3" r="0.75"><stop offset="0" stop-color="#FF9A8A"/><stop offset="0.45" stop-color="#E0352A"/><stop offset="1" stop-color="#7E0E0A"/></radialGradient>
 <radialGradient id="sphere" cx="0.35" cy="0.3" r="0.75"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.5" stop-color="#BCD2EC"/><stop offset="1" stop-color="#6F8FBA"/></radialGradient>
 """
 
@@ -953,6 +954,25 @@ def camera():
     return s
 
 
+def render():
+    """A glossy red ball on a gold PEI build plate, under a light."""
+    iso = Iso(30, 44, 1.0)
+    P = iso.p
+    s = shadow(30, 58, 26, 3.5)
+    s += poly([P(-20, -20, 0), P(20, -20, 0), P(20, 20, 0), P(-20, 20, 0)], "url(#oTop)", "#8A4A08", 1.5)
+    s += poly([P(20, -20, 0), P(20, 20, 0), P(20, 20, -3), P(20, -20, -3)], "url(#dark)", INK, 1.2)
+    s += poly([P(-20, 20, 0), P(20, 20, 0), P(20, 20, -3), P(-20, 20, -3)], "url(#dark)", INK, 1.2)
+    s += ellipse((34, 46), 11, 4.2, "#5A3205", None, 0, 'fill-opacity="0.45"')
+    s += circle((30, 33), 12, "url(#ball)", "#7A1010", 1.6)
+    s += circle((26, 28.5), 3.4, "#FFFFFF", None, 0, 'fill-opacity="0.9"')
+    # The light, top right.
+    s += circle((51, 11), 4.6, "#FFE9A8", "#C98A10", 1.4)
+    for a in range(0, 360, 45):
+        c, sn = math.cos(math.radians(a)), math.sin(math.radians(a))
+        s += line((51 + 7 * c, 11 + 7 * sn), (51 + 10 * c, 11 + 10 * sn), "#E0A21C", 1.6)
+    return s
+
+
 def origin():
     iso = Iso(28, 38, 1.0)
     P = iso.p
@@ -1113,7 +1133,7 @@ def repeat():
 
 ICONS = {
     "home": home, "orbit": orbit, "pan": pan, "zoom": zoom, "fit": fit, "display": display, "grid": grid,
-    "camera": camera,
+    "camera": camera, "render": render,
     "sketch": sketch, "finish-sketch": finish_sketch, "line": line_tool, "rectangle": rectangle,
     "center-rectangle": center_rectangle, "circle": circle_tool, "arc": arc, "point": point, "dimension": dimension,
     "construction": construction, "look-at": look_at,

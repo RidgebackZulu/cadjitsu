@@ -179,6 +179,25 @@ float linearToSrgb(float c) {
 //   The colour is the light a ~3 mm wall lets through (Beer-Lambert).
 // - Side walls: layer lines are visible on every finish; roughness of the walls
 //   grows with the layer height (Ra ~5-25 um at 0.1-0.3 mm) - see PrintSurface.
+BodyMaterial withChanges(BodyMaterial m, std::optional<PrintMaterial> material, std::optional<Finish> finish,
+                         std::optional<std::pair<uint32_t, std::string>> color) {
+    if(material) m.material = *material;
+    if(finish && *finish != m.finish) {
+        m.finish = *finish;
+        const FilamentColor *named = findFilamentColor(m.colorName);
+        if(!color && named && !(named->finishes & (1u << int(*finish)))) {
+            const auto options = colorsFor(*finish);
+            m.rgb = options.front()->rgb;
+            m.colorName = options.front()->name;
+        }
+    }
+    if(color) {
+        m.rgb = color->first;
+        m.colorName = color->second;
+    }
+    return m;
+}
+
 Optics opticsFor(const BodyMaterial &m) {
     Optics o;
     const auto c = linearOf(m.rgb);

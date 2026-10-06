@@ -221,24 +221,36 @@ void Document::setBodyMaterial(const BodyId &id, const std::optional<BodyMateria
 
 void Document::setBodyMaterials(const std::vector<BodyId> &ids, const std::optional<BodyMaterial> &m,
                                 const std::vector<BodyId> &existing) {
+    std::vector<std::pair<BodyId, std::optional<BodyMaterial>>> changes;
+    for(const BodyId &id : ids) changes.emplace_back(id, m);
+    setBodyMaterials(changes, existing);
+}
+
+void Document::setBodyMaterials(const std::vector<std::pair<BodyId, std::optional<BodyMaterial>>> &changes,
+                                const std::vector<BodyId> &existing) {
     bool same = true;
-    for(const BodyId &id : ids) {
+    for(const auto &[id, m] : changes) {
         auto it = m_bodyMaterials.find(id);
         same &= m ? (it != m_bodyMaterials.end() && it->second == *m) : it == m_bodyMaterials.end();
     }
     if(same) return;
     pushUndo("Body Material");
     // Other bodies there now whose look would follow these (b2.2 after b2) keep theirs.
+    auto changing = [&](const BodyId &b) {
+        return std::any_of(changes.begin(), changes.end(), [&](const auto &c) { return c.first == b; });
+    };
     for(const BodyId &other : existing) {
-        if(std::find(ids.begin(), ids.end(), other) != ids.end() || m_bodyMaterials.count(other)) continue;
-        for(const BodyId &id : ids)
+        if(changing(other) || m_bodyMaterials.count(other)) continue;
+        for(const auto &c : changes) {
+            const BodyId &id = c.first;
             if(other.size() > id.size() && other.compare(0, id.size() + 1, id + ".") == 0) {
                 if(auto own = explicitBodyMaterial(other)) m_bodyMaterials[other] = *own;
                 else m_bodyMaterials[other] = defaultBodyMaterial();
                 break;
             }
+        }
     }
-    for(const BodyId &id : ids) {
+    for(const auto &[id, m] : changes) {
         if(m) m_bodyMaterials[id] = *m;
         else m_bodyMaterials.erase(id);
     }

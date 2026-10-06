@@ -13,6 +13,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <vector>
 
 class QAction;
 class QActionGroup;
@@ -33,6 +34,7 @@ class McpDialog;
 class McpLog;
 class McpServer;
 class McpTools;
+class RenderDialog;
 class SettingsDialog;
 class MarkingMenu;
 class ModelView;
@@ -105,6 +107,8 @@ public:
     McpButton *mcpButton() const { return m_mcpButton; }
     McpTools *mcpTools() const { return m_mcpTools.get(); }
     McpDialog *openMcpDialog();
+    // The Render dialog (materials, plate, lighting), for these bodies (all if none).
+    RenderDialog *openRenderDialog(const std::vector<cad::BodyId> &bodies = {});
     // Ends an open sketch or command (and closes menus) before other edits.
     void finishInteractions();
 
@@ -153,6 +157,7 @@ private:
     McpServer *m_mcp = nullptr;
     McpButton *m_mcpButton = nullptr;
     QPointer<McpDialog> m_mcpDialog;
+    QPointer<RenderDialog> m_renderDialog;
     QString m_path;
     QString m_lastCommand;
     std::map<QString, QAction *> m_actions;

@@ -5,6 +5,7 @@
 #include "io/Exporter.h"
 #include "model/ModelView.h"
 #include "selftest/TestUtil.h"
+#include "viewport/TraceScene.h"
 #include "viewport/Viewport.h"
 
 #include "base/KernelLock.h"
@@ -40,6 +41,7 @@
 #include <gp_Pln.hxx>
 
 #include <QBuffer>
+#include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
@@ -130,6 +132,15 @@ json xyz(const std::string &d) {
     return {{"type", "array"}, {"items", {{"type", "number"}}}, {"minItems", 3}, {"maxItems", 3}, {"description", d}};
 }
 json arrayOf(json item, const std::string &d) { return {{"type", "array"}, {"items", item}, {"description", d}}; }
+json number(const std::string &d) { return {{"type", "number"}, {"description", d}}; }
+
+// The render settings as the tools name them.
+json renderJson(const cad::RenderSettings &s) {
+    return {{"plate", cad::toString(s.plate)},         {"placement", cad::toString(s.placement)},
+            {"lighting", cad::toString(s.lighting)},   {"layer_height", s.layerHeight},
+            {"line_width", s.lineWidth},               {"layer_lines", s.layerLines},
+            {"ray_traced", s.rayTraced},               {"quality", cad::toString(s.quality)}};
+}
 json topoItem(const std::string &what) {
     return {{"type", "object"},
             {"properties", {{"body", str("body id (\"b2\") or name (\"Body1\")")}, {"index", integer(what + " index from list_" + what + "s")}}},
@@ -510,6 +521,7 @@ void McpTools::define() {
                         {"sketches", sketches},
                         {"construction_planes", planes},
                         {"folders", folders},
+                        {"render", renderJson(doc.renderSettings())},
                         {"can_undo", doc.canUndo()},
                         {"undo", doc.undoLabel()}};
         });
@@ -1498,25 +1510,9 @@ void McpTools::define() {
                 color = {{rgb, name}};
             }
             if(!pm && !fin && !color) fail("give a material, finish or color (or reset)");
-            for(const cad::BodyId &id : ids) {
-                cad::BodyMaterial m = doc.bodyMaterial(id);
-                if(pm) m.material = *pm;
-                if(fin && *fin != m.finish) {
-                    m.finish = *fin;
-                    // A colour that does not come in this finish: the finish's first one.
-                    const cad::FilamentColor *named = cad::findFilamentColor(m.colorName);
-                    if(!color && named && !(named->finishes & (1u << int(*fin)))) {
-                        const auto options = cad::colorsFor(*fin);
-                        m.rgb = options.front()->rgb;
-                        m.colorName = options.front()->name;
-                    }
-                }
-                if(color) {
-                    m.rgb = color->first;
-                    m.colorName = color->second;
-                }
-                doc.setBodyMaterial(id, m, all);
-            }
+            std::vector<std::pair<cad::BodyId, std::optional<cad::BodyMaterial>>> changes;
+            for(const cad::BodyId &id : ids) changes.emplace_back(id, cad::withChanges(doc.bodyMaterial(id), pm, fin, color));
+            doc.setBodyMaterials(changes, all);
             return json{{"bodies", bodiesJson(settle())}};
         });
 
@@ -1585,6 +1581,69 @@ void McpTools::define() {
             m_w.viewport()->setStandardView(views.at(v));
             m_w.viewport()->fitAll();
             return json{{"view", v}};
+        });
+
+    add("set_render",
+        "How the design is rendered (the Rendered style and render_image): the build plate (the Snapmaker U1's textured "
+        "or smooth PEI sheet, or none), where the model sits on it (centered, or as_modelled with the print area's "
+        "front-left corner at the origin, as in a slicer), studio or daylight lighting, the print's layer height and "
+        "line width and whether layer lines show, whether the canvas refines with the path tracer when the view "
+        "rests, and draft or final quality. Not an undo step. Switches the canvas to the Rendered style (unless "
+        "show is false). Returns the settings.",
+        {{"plate", enumOf({"textured_pei", "smooth_pei", "none"}, "build plate sheet")},
+         {"placement", enumOf({"centered", "as_modelled"}, "where the model sits on the plate")},
+         {"lighting", enumOf({"studio", "daylight"}, "studio softboxes, or sun and sky")},
+         {"layer_height", number("mm (0.04-0.6; default 0.2)")},
+         {"line_width", number("mm (0.1-2; default 0.42)")},
+         {"layer_lines", boolean("show the layer lines")},
+         {"ray_traced", boolean("refine the canvas with the path tracer when the view rests")},
+         {"quality", enumOf({"draft", "final"}, "draft (fast) or final (every pixel, more samples)")},
+         {"show", boolean("switch the canvas to the Rendered style (default true)")}},
+        {}, [this, &doc](const json &a) {
+            json j = doc.renderSettings().toJson();
+            const std::map<std::string, std::string> keys = {{"plate", "plate"},           {"placement", "placement"},
+                                                             {"lighting", "lighting"},     {"layer_height", "layerHeight"},
+                                                             {"line_width", "lineWidth"},  {"layer_lines", "layerLines"},
+                                                             {"ray_traced", "rayTraced"},  {"quality", "quality"}};
+            for(const auto &[from, to] : keys)
+                if(a.contains(from)) j[to] = a[from];
+            const std::map<std::string, std::vector<std::string>> allowed = {
+                {"plate", {"textured_pei", "smooth_pei", "none"}}, {"placement", {"centered", "as_modelled"}},
+                {"lighting", {"studio", "daylight"}},              {"quality", {"draft", "final"}}};
+            for(const auto &[key, values] : allowed)
+                if(a.contains(key) && (!a[key].is_string() ||
+                                       std::find(values.begin(), values.end(), a[key].get<std::string>()) == values.end()))
+                    fail(key + " must be one of the listed values");
+            for(const char *key : {"layer_height", "line_width"})
+                if(a.contains(key) && !a[key].is_number()) fail(std::string(key) + " must be a number (mm)");
+            doc.setRenderSettings(cad::RenderSettings::fromJson(j));
+            if(a.value("show", true)) m_w.viewport()->setDisplayStyle(DisplayStyle::Rendered);
+            return renderJson(doc.renderSettings());
+        });
+
+    add("render_image",
+        "A lifelike, path-traced picture of the current view, as the Rendered style shows it (each body's material, "
+        "the build plate, the lighting; see set_material and set_render), saved as a PNG. Takes a few seconds to "
+        "a minute (samples per pixel; denoised). Returns the file's path.",
+        {{"path", str("where to write the PNG (default: a file in the temporary folder)")},
+         {"width", integer("pixels (default 1600)")},
+         {"height", integer("pixels (default 1000)")},
+         {"samples", integer("samples per pixel, 4-1024 (default 64)")}},
+        {}, [this, begin, settle](const json &a) {
+            begin();
+            settle();
+            const int w = a.value("width", 1600), h = a.value("height", 1000);
+            if(w < 16 || h < 16 || w > 8192 || h > 8192) fail("width and height must be 16-8192");
+            const int samples = std::clamp(a.value("samples", 64), 4, 1024);
+            std::string path = a.value("path", std::string());
+            if(path.empty())
+                path = QDir(QDir::tempPath()).filePath(QStringLiteral("cadjitsu-render-%1.png").arg(QDateTime::currentMSecsSinceEpoch())).toStdString();
+            Viewport *vp = m_w.viewport();
+            RenderScene scene = vp->content();
+            const TracedPicture pic = renderPicture(scene, vp->camera(), QSize(w, h), samples, vp->backgroundTop(),
+                                                    vp->backgroundBottom());
+            if(!pic.image.save(QString::fromStdString(path), "PNG")) fail("could not write " + path);
+            return json{{"path", path}, {"width", w}, {"height", h}, {"samples", pic.samples}, {"denoised", pic.denoised}};
         });
 
     add("set_display_style", "Display style of the canvas: shaded_edges, shaded, wireframe or rendered.",

@@ -3,6 +3,7 @@
 #include "ui/Icons.h"
 #include "viewport/NavBar.h"
 #include "viewport/ViewCube.h"
+#include "viewport/TraceScene.h"
 #include "viewport/ViewportTool.h"
 
 #include "render/PathTracer.h"
@@ -788,38 +789,7 @@ void Viewport::updateTracing(const RenderScene &scene, const QSize &fb) {
 void Viewport::startTrace() {
     if(m_traceSignature.empty() || m_traceSize.isEmpty()) return;
     if(!m_tracer) m_tracer = std::make_unique<cad::rt::PathTracer>();
-    cad::rt::TraceScene ts;
-    ts.settings = m_content.render;
-    std::unordered_map<const cad::MeshData *, std::shared_ptr<cad::rt::TraceMesh>> used;
-    for(const RenderBody &b : m_content.bodies) {
-        if(!b.mesh || b.mesh->indices.empty() || b.opacity < 0.999f) continue;
-        auto it = m_traceMeshes.find(b.mesh.get());
-        std::shared_ptr<cad::rt::TraceMesh> tm;
-        if(it != m_traceMeshes.end()) tm = it->second;
-        else {
-            tm = std::make_shared<cad::rt::TraceMesh>();
-            tm->positions = b.mesh->positions;
-            tm->normals = b.mesh->normals;
-            tm->indices = b.mesh->indices;
-        }
-        // The material can change without the mesh: a copy when it differs.
-        cad::Optics o = b.optics;
-        if(!b.hasOptics) {
-            cad::BodyMaterial m;
-            m.rgb = uint32_t(b.color.rgb() & 0xffffff);
-            o = cad::opticsFor(m);
-        }
-        const bool translucent = b.hasOptics && b.translucent;
-        if(std::memcmp(&tm->optics, &o, sizeof o) != 0 || tm->translucent != translucent) {
-            auto copy = std::make_shared<cad::rt::TraceMesh>(*tm);
-            copy->optics = o;
-            copy->translucent = translucent;
-            tm = copy;
-        }
-        used[b.mesh.get()] = tm;
-        ts.meshes.push_back(tm);
-    }
-    m_traceMeshes = std::move(used);
+    cad::rt::TraceScene ts = traceSceneFor(m_content, &m_traceMeshes);
     cad::rt::TraceCamera cam;
     const QMatrix4x4 inv = m_traceViewProj.inverted();
     std::memcpy(cam.invViewProj.data(), inv.constData(), 16 * sizeof(float));

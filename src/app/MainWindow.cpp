@@ -30,6 +30,7 @@
 #include "ui/SettingsDialog.h"
 #include "ui/Units.h"
 #include "ui/MarkingMenu.h"
+#include "ui/RenderDialog.h"
 #include "ui/Ribbon.h"
 #include "ui/TimelineWidget.h"
 #include "viewport/Viewport.h"
@@ -164,6 +165,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
         QTimer::singleShot(0, this, [this, id] { editFeature(id); });
     });
     connect(m_browser, &BrowserTree::editSectionRequested, this, &MainWindow::editSection);
+    connect(m_browser, &BrowserTree::materialRequested, this, [this](const std::vector<cad::BodyId> &ids) { openRenderDialog(ids); });
+    connect(m_viewport, &Viewport::renderSettingsRequested, this, [this] { openRenderDialog(); });
     m_document->changed = [this] { onDocumentChanged(); };
 
     // AI agents over MCP (off unless switched on in the MCP dialog).
@@ -226,6 +229,7 @@ void MainWindow::refresh() {
     m_timeline->refresh();
     m_timeline->setEvaluation(m_modelView->evaluation());
     m_browser->rebuild();
+    if(m_renderDialog) m_renderDialog->sync();
     updateStats();
     updateActions();
 }
@@ -250,6 +254,7 @@ void MainWindow::onDocumentChanged() {
     // open. (The browser may be inside a click on an item it would replace.)
     m_modelView->refresh();
     QMetaObject::invokeMethod(m_browser, &BrowserTree::rebuild, Qt::QueuedConnection);
+    if(m_renderDialog) QMetaObject::invokeMethod(m_renderDialog, &RenderDialog::sync, Qt::QueuedConnection);
     updateSectionArrow();
     updateActions();
 }
@@ -537,6 +542,21 @@ void MainWindow::showMarkingMenu(QPoint canvasPos) {
     m_marking->open(canvasPos);
 }
 
+RenderDialog *MainWindow::openRenderDialog(const std::vector<cad::BodyId> &bodies) {
+    if(!m_renderDialog) {
+        m_renderDialog = new RenderDialog(*m_document, m_modelView, m_viewport, this);
+        m_renderDialog->setAttribute(Qt::WA_DeleteOnClose);
+        // New bodies once the model is computed.
+        connect(m_modelView, &ModelView::displayed, m_renderDialog, &RenderDialog::sync);
+    }
+    m_renderDialog->sync();
+    if(!bodies.empty()) m_renderDialog->selectBodies(bodies);
+    m_renderDialog->show();
+    m_renderDialog->raise();
+    m_renderDialog->activateWindow();
+    return m_renderDialog;
+}
+
 McpDialog *MainWindow::openMcpDialog() {
     if(!m_mcpDialog) {
         m_mcpDialog = new McpDialog(*m_mcp, *m_mcpLog, this);
@@ -607,6 +627,9 @@ void MainWindow::buildActions() {
                                    [this] { openSettings(); });
     settings->setMenuRole(QAction::PreferencesRole);
     makeAction("mcpServer", tr("MCP Server..."), IconId::McpServer, {}, [this] { openMcpDialog(); });
+    QAction *render = makeAction("render", tr("Render"), IconId::Render, {}, [this] { openRenderDialog(); });
+    render->setToolTip(tr("Render: print materials (PLA, PETG, TPU; matte, silk, semitransparent), the build plate "
+                          "and the lighting, shown live in the canvas"));
     makeAction("undo", tr("Undo"), IconId::Undo, QKeySequence::Undo, [this] { undo(); });
     QAction *redo = makeAction("redo", tr("Redo"), IconId::Redo, QKeySequence::Redo, [this] { this->redo(); });
     redo->setShortcuts({QKeySequence::Redo, QKeySequence(Qt::CTRL | Qt::Key_Y)});
@@ -768,6 +791,7 @@ void MainWindow::buildRibbon() {
     inspect->addAction(action(QStringLiteral("measure")));
     inspect->addAction(action(QStringLiteral("sectionAnalysis")));
     inspect->addAction(action(QStringLiteral("overhangs")));
+    inspect->addAction(action(QStringLiteral("render")));
     RibbonGroup *make = m_solidTab->addGroup(tr("MAKE"));
     make->addAction(action(QStringLiteral("print3d")));
     m_solidTab->addStretch();

@@ -18,6 +18,7 @@
 #include <QComboBox>
 #include <QFile>
 #include <QImage>
+#include <QTemporaryDir>
 #include <QLabel>
 #include <QLineEdit>
 #include <QNetworkAccessManager>
@@ -158,7 +159,7 @@ private slots:
             QVERIFY(t.contains("inputSchema") && t.contains("description"));
         }
         for(const char *n : {"get_design", "create_sketch", "extrude", "fillet", "chamfer", "hole", "combine", "list_edges",
-                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text", "set_material"})
+                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text", "set_material", "set_render", "render_image"})
             QVERIFY2(names.count(n), n);
         // The session ends: back to listening.
         QCOMPARE(post({}, kToken, {}, QStringLiteral("/mcp"), "DELETE").status, 200);
@@ -503,6 +504,44 @@ private slots:
         QCOMPARE(m_window->document().bodyMaterial(b).rgb, 0xff8000u);
         QVERIFY(!tool("set_material", {{"reset", true}}).first);
         QCOMPARE(m_window->document().bodyMaterial(a), cad::defaultBodyMaterial());
+        // Several bodies changed at once: one undo step.
+        QVERIFY(!tool("set_material", {{"color", "Signal Red"}}).first);
+        QCOMPARE(QString::fromStdString(m_window->document().undoLabel()), QStringLiteral("Body Material"));
+        QVERIFY(!tool("undo", json::object()).first);
+        QCOMPARE(m_window->document().bodyMaterial(a), cad::defaultBodyMaterial());
+        QCOMPARE(m_window->document().bodyMaterial(b), cad::defaultBodyMaterial());
+    }
+
+    void renderSettingsAndAPicture() {
+        initialize();
+        QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {20, 10}}}}}})
+                     .first);
+        QVERIFY(!tool("extrude", {{"sketch", 1}, {"distance", 8}}).first);
+        const auto [e0, r0] = tool("set_render", {{"plate", "smooth_pei"}, {"lighting", "daylight"}, {"layer_height", 0.12},
+                                                  {"ray_traced", false}});
+        QVERIFY2(!e0, r0.dump().c_str());
+        QCOMPARE(r0["plate"].get<std::string>(), std::string("smooth_pei"));
+        const cad::RenderSettings &s = m_window->document().renderSettings();
+        QCOMPARE(s.plate, cad::BuildPlateKind::SmoothPEI);
+        QCOMPARE(s.lighting, cad::Lighting::Daylight);
+        QCOMPARE(s.layerHeight, 0.12);
+        QVERIFY(!s.rayTraced);
+        QCOMPARE(m_window->viewport()->displayStyle(), DisplayStyle::Rendered);
+        QVERIFY(tool("set_render", {{"plate", "glass"}}).first);
+        QVERIFY(tool("set_render", {{"layer_height", "thin"}}).first);
+        QCOMPARE(tool("get_design", json::object()).second["render"]["lighting"].get<std::string>(), std::string("daylight"));
+        // A path-traced picture of the view.
+        QTemporaryDir dir;
+        const QString path = dir.filePath(QStringLiteral("r.png"));
+        const auto [e1, r1] = tool("render_image", {{"path", path.toStdString()}, {"width", 96}, {"height", 64}, {"samples", 4}});
+        QVERIFY2(!e1, r1.dump().c_str());
+        const QImage img(path);
+        QCOMPARE(img.size(), QSize(96, 64));
+        QCOMPARE(r1["samples"].get<int>(), 4);
+        // The part (its own colour) is in the middle, the plate below.
+        QVERIFY(img.pixelColor(48, 32) != img.pixelColor(2, 2));
+        QVERIFY(tool("render_image", {{"width", 4}}).first);
     }
 
     void aBatchBuildsAPartInOneCall() {

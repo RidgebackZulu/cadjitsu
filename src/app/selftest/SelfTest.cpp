@@ -33,6 +33,8 @@
 #include "ui/ExportDialog.h"
 #include "ui/Icons.h"
 #include "ui/MarkingMenu.h"
+#include "ui/RenderDialog.h"
+#include <QListWidget>
 #include "ui/Ribbon.h"
 #include "ui/TimelineWidget.h"
 #include "viewport/ViewCube.h"
@@ -2092,6 +2094,14 @@ bool renderScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     vp->update();
     waitForFrames(vp, 2);
     check(vp->tracedSamples() == 0, QStringLiteral("moving the view shows the live preview"));
+
+    // The Render dialog, on the silk body.
+    RenderDialog *dlg = w.openRenderDialog();
+    dlg->selectBodies({w.modelView()->state()->orderedBodies()[1]->id});
+    processEventsFor(300);
+    check(dlg->bodyList()->count() == 5, QStringLiteral("the Render dialog lists the bodies"));
+    dlg->grab().save(out.filePath(QStringLiteral("render_dialog.png")));
+    dlg->close();
 
     // A close-up of the surfaces: layer lines, silk, the plate's grain.
     rs.rayTraced = false;

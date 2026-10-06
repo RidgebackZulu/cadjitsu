@@ -39,6 +39,10 @@ struct BodyMaterial {
 
 // The look of a body with nothing chosen: grey matte PLA.
 BodyMaterial defaultBodyMaterial();
+// `m` with what is given changed. A finish change keeps a named colour only if
+// that colour comes in the new finish (else it takes the finish's first one).
+BodyMaterial withChanges(BodyMaterial m, std::optional<PrintMaterial> material, std::optional<Finish> finish,
+                         std::optional<std::pair<uint32_t, std::string>> color);
 
 // Named filament colours. Each suits one or more finishes (`finishes` is a
 // bit set of 1 << int(Finish)).

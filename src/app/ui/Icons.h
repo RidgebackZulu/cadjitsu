@@ -15,7 +15,7 @@ namespace cadjitsu {
 // (made by scripts/icons/gen_icons.py), rendered sharp at whatever size and
 // device pixel ratio it is shown at.
 enum class IconId {
-    Home, Orbit, Pan, Zoom, Fit, Display, Grid, Camera,
+    Home, Orbit, Pan, Zoom, Fit, Display, Grid, Camera, Render,
     Sketch, FinishSketch, Line, Rectangle, CenterRectangle, Circle, Arc, Point, Dimension, Construction, LookAt,
     Coincident, Horizontal, Vertical, HorizontalVertical, Parallel, Perpendicular, Tangent, Equal, Midpoint,
     Concentric, Fix, Symmetric,

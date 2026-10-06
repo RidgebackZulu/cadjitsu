@@ -28,6 +28,7 @@ constexpr std::array kIcons = {
     Entry{IconId::Display, "display"},
     Entry{IconId::Grid, "grid"},
     Entry{IconId::Camera, "camera"},
+    Entry{IconId::Render, "render"},
     Entry{IconId::Sketch, "sketch"},
     Entry{IconId::FinishSketch, "finish-sketch"},
     Entry{IconId::Line, "line"},

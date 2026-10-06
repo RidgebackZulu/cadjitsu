@@ -10,6 +10,9 @@ namespace cadjitsu {
 
 class ModelView;
 
+// A body's browser icon: with a dot of its filament colour when one was chosen.
+QIcon bodyIcon(const cad::BodyMaterial &m, bool chosen);
+
 // Fusion 360's BROWSER: the design's Origin, Analysis (section analyses),
 // Bodies, Sketches and Construction folders, with eye icons to show / hide
 // each item, in-place renaming of bodies, and double-click to edit a sketch
@@ -29,6 +32,8 @@ public:
 signals:
     void editSketchRequested(cad::FeatureId id);
     void editSectionRequested(int id);
+    // "Material..." on bodies.
+    void materialRequested(const std::vector<cad::BodyId> &ids);
 
 protected:
     void contextMenuEvent(QContextMenuEvent *e) override;

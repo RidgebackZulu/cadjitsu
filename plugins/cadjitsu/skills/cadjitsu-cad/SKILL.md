@@ -131,6 +131,14 @@ text, extrude the plate, then the letters). For FDM: letters 5 mm or taller with
 - **Orientation:** the largest flat face goes on XY; avoid tiny first-layer contact.
 - **Too big for the bed:** `split_body` with a plane and `pins: true` cuts it into pieces with alignment pin holes;
   export each piece.
+- **Material:** `set_material` says what each body is printed in. PLA (stiff, easy; the default) for most
+  parts; PETG for strength, toughness and heat (up to ~70 C: car interiors, outdoors, snap fits that flex a
+  little); TPU for flexible parts (gaskets, bumpers, grips, phone cases; keep walls >= 1.6 mm). Finishes: matte
+  hides layer lines; silk for show pieces (shiny, but a little weaker); semitransparent (best in PETG) for light
+  pipes, lamp shades and windows - thin walls (1-2 mm) let the most light through.
+- **Showing it:** `set_render` picks the build plate (textured or smooth PEI), lighting and layer height;
+  `render_image` saves a lifelike path-traced picture of the current view (use `screenshot` first to set the
+  view) - send it to the user to show what the print will look like.
 - **Export check:** `export_stl` must report watertight and printable. More than one shell means separate
   pieces - combine touching bodies (or keep `merge: true`).
 

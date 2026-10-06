@@ -23,13 +23,14 @@ It leaves out mesh, sheet metal, plastics and rendering workspaces.
 | Geometry kernel | [OpenCASCADE](https://dev.opencascade.org) (OCCT 7.9+) |
 | Sketch solver | SolveSpace `libslvs` (vendored, GPLv3) |
 | Export | STEP (AP242) and watertight, validated STL |
+| Rendering | Physically based live preview (QRhi shaders); path tracer on [Embree](https://www.embree.org) with [Open Image Denoise](https://www.openimagedenoise.org) |
 
 Cadjitsu is licensed under the GPLv3 (see `LICENSE`) because it links SolveSpace's solver.
 
 ## Building on macOS (Apple Silicon)
 
 ```sh
-brew install qtbase qtsvg qtshadertools opencascade eigen ninja cmake
+brew install qtbase qtsvg qtshadertools opencascade eigen embree open-image-denoise ninja cmake
 cmake --preset macos-brew
 cmake --build --preset macos-brew
 open build/macos/src/app/Cadjitsu.app
@@ -58,7 +59,7 @@ The macOS bundle is built for Apple Silicon, draws with Metal and needs macOS 15
 
 ## Building on Linux
 
-The Linux build uses a conda-forge environment: Qt 6.9, OCCT 7.9, Eigen, GCC, CMake and Ninja. Headless runs use Xvfb and Mesa.
+The Linux build uses a conda-forge environment: Qt 6.9, OCCT 7.9, Eigen, Embree, Open Image Denoise, GCC, CMake and Ninja. Headless runs use Xvfb and Mesa.
 
 ```sh
 scripts/bootstrap_env.sh          # one-time: micromamba env in /opt/cadjitsu-tools/env
@@ -255,7 +256,7 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 | Shaded with Visible Edges | The default: shaded bodies with their edges drawn. |
 | Shaded | Shaded bodies, no edges. |
 | Wireframe | Edges only, including hidden ones. |
-| Rendered | A studio look for checking a part: a softer material with rim light, a contact shadow on the ground, no edges or grid. |
+| Rendered | Lifelike: each body in its print material, standing on the build plate, with soft shadows and reflections (see Materials and rendering). |
 
 The canvas can be used the same way in every style: picking, commands and section analysis all work.
 
@@ -263,6 +264,58 @@ The canvas can be used the same way in every style: picking, commands and sectio
 compass ring under it marks north (+Y), and the triad at its corner shows X / Y / Z. When the view is square to a
 face, arrows around the cube turn to the neighbouring face and the curved arrows roll the view 90 degrees. The round
 button at its top left goes back to the home view.
+
+## Materials and rendering
+
+Every body is printed in something: **PLA, PETG or TPU**, in a **matte, silk or semitransparent** finish, in a
+named filament colour (Signal Red, Silk Gold, Ice Blue, ...) or any colour. New bodies are grey matte PLA. The
+browser shows each body's colour as a dot on its icon.
+
+**SOLID > INSPECT > Render** (also "Render Settings..." in the display menu under the canvas, and "Material..." on
+a body in the browser) opens the Render dialog. Everything in it shows in the canvas at once, in the Rendered
+style:
+
+| Menu | Choices |
+|---|---|
+| Bodies | which bodies the material menus change (all, or those picked) |
+| Material | PLA / PETG / TPU |
+| Finish | Matte / Silk / Semitransparent |
+| Colour | the finish's filament colours, or Custom... |
+| Surface | layer height, layer lines on or off |
+| Build plate | Textured PEI / Smooth PEI / None; centred, or as modelled (the print area's front-left corner at the origin) |
+| Scene | Studio or Daylight lighting; Live preview or Ray traced; Draft or Final quality |
+| Save Image... | a path-traced picture of the view (canvas size up to 3840 x 2160) |
+
+Material changes are undo steps; render settings are saved with the design.
+
+What it looks like, and why:
+
+- **The print's surface.** Walls show the layer lines of an FDM print: rounded bead sides one layer height apart
+  with dark seams between them (wall roughness of printed parts grows with the layer height, about Ra 5-25 um for
+  0.1-0.3 mm layers); slopes step like a staircase with flat treads; top faces show the skin lines one line width
+  apart, at +45 / -45 degrees turning each layer; bottom faces copy the plate's texture. Detail finer than a pixel
+  turns into roughness rather than shimmer.
+- **Matte** filaments (mineral fillers) are rough and low-gloss; **silk** filaments owe their sheen to mica flakes
+  lined up along the extrusion, so their highlights are tinted and stretched across the layers; **semitransparent**
+  prints are hazy rather than clear (light scatters where beads meet): PETG is the clearest, PLA milkier, TPU
+  milkier still. Their colour is what a 3 mm wall lets through, so thick parts get deeper. Refractive indices:
+  PLA 1.46, PETG 1.57, TPU 1.50.
+- **The build plate** is a Snapmaker U1-style double-sided PEI spring-steel sheet (276 x 293 mm, 270 x 270 mm print
+  area, a grab tab at the front) on a black heated bed: golden textured PEI with its powder-coat grain, or glossy
+  smooth PEI that mirrors the model. The model's lowest point sits on it.
+- **Lighting:** a photo studio (a large softbox key light, a strip light, fill and an overhead scrim), or daylight
+  (sun and sky).
+
+**Live preview** (any GPU): image-based lighting, GGX materials (anisotropic for silk), the key light's soft shadows
+(their penumbra widens with the distance to what casts them, and semitransparent bodies tint them), thickness-based
+absorption and haze for semitransparent bodies showing what is behind them, contact shadows and the plate's
+mirror image.
+
+**Ray traced:** once the view has rested for a moment, a path tracer takes over the canvas and refines: light
+bouncing between parts, through semitransparent plastic (a rough dielectric that scatters and absorbs inside),
+sharp-to-soft shadows and true reflections. It is denoised at 4, 8, 16, ... samples; a badge shows the progress.
+Moving the view goes back to the live preview at once. Draft renders about the window's size in points; Final
+renders every pixel with more samples.
 
 ## Export and 3D printing
 

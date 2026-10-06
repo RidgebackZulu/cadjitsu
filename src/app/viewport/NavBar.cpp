@@ -152,6 +152,8 @@ NavBar::NavBar(Viewport *viewport) : QFrame(viewport), m_viewport(viewport) {
     addStyle(tr("Shaded"), DisplayStyle::Shaded);
     addStyle(tr("Wireframe"), DisplayStyle::Wireframe);
     addStyle(tr("Rendered"), DisplayStyle::Rendered);
+    displayMenu->addSeparator();
+    displayMenu->addAction(icon(IconId::Render), tr("Render Settings..."), m_viewport, &Viewport::renderSettingsRequested);
     connect(displayMenu, &QMenu::aboutToShow, this, [this, styles] {
         for(QAction *a : styles->actions()) a->setChecked(a->data().toInt() == int(m_viewport->displayStyle()));
     });
