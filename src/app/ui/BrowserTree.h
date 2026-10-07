@@ -32,10 +32,11 @@ public:
 signals:
     void editSketchRequested(cad::FeatureId id);
     void editSectionRequested(int id);
-    // Canvases: edit (place), calibrate, correct perspective.
+    // Canvases: edit (place), calibrate, correct perspective or the lens.
     void editCanvasRequested(int id);
     void calibrateCanvasRequested(int id);
     void perspectiveCanvasRequested(int id);
+    void lensCanvasRequested(int id);
     // "Delete" on a sketch.
     void deleteSketchRequested(cad::FeatureId id);
     // "Material..." on bodies.

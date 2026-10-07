@@ -198,6 +198,57 @@ FitLoop fitContour(const std::vector<Vec2> &input, double tol) {
             ++k;
         }
     }
+    // Lines in a row that are one straight side become one: two at a slight
+    // kink, or two with a jog between them (a resampled photo's pixel steps),
+    // when all their points lie on one line.
+    auto tryMerge = [&](size_t q, size_t count) {
+        const size_t ns = out.segments.size();
+        if(ns - count + 1 < 3) return false;
+        std::vector<size_t> idx;
+        for(size_t i = 0; i < count; ++i) idx.push_back((q + i) % ns);
+        for(size_t i : idx)
+            if(out.segments[i].arc) return false;
+        const FitSegment &first = out.segments[idx.front()], &last = out.segments[idx.back()];
+        const Vec2 da = (first.b - first.a).normalized(), db = (last.b - last.a).normalized();
+        if(da.dot(db) < std::cos(4.0 * kPi / 180.0)) return false;
+        std::vector<Vec2> pts;
+        for(size_t i : idx) pts.insert(pts.end(), pieces[i].begin(), pieces[i].end());
+        // Straight within tolerance about the best line through them (the
+        // corners at either end are blurred: left out).
+        std::vector<Vec2> inner;
+        for(const Vec2 &p : pts)
+            if(distance(p, first.a) > 2 * tol && distance(p, last.b) > 2 * tol) inner.push_back(p);
+        if(inner.size() < 3) return false;
+        Vec2 c;
+        for(const Vec2 &p : inner) c = c + p;
+        c = c / double(inner.size());
+        double sxx = 0, sxy = 0, syy = 0;
+        for(const Vec2 &p : inner) {
+            const Vec2 r = p - c;
+            sxx += r.x * r.x;
+            sxy += r.x * r.y;
+            syy += r.y * r.y;
+        }
+        const double ang = 0.5 * std::atan2(2 * sxy, sxx - syy);
+        const Vec2 dir(std::cos(ang), std::sin(ang));
+        for(const Vec2 &p : inner)
+            if(std::fabs((p - c).cross(dir)) > 1.5 * tol) return false;
+        const Vec2 end = last.b;
+        out.segments[idx.front()].b = end;
+        pieces[idx.front()] = std::move(pts);
+        // Erase the others, highest index first.
+        std::vector<size_t> rest(idx.begin() + 1, idx.end());
+        std::sort(rest.rbegin(), rest.rend());
+        for(size_t i : rest) {
+            out.segments.erase(out.segments.begin() + std::ptrdiff_t(i));
+            pieces.erase(pieces.begin() + std::ptrdiff_t(i));
+        }
+        return true;
+    };
+    for(bool again = true; again;) {
+        again = false;
+        for(size_t q = 0; q < out.segments.size() && !again; ++q) again = tryMerge(q, 2) || tryMerge(q, 3);
+    }
     // Straight sides, refitted to their outline points away from the ends
     // (a photo blurs corners): a point on the side and its direction.
     struct Side {

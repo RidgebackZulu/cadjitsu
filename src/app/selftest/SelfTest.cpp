@@ -12,6 +12,7 @@
 #include "command/OverhangCommand.h"
 #include "command/Manipulator.h"
 #include "command/PatternCommand.h"
+#include "image/LensModel.h"
 #include "model/CanvasPicture.h"
 #include "command/CanvasCommands.h"
 #include "sketch/SketchTools.h"
@@ -2367,8 +2368,9 @@ bool solidsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
-// Canvas: a photo of a bracket on an A4 sheet, taken at an angle, put on the
-// XY plane, its perspective corrected from the sheet's corners, then traced.
+// Canvas: a photo of a bracket on an A4 sheet, taken at an angle through a
+// barrel lens, put on the XY plane, its lens corrected from the sheet's bent
+// edges, its perspective from the sheet's corners, then traced.
 bool canvasScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     Viewport *vp = w.viewport();
     cad::Document &doc = w.document();
@@ -2418,6 +2420,23 @@ bool canvasScenario(MainWindow &w, const QDir &out, QTextStream &log) {
         p.setPen(QPen(QColor(30, 30, 30), 0.6));
         for(int x = 20; x <= 270; x += 10) p.drawLine(QPointF(x, 196), QPointF(x, x % 50 == 0 ? 186 : 191));
     }
+    // Through a phone's wide lens: straight edges bow out near the sides.
+    const cad::LensDistortion barrel{-0.12, 0.0};
+    {
+        const QImage flat = photo;
+        for(int y = 0; y < photo.height(); ++y)
+            for(int x = 0; x < photo.width(); ++x) {
+                const cad::Vec2 real =
+                    cad::undistortPixel(barrel, {x + 0.5, y + 0.5}, photo.width(), photo.height()) - cad::Vec2(0.5, 0.5);
+                const int rx = std::clamp(int(std::lround(real.x)), 0, flat.width() - 1);
+                const int ry = std::clamp(int(std::lround(real.y)), 0, flat.height() - 1);
+                photo.setPixel(x, y, flat.pixel(rx, ry));
+            }
+    }
+    auto seen = [&](QPointF p) {
+        const cad::Vec2 d = cad::distortPixel(barrel, {p.x(), p.y()}, photo.width(), photo.height());
+        return QPointF(d.x, d.y);
+    };
     const QString path = out.filePath(QStringLiteral("canvas_photo.png"));
     photo.save(path);
 
@@ -2436,9 +2455,37 @@ bool canvasScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     vp->fitAll(false);
     shot("canvas_1_photo.png");
 
-    // Correct the perspective from the sheet's corners (A4: 297 x 210).
+    // Correct the lens: click along three of the sheet's edges, as seen.
     vp->setStandardView(StandardView::Top, false);
     vp->fitAll(false);
+    w.correctCanvasLens(id);
+    if(auto *lens = qobject_cast<CanvasCalibrateCommand *>(w.commands()->command())) {
+        settle();
+        const cad::ReferenceImage r = *doc.canvas(id);
+        const std::array<std::pair<int, int>, 3> edges{{{0, 1}, {1, 2}, {3, 0}}};
+        for(const auto &[a, b] : edges) {
+            for(int i = 0; i <= 6; ++i) {
+                const QPointF p = seen(sheetInPhoto[a] + (sheetInPhoto[b] - sheetInPhoto[a]) * (0.04 + 0.92 * i / 6));
+                lens->addPoint(r.toPlane({p.x(), p.y()}));
+            }
+            lens->nextLine();
+        }
+        settle();
+        vp->fitAll(false);
+        shot("canvas_2_lens_lines.png");
+        lens->previewCheck()->setChecked(true);
+        settle();
+        shot("canvas_3_lens_preview.png");
+        panel->okButton()->click();
+        settle();
+    }
+    const cad::ReferenceImage lensed = *doc.canvas(id);
+    check(lensed.lens && std::abs(lensed.lens->distortion.k1 - barrel.k1) < 0.03,
+          QStringLiteral("the lens is corrected (k1 %1, really %2)")
+              .arg(lensed.lens ? lensed.lens->distortion.k1 : 0.0)
+              .arg(barrel.k1));
+
+    // Correct the perspective from the sheet's corners (A4: 297 x 210).
     w.correctCanvasPerspective(id);
     auto *cmd = qobject_cast<CanvasCalibrateCommand *>(w.commands()->command());
     check(cmd != nullptr, QStringLiteral("Correct Perspective opens"));
@@ -2450,13 +2497,13 @@ bool canvasScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     cmd->heightField()->setExpression(QStringLiteral("210 mm"));
     settle();
     vp->fitAll(false);
-    shot("canvas_2_corners.png");
+    shot("canvas_4_corners.png");
     panel->okButton()->click();
     settle();
     const cad::ReferenceImage after = *doc.canvas(id);
     check(after.perspective.has_value(), QStringLiteral("the perspective is corrected"));
     vp->fitAll(false);
-    shot("canvas_3_corrected.png");
+    shot("canvas_5_corrected.png");
 
     // The part's corners now read true: plane x = sheet x - 148.5, y = 105 - sheet y.
     const QImage shown = canvasPicture(doc, after);
@@ -2479,12 +2526,12 @@ bool canvasScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     // Hover the bracket's upright (sheet 80, 110): its outline previews.
     const QPointF inside = vp->camera().project(QVector3D(float(80 - 148.5), float(105 - 110), 0));
     sendMouse(vp, QEvent::MouseMove, inside, Qt::NoButton, Qt::NoButton);
-    shot("canvas_4_trace_hover.png");
+    shot("canvas_6_trace_hover.png");
     check(!ed->previewLines.empty(), QStringLiteral("hovering the part previews its outline"));
     sendMouse(vp, QEvent::MouseButtonPress, inside, Qt::LeftButton, Qt::LeftButton);
     sendMouse(vp, QEvent::MouseButtonRelease, inside, Qt::LeftButton, Qt::NoButton);
     if(QAction *select = w.action(QStringLiteral("sketchSelect"))) select->trigger();
-    shot("canvas_5_traced.png");
+    shot("canvas_7_traced.png");
     int lines = 0, circles = 0;
     for(const auto &e : ed->sketch().entities) {
         lines += e.type == cad::SkType::Line && !e.construction;

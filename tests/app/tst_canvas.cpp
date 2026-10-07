@@ -5,6 +5,7 @@
 #include "MainWindow.h"
 #include "command/CanvasCommands.h"
 #include "command/CommandPanel.h"
+#include "image/LensModel.h"
 #include "model/CanvasPicture.h"
 #include "model/ModelView.h"
 #include "selftest/TestUtil.h"
@@ -14,6 +15,7 @@
 #include "sketch/SketchTools.h"
 #include "viewport/Viewport.h"
 
+#include <QCheckBox>
 #include <QPainter>
 #include <QPushButton>
 #include <QTemporaryDir>
@@ -241,6 +243,80 @@ private slots:
         QVERIFY(back.fromJson(file, err));
         QVERIFY(back.canvas(id) && back.canvas(id)->perspective);
         QVERIFY(!canvasPicture(back, *back.canvas(id)).isNull());
+    }
+
+    void lensCorrectionStraightensBentEdges() {
+        // A photo through a barrel lens of a dark frame whose edges are
+        // straight in reality (a 600 x 400 photo).
+        const cad::LensDistortion barrel{-0.22, 0.0};
+        const int w = 600, h = 400;
+        QImage img(w, h, QImage::Format_ARGB32);
+        for(int y = 0; y < h; ++y)
+            for(int x = 0; x < w; ++x) {
+                const cad::Vec2 real = cad::undistortPixel(barrel, {x + 0.5, y + 0.5}, w, h);
+                const bool frame = real.x > 40 && real.x < 560 && real.y > 30 && real.y < 370 &&
+                                   !(real.x > 60 && real.x < 540 && real.y > 50 && real.y < 350);
+                img.setPixelColor(x, y, frame ? QColor(30, 30, 40) : QColor(240, 240, 235));
+            }
+        QVERIFY(m_window->insertCanvas(savePhoto(img, "lens.png")));
+        settle();
+        panel()->okButton()->click();
+        settle();
+        const int id = doc().canvases().back().id;
+        topView();
+        m_window->correctCanvasLens(id);
+        auto *cmd = command<CanvasCalibrateCommand>();
+        QVERIFY(cmd);
+        settle();
+        QVERIFY(!panel()->okButton()->isEnabled());
+        // Click along the frame's outer top, left and bottom edges, as seen.
+        const cad::ReferenceImage r = *doc().canvas(id);
+        auto seen = [&](double x, double y) { return r.toPlane(cad::distortPixel(barrel, {x, y}, w, h)); };
+        for(int i = 0; i <= 6; ++i) cmd->addPoint(seen(40 + 520.0 * i / 6, 30));
+        cmd->nextLine();
+        for(int i = 0; i <= 5; ++i) cmd->addPoint(seen(40, 30 + 340.0 * i / 5));
+        cmd->nextLine();
+        for(int i = 0; i <= 6; ++i) cmd->addPoint(seen(40 + 520.0 * i / 6, 370));
+        QCOMPARE(int(cmd->lensLines().size()), 3);
+        cmd->previewCheck()->setChecked(true);
+        settle();
+        QVERIFY(panel()->okButton()->isEnabled());
+        panel()->okButton()->click();
+        settle();
+        const cad::ReferenceImage after = *doc().canvas(id);
+        QVERIFY(after.lens.has_value());
+        QVERIFY2(std::abs(after.lens->distortion.k1 - barrel.k1) < 0.03, qPrintable(QString::number(after.lens->distortion.k1)));
+        QCOMPARE(int(after.lens->lines.size()), 3);
+        QCOMPARE(QString::fromStdString(doc().undoLabel()), QStringLiteral("Correct Lens of Canvas1"));
+        // The frame's top edge is straight again: dark at y = 31..49 right
+        // across, where the photo shows it bowed.
+        const QImage shown = canvasPicture(doc(), after);
+        auto dark = [&](const QImage &im, int x, int y) { return im.pixelColor(x, y).lightness() < 128; };
+        QVERIFY(!dark(img, 50, 40) || !dark(img, 300, 40) || !dark(img, 550, 40)); // bowed in the photo
+        for(int x : {50, 150, 300, 450, 550}) QVERIFY2(dark(shown, x, 40), qPrintable(QString::number(x)));
+        // A perspective on top keeps working, and the lens can go again.
+        m_window->correctCanvasPerspective(id);
+        auto *persp = command<CanvasCalibrateCommand>();
+        QVERIFY(persp);
+        settle();
+        const cad::ReferenceImage src = *doc().canvas(id);
+        for(const cad::Vec2 px : {cad::Vec2(40, 30), cad::Vec2(560, 30), cad::Vec2(560, 370), cad::Vec2(40, 370)})
+            persp->addPoint(src.toPlane(px));
+        persp->widthField()->setExpression(QStringLiteral("260 mm"));
+        persp->heightField()->setExpression(QStringLiteral("170 mm"));
+        settle();
+        panel()->okButton()->click();
+        settle();
+        cad::ReferenceImage both = *doc().canvas(id);
+        QVERIFY(both.perspective && both.lens);
+        QVERIFY(setCanvasLens(doc(), both, std::nullopt));
+        QVERIFY(!both.lens && both.perspective);
+        // The corner clicked at (560, 30) of the corrected photo is that spot of the photo as taken.
+        const cad::Vec2 raw = cad::distortPixel(after.lens->distortion, {560, 30}, w, h);
+        bool found = false;
+        for(const cad::Vec2 &c : both.perspective->corners) found |= cad::distance(c, raw) < 1e-6;
+        QVERIFY(found);
+        QVERIFY(!canvasPicture(doc(), both).isNull());
     }
 
     void traceAPlateIntoTheSketch() {

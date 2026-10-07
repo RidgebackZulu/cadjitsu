@@ -172,6 +172,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
     connect(m_browser, &BrowserTree::editCanvasRequested, this, &MainWindow::editCanvas);
     connect(m_browser, &BrowserTree::calibrateCanvasRequested, this, &MainWindow::calibrateCanvas);
     connect(m_browser, &BrowserTree::perspectiveCanvasRequested, this, &MainWindow::correctCanvasPerspective);
+    connect(m_browser, &BrowserTree::lensCanvasRequested, this, &MainWindow::correctCanvasLens);
     connect(m_browser, &BrowserTree::deleteSketchRequested, this, [this](cad::FeatureId id) {
         // Deferred: the browser rebuilds once the sketch is gone.
         QTimer::singleShot(0, this, [this, id] { deleteSketch(id); });
@@ -542,6 +543,13 @@ void MainWindow::correctCanvasPerspective(int id) {
     m_commands->start(std::make_unique<CanvasCalibrateCommand>(
         CommandContext{m_document.get(), m_modelView, m_viewport, m_commandPanel}, id,
         CanvasCalibrateCommand::Mode::Perspective));
+}
+
+void MainWindow::correctCanvasLens(int id) {
+    if(!m_document->canvas(id)) return;
+    finishInteractions();
+    m_commands->start(std::make_unique<CanvasCalibrateCommand>(
+        CommandContext{m_document.get(), m_modelView, m_viewport, m_commandPanel}, id, CanvasCalibrateCommand::Mode::Lens));
 }
 
 void MainWindow::editSection(int id) {

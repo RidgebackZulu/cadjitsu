@@ -97,6 +97,7 @@ public:
     void editCanvas(int id);
     void calibrateCanvas(int id);
     void correctCanvasPerspective(int id);
+    void correctCanvasLens(int id);
     // The shown section's depth arrow on the canvas (always there to drag).
     DistanceManipulator *sectionArrow() const { return m_sectionArrow.get(); }
     // The shown section's depth, typed or following the arrow (on the canvas).

@@ -2,11 +2,13 @@
 
 #include "base/Json.h"
 #include "base/Vec2.h"
+#include "image/LensModel.h"
 #include "topo/Refs.h"
 
 #include <array>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace cad {
 
@@ -23,7 +25,7 @@ namespace cad {
 // view: `corners` are four pixels of the original photo that are the corners
 // of something rectangular in reality (top-left, top-right, bottom-right,
 // bottom-left), `realWidth` x `realHeight` mm. The app warps the photo so
-// that rectangle is square and true to scale; `pixelWidth` / `pixelHeight`
+// that rectangle is square and true to scale (see also `lens`); `pixelWidth` / `pixelHeight`
 // are the size of the picture as shown (after any correction).
 struct ReferenceImage {
     int id = 0;
@@ -43,6 +45,16 @@ struct ReferenceImage {
         double realWidth = 0.0, realHeight = 0.0;
     };
     std::optional<Perspective> perspective;
+
+    // A lens correction, applied to the photo before any perspective one (so
+    // the perspective corners are in the lens-corrected photo's pixels).
+    // `lines`: the points clicked along straight edges (original photo
+    // pixels), kept to edit it again.
+    struct Lens {
+        LensDistortion distortion;
+        std::vector<std::vector<Vec2>> lines;
+    };
+    std::optional<Lens> lens;
 
     json toJson() const;
     static ReferenceImage fromJson(const json &j);

@@ -32,6 +32,15 @@ json ReferenceImage::toJson() const {
         for(const Vec2 &c : perspective->corners) corners.push_back(vec(c));
         j["perspective"] = {{"corners", corners}, {"width", perspective->realWidth}, {"height", perspective->realHeight}};
     }
+    if(lens) {
+        json lines = json::array();
+        for(const auto &l : lens->lines) {
+            json pts = json::array();
+            for(const Vec2 &p : l) pts.push_back(vec(p));
+            lines.push_back(pts);
+        }
+        j["lens"] = {{"k1", lens->distortion.k1}, {"k2", lens->distortion.k2}, {"lines", lines}};
+    }
     return j;
 }
 
@@ -64,6 +73,21 @@ ReferenceImage ReferenceImage::fromJson(const json &j) {
             ps.realHeight = jget<double>(p, "height", 0.0);
             if(ps.realWidth > 0 && ps.realHeight > 0) r.perspective = ps;
         }
+    }
+    if(j.contains("lens") && j["lens"].is_object()) {
+        const json &l = j["lens"];
+        Lens lens;
+        lens.distortion.k1 = jget<double>(l, "k1", 0.0);
+        lens.distortion.k2 = jget<double>(l, "k2", 0.0);
+        const json lines = l.value("lines", json::array());
+        if(lines.is_array())
+            for(const json &line : lines) {
+                if(!line.is_array()) continue;
+                std::vector<Vec2> pts;
+                for(const json &p : line) pts.push_back(vecFrom(p));
+                lens.lines.push_back(std::move(pts));
+            }
+        r.lens = std::move(lens);
     }
     return r;
 }

@@ -18,6 +18,19 @@ QImage canvasPicture(const cad::Document &doc, const cad::ReferenceImage &canvas
 // The photo as stored, decoded (no correction).
 QImage canvasPhoto(const cad::Document &doc, const cad::ReferenceImage &canvas);
 
+// The photo with its lens corrected (the photo if it has no lens correction):
+// what a perspective correction starts from, the same size as the photo.
+QImage canvasSource(const cad::Document &doc, const cad::ReferenceImage &canvas);
+
+// `photo` undistorted for `lens` (the same size).
+QImage undistortPicture(const QImage &photo, const cad::LensDistortion &lens);
+
+// Sets (or, with no value, removes) `canvas`'s lens correction. A perspective
+// correction is kept on the same spots of the photo, and the sheet it
+// squares stays where it is on the plane. False if the picture is missing.
+bool setCanvasLens(const cad::Document &doc, cad::ReferenceImage &canvas,
+                   const std::optional<cad::ReferenceImage::Lens> &lens);
+
 // Warps `photo` so the quad `corners` (photo pixels: top-left, top-right,
 // bottom-right, bottom-left) becomes a `realWidth` x `realHeight` rectangle
 // seen straight on: a true top view at an even scale. `mmPerPixel` is the

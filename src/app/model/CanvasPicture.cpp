@@ -1,5 +1,7 @@
 #include "model/CanvasPicture.h"
 
+#include "image/LensModel.h"
+
 #include <QHash>
 #include <QPainter>
 #include <QPolygonF>
@@ -7,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <list>
 
 namespace cadjitsu {
@@ -46,11 +49,39 @@ QImage canvasPhoto(const cad::Document &doc, const cad::ReferenceImage &canvas) 
     });
 }
 
-QImage canvasPicture(const cad::Document &doc, const cad::ReferenceImage &canvas) {
+QImage undistortPicture(const QImage &photo, const cad::LensDistortion &lens) {
+    if(photo.isNull() || lens.none()) return photo;
+    const QImage rgba = photo.convertToFormat(QImage::Format_RGBA8888);
+    const cad::ImageView view{rgba.constBits(), rgba.width(), rgba.height(), int(rgba.bytesPerLine())};
+    const std::vector<std::uint8_t> out = cad::undistortImage(view, lens);
+    QImage img(rgba.width(), rgba.height(), QImage::Format_RGBA8888);
+    for(int y = 0; y < img.height(); ++y)
+        std::memcpy(img.scanLine(y), out.data() + size_t(y) * size_t(img.width()) * 4, size_t(img.width()) * 4);
+    return img.convertToFormat(QImage::Format_ARGB32);
+}
+
+namespace {
+
+QString lensKey(const cad::ReferenceImage &canvas) {
+    QString key = QString::fromStdString(canvas.imageKey);
+    if(canvas.lens && !canvas.lens->distortion.none())
+        key += QStringLiteral("|lens %1 %2").arg(canvas.lens->distortion.k1, 0, 'g', 17).arg(canvas.lens->distortion.k2, 0, 'g', 17);
+    return key;
+}
+
+} // namespace
+
+QImage canvasSource(const cad::Document &doc, const cad::ReferenceImage &canvas) {
     const QImage photo = canvasPhoto(doc, canvas);
+    if(photo.isNull() || !canvas.lens || canvas.lens->distortion.none()) return photo;
+    return cached(lensKey(canvas), [&] { return undistortPicture(photo, canvas.lens->distortion); });
+}
+
+QImage canvasPicture(const cad::Document &doc, const cad::ReferenceImage &canvas) {
+    const QImage photo = canvasSource(doc, canvas);
     if(photo.isNull() || !canvas.perspective) return photo;
     const auto &p = *canvas.perspective;
-    QString key = QString::fromStdString(canvas.imageKey);
+    QString key = lensKey(canvas);
     for(const cad::Vec2 &c : p.corners) key += QStringLiteral("|%1,%2").arg(c.x).arg(c.y);
     key += QStringLiteral("|%1x%2").arg(p.realWidth).arg(p.realHeight);
     return cached(key, [&] {
@@ -138,7 +169,7 @@ QImage correctPerspective(const QImage &photo, const std::array<cad::Vec2, 4> &c
 
 bool applyPerspective(const cad::Document &doc, cad::ReferenceImage &canvas, const std::array<cad::Vec2, 4> &corners,
                       double realWidth, double realHeight) {
-    const QImage photo = canvasPhoto(doc, canvas);
+    const QImage photo = canvasSource(doc, canvas);
     if(photo.isNull()) return false;
     const std::array<cad::Vec2, 4> ordered = orderCorners(corners);
     double mm = 0.0;
@@ -153,6 +184,29 @@ bool applyPerspective(const cad::Document &doc, cad::ReferenceImage &canvas, con
     // The rectangle (the sheet the part lies on) centred where the picture was.
     canvas.origin = middle - (canvas.toPlane(centre) - canvas.origin);
     return true;
+}
+
+bool setCanvasLens(const cad::Document &doc, cad::ReferenceImage &canvas,
+                   const std::optional<cad::ReferenceImage::Lens> &lens) {
+    const QImage photo = canvasPhoto(doc, canvas);
+    if(photo.isNull()) return false;
+    const cad::LensDistortion before = canvas.lens ? canvas.lens->distortion : cad::LensDistortion{};
+    const cad::LensDistortion after = lens ? lens->distortion : cad::LensDistortion{};
+    canvas.lens = lens;
+    if(!canvas.perspective) return true; // the same size: nothing else moves
+    // The corners on the same spots of the photo, through the new lens.
+    const cad::ReferenceImage::Perspective old = *canvas.perspective;
+    std::array<cad::Vec2, 4> corners;
+    for(size_t k = 0; k < 4; ++k)
+        corners[k] = cad::undistortPixel(after, cad::distortPixel(before, old.corners[k], photo.width(), photo.height()),
+                                         photo.width(), photo.height());
+    // Where the sheet's middle is now: it stays there.
+    double mm = 0;
+    cad::Vec2 centre;
+    const QImage oldSource = before.none() ? photo : undistortPicture(photo, before);
+    if(correctPerspective(oldSource, old.corners, old.realWidth, old.realHeight, mm, &centre).isNull()) return false;
+    canvas.origin = canvas.toPlane(centre);
+    return applyPerspective(doc, canvas, corners, old.realWidth, old.realHeight);
 }
 
 } // namespace cadjitsu

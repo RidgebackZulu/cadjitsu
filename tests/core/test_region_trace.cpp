@@ -143,3 +143,37 @@ TEST_CASE("fit: a corner blurred into a tiny bevel stays a sharp corner") {
     }
     CHECK(sharp);
 }
+
+TEST_CASE("fit: a straight side with a small kink stays one line") {
+    // A 300 x 200 rectangle whose long bottom side steps by 2 units halfway.
+    std::vector<Vec2> loop;
+    auto run = [&](Vec2 a, Vec2 b) {
+        const int k = std::max(1, int(distance(a, b)));
+        for(int q = 0; q < k; ++q) loop.push_back(a + (b - a) * (double(q) / k));
+    };
+    run({0, 0}, {150, 0});
+    run({150, 0}, {150, 2});
+    run({150, 2}, {300, 2});
+    run({300, 2}, {300, 200});
+    run({300, 200}, {0, 200});
+    run({0, 200}, {0, 0});
+    const FitLoop f = fitContour(loop, 1.5);
+    CHECK(f.segments.size() == 4);
+}
+
+TEST_CASE("fit: a straight side with a short jog stays one line") {
+    // A 300 x 200 rectangle whose left side jogs sideways 1 unit halfway.
+    std::vector<Vec2> loop;
+    auto run = [&](Vec2 a, Vec2 b) {
+        const int k = std::max(1, int(distance(a, b)));
+        for(int q = 0; q < k; ++q) loop.push_back(a + (b - a) * (double(q) / k));
+    };
+    run({0, 0}, {300, 0});
+    run({300, 0}, {300, 200});
+    run({300, 200}, {0, 200});
+    run({0, 200}, {0, 100});
+    run({0, 100}, {1, 98});
+    run({1, 98}, {1, 0});
+    const FitLoop f = fitContour(loop, 1.0);
+    CHECK(f.segments.size() == 4);
+}

@@ -10,6 +10,7 @@
 #include <vector>
 
 class QCheckBox;
+class QLabel;
 
 namespace cadjitsu {
 
@@ -71,7 +72,12 @@ public:
     bool hasFrame = false;
     int maxPoints = 2;
     bool closed = false;         // draw the points as a closed outline
+    bool numbered = true;        // label the points 1, 2, ...
     std::vector<cad::Vec2> points; // plane coordinates
+    std::vector<size_t> breaks;    // points starting a new run (not joined to the one before)
+    // Where a point shows, and back, when the picture shown is not the one
+    // the points are on (empty: the same).
+    std::function<cad::Vec2(cad::Vec2)> toShown, fromShown;
     std::function<void()> onChanged;
 
 private:
@@ -82,16 +88,18 @@ private:
 };
 
 // Calibrate a canvas (click two marks a known distance apart, type the real
-// distance) or correct its perspective (click the four corners of something
-// rectangular, type its real width and height).
+// distance), correct its perspective (click the four corners of something
+// rectangular, type its real width and height) or its lens (click along a
+// few edges that are straight in reality, near the photo's sides, where a
+// lens bends them most).
 class CanvasCalibrateCommand : public Command {
     Q_OBJECT
 
 public:
-    enum class Mode { Scale, Perspective };
+    enum class Mode { Scale, Perspective, Lens };
     CanvasCalibrateCommand(const CommandContext &ctx, int canvas, Mode mode);
 
-    QString title() const override { return m_mode == Mode::Scale ? tr("Calibrate Canvas") : tr("Correct Perspective"); }
+    QString title() const override;
     QString prompt() const override;
     IconId iconId() const override;
     void setup() override;
@@ -110,6 +118,11 @@ public:
     ValueField *distanceField() const { return m_distance; }
     ValueField *widthField() const { return m_width; }
     ValueField *heightField() const { return m_height; }
+    // Lens: ends the line being clicked; the next click starts another.
+    void nextLine();
+    // Lens: the clicked lines, in the photo's pixels.
+    std::vector<std::vector<cad::Vec2>> lensLines() const;
+    QCheckBox *previewCheck() const { return m_preview; }
 
 private:
     // The canvas as shown while picking (Perspective: the photo uncorrected).
@@ -120,6 +133,9 @@ private:
     CanvasPointsTool m_tool;
     SelectionField *m_pointsField = nullptr;
     ValueField *m_distance = nullptr, *m_width = nullptr, *m_height = nullptr;
+    QLabel *m_lensInfo = nullptr;
+    QCheckBox *m_preview = nullptr;
+    std::optional<cad::LensDistortion> m_lens; // Lens: the estimate from the lines
 };
 
 } // namespace cadjitsu

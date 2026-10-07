@@ -321,7 +321,15 @@ void BrowserTree::contextMenuEvent(QContextMenuEvent *e) {
         QMenu menu(this);
         menu.addAction(icon(IconId::Canvas), tr("Edit Canvas"), this, [this, id] { emit editCanvasRequested(id); });
         menu.addAction(icon(IconId::Measure), tr("Calibrate..."), this, [this, id] { emit calibrateCanvasRequested(id); });
+        menu.addAction(tr("Correct Lens..."), this, [this, id] { emit lensCanvasRequested(id); });
         menu.addAction(tr("Correct Perspective..."), this, [this, id] { emit perspectiveCanvasRequested(id); });
+        if(c->lens)
+            menu.addAction(tr("Remove Lens Correction"), this, [this, id] {
+                if(const cad::ReferenceImage *old = m_doc.canvas(id)) {
+                    cad::ReferenceImage r = *old;
+                    if(setCanvasLens(m_doc, r, std::nullopt)) m_doc.updateCanvas(r, true, "Remove Lens Correction");
+                }
+            });
         if(c->perspective)
             menu.addAction(tr("Remove Perspective Correction"), this, [this, id] {
                 if(const cad::ReferenceImage *old = m_doc.canvas(id)) {

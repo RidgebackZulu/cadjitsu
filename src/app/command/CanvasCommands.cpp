@@ -7,9 +7,12 @@
 #include "viewport/Viewport.h"
 
 #include <QCheckBox>
+#include <QLabel>
+#include <QPushButton>
 #include <QMouseEvent>
 #include <QPainter>
 
+#include <algorithm>
 #include <cmath>
 
 namespace cadjitsu {
@@ -174,9 +177,13 @@ bool CanvasPointsTool::mouseMove(QMouseEvent *e) {
 bool CanvasPointsTool::mouseRelease(QMouseEvent *e) {
     if(e->button() != Qt::LeftButton || !m_pressed) return false;
     m_pressed = false;
-    const std::optional<cad::Vec2> p = onPlane(e->position());
+    std::optional<cad::Vec2> p = onPlane(e->position());
     if(!p) return true;
-    if(int(points.size()) >= maxPoints) points.clear(); // start over
+    if(fromShown) p = fromShown(*p);
+    if(int(points.size()) >= maxPoints) { // start over
+        points.clear();
+        breaks.clear();
+    }
     points.push_back(*p);
     if(onChanged) onChanged();
     m_vp->update();
@@ -194,27 +201,29 @@ void CanvasPointsTool::contribute(RenderScene &scene) {
     lb.color = kMark;
     lb.width = 2.0f;
     lb.depthTest = false;
+    auto shown = [&](cad::Vec2 p) { return onFrame(frame, toShown ? toShown(p) : p); };
+    auto startsRun = [&](size_t i) { return std::find(breaks.begin(), breaks.end(), i) != breaks.end(); };
     for(size_t i = 0; i < points.size(); ++i) {
-        pb.points.push_back(onFrame(frame, points[i]));
-        if(i > 0) lb.segments.insert(lb.segments.end(), {onFrame(frame, points[i - 1]), onFrame(frame, points[i])});
+        pb.points.push_back(shown(points[i]));
+        if(i > 0 && !startsRun(i)) lb.segments.insert(lb.segments.end(), {shown(points[i - 1]), shown(points[i])});
     }
     if(closed && int(points.size()) == maxPoints)
-        lb.segments.insert(lb.segments.end(), {onFrame(frame, points.back()), onFrame(frame, points.front())});
-    else if(m_hover && !points.empty() && int(points.size()) < maxPoints)
-        lb.segments.insert(lb.segments.end(), {onFrame(frame, points.back()), onFrame(frame, *m_hover)});
+        lb.segments.insert(lb.segments.end(), {shown(points.back()), shown(points.front())});
+    else if(m_hover && !points.empty() && int(points.size()) < maxPoints && !startsRun(points.size()))
+        lb.segments.insert(lb.segments.end(), {shown(points.back()), onFrame(frame, *m_hover)});
     if(!pb.points.empty()) scene.points.push_back(pb);
     if(!lb.segments.empty()) scene.lines.push_back(lb);
 }
 
 void CanvasPointsTool::paintOverlay(QPainter &p) {
-    if(!hasFrame) return;
+    if(!hasFrame || !numbered) return;
     p.save();
     p.setRenderHint(QPainter::Antialiasing);
     QFont f = p.font();
     f.setBold(true);
     p.setFont(f);
     for(size_t i = 0; i < points.size(); ++i) {
-        const QPointF s = m_vp->camera().project(onFrame(frame, points[i]));
+        const QPointF s = m_vp->camera().project(onFrame(frame, toShown ? toShown(points[i]) : points[i]));
         const QRectF r(s + QPointF(8, -22), QSizeF(18, 16));
         p.setPen(Qt::NoPen);
         p.setBrush(kMark);
@@ -232,7 +241,19 @@ CanvasCalibrateCommand::CanvasCalibrateCommand(const CommandContext &ctx, int ca
 
 IconId CanvasCalibrateCommand::iconId() const { return IconId::Canvas; }
 
+QString CanvasCalibrateCommand::title() const {
+    switch(m_mode) {
+    case Mode::Scale: return tr("Calibrate Canvas");
+    case Mode::Perspective: return tr("Correct Perspective");
+    case Mode::Lens: return tr("Correct Lens");
+    }
+    return {};
+}
+
 QString CanvasCalibrateCommand::prompt() const {
+    if(m_mode == Mode::Lens)
+        return tr("Click along an edge that is straight in reality (three points or more), then Next Line for the "
+                  "next one. Edges near the photo's sides tell the most.");
     return m_mode == Mode::Scale
                ? tr("Click two marks on the picture a known distance apart (a ruler, a coin, a caliper's jaws), then "
                     "type the real distance.")
@@ -244,9 +265,10 @@ cad::ReferenceImage CanvasCalibrateCommand::picking() const {
     cad::ReferenceImage c;
     if(const cad::ReferenceImage *doc = m_ctx.doc->canvas(m_canvas)) c = *doc;
     c.visible = true;
-    if(m_mode == Mode::Perspective && c.perspective) {
-        // The photo as taken, as wide as the corrected picture: the corners
-        // are picked on the original.
+    if(m_mode == Mode::Lens) c.lens.reset(); // the lines are clicked on the photo as taken
+    if(m_mode != Mode::Scale && c.perspective) {
+        // The photo (lens-corrected, for a perspective), as wide as the
+        // corrected picture: the corners or lines are picked on it.
         const QImage photo = canvasPhoto(*m_ctx.doc, c);
         if(!photo.isNull()) {
             c.mmPerPixel = c.width() / photo.width();
@@ -265,6 +287,23 @@ void CanvasCalibrateCommand::setup() {
         m_distance = panel.addValue(tr("Real Distance"), cad::ValueKind::Length, evaluator(), "calibrateDistance");
         connect(m_distance, &ValueField::edited, this, &Command::inputsChanged);
         m_tool.maxPoints = 2;
+    } else if(m_mode == Mode::Lens) {
+        m_pointsField = panel.addSelection(tr("Lines"), tr("Click along straight edges"), "lensLines");
+        QPushButton *next = panel.addButton(QString(), tr("Next Line"), "lensNextLine");
+        connect(next, &QPushButton::clicked, this, &CanvasCalibrateCommand::nextLine);
+        m_lensInfo = panel.addInfo(tr("Bend"), "lensInfo");
+        m_preview = panel.addCheck(tr("Preview Correction"), "lensPreview");
+        connect(m_preview, &QCheckBox::toggled, this, &Command::inputsChanged);
+        m_tool.maxPoints = 100000;
+        m_tool.numbered = false;
+        // Editing: the lines clicked before.
+        if(const cad::ReferenceImage *c = m_ctx.doc->canvas(m_canvas); c && c->lens) {
+            const cad::ReferenceImage shown = picking();
+            for(const auto &line : c->lens->lines) {
+                if(!m_tool.points.empty()) m_tool.breaks.push_back(m_tool.points.size());
+                for(const cad::Vec2 &px : line) m_tool.points.push_back(shown.toPlane(px));
+            }
+        }
     } else {
         m_pointsField = panel.addSelection(tr("Corners"), tr("Click four corners"), "perspectiveCorners");
         m_width = panel.addValue(tr("Real Width"), cad::ValueKind::Length, evaluator(), "perspectiveWidth");
@@ -283,6 +322,7 @@ void CanvasCalibrateCommand::setup() {
     m_pointsField->setActive(true);
     connect(m_pointsField, &SelectionField::cleared, this, [this] {
         m_tool.points.clear();
+        m_tool.breaks.clear();
         emit inputsChanged();
     });
     m_tool.onChanged = [this] {
@@ -292,17 +332,46 @@ void CanvasCalibrateCommand::setup() {
             m_distance->setFocus(Qt::OtherFocusReason);
             m_distance->selectAll();
         }
+        if(m_mode == Mode::Lens) {
+            const cad::ReferenceImage shown = picking();
+            m_lens = cad::estimateLens(lensLines(), shown.pixelWidth, shown.pixelHeight);
+        }
         emit inputsChanged();
     };
+    if(m_mode == Mode::Lens) m_tool.onChanged();
     SelectFilter none;
     none.faces = none.edges = none.vertices = none.bodies = none.profiles = false;
     m_ctx.view->setFilter(none);
 }
 
 void CanvasCalibrateCommand::addPoint(cad::Vec2 p) {
-    if(int(m_tool.points.size()) >= m_tool.maxPoints) m_tool.points.clear();
+    if(int(m_tool.points.size()) >= m_tool.maxPoints) {
+        m_tool.points.clear();
+        m_tool.breaks.clear();
+    }
     m_tool.points.push_back(p);
     if(m_tool.onChanged) m_tool.onChanged();
+}
+
+void CanvasCalibrateCommand::nextLine() {
+    if(m_tool.points.empty()) return;
+    const size_t start = m_tool.breaks.empty() ? 0 : m_tool.breaks.back();
+    if(m_tool.points.size() == start) return; // nothing clicked on this one yet
+    m_tool.breaks.push_back(m_tool.points.size());
+    m_ctx.viewport->update();
+    emit inputsChanged();
+}
+
+std::vector<std::vector<cad::Vec2>> CanvasCalibrateCommand::lensLines() const {
+    const cad::ReferenceImage shown = picking();
+    std::vector<std::vector<cad::Vec2>> out(1);
+    for(size_t i = 0; i < m_tool.points.size(); ++i) {
+        if(std::find(m_tool.breaks.begin(), m_tool.breaks.end(), i) != m_tool.breaks.end() && !out.back().empty())
+            out.emplace_back();
+        out.back().push_back(shown.toPixel(m_tool.points[i]));
+    }
+    if(out.back().empty()) out.pop_back();
+    return out;
 }
 
 std::optional<QVector3D> CanvasCalibrateCommand::canvasAnchor() const {
@@ -314,6 +383,14 @@ bool CanvasCalibrateCommand::ready(QString &why) {
     if(!m_ctx.doc->canvas(m_canvas)) {
         why = tr("The canvas is gone.");
         return false;
+    }
+    if(m_mode == Mode::Lens) {
+        if(!m_lens) {
+            why = tr("Click three or more points along an edge that is straight in reality (two or three edges, "
+                     "near the sides of the photo, are best).");
+            return false;
+        }
+        return true;
     }
     const size_t need = m_mode == Mode::Scale ? 2 : 4;
     if(m_tool.points.size() < need) {
@@ -335,9 +412,38 @@ bool CanvasCalibrateCommand::ready(QString &why) {
 
 void CanvasCalibrateCommand::showPreview() {
     const cad::ReferenceImage c = picking();
+    m_tool.toShown = nullptr;
+    m_tool.fromShown = nullptr;
+    if(m_mode == Mode::Lens) {
+        const std::vector<std::vector<cad::Vec2>> lines = lensLines();
+        const int w = c.pixelWidth, h = c.pixelHeight;
+        if(m_lens)
+            m_lensInfo->setText(tr("%n line(s): bent %1 px, %2 px corrected", nullptr, int(lines.size()))
+                                    .arg(cad::lineStraightness({}, lines, w, h), 0, 'f', 1)
+                                    .arg(cad::lineStraightness(*m_lens, lines, w, h), 0, 'f', 1));
+        else
+            m_lensInfo->setText(tr("Click along straight edges"));
+        m_pointsField->setCount(int(lines.size()));
+        if(m_lens && m_preview->isChecked()) {
+            // The corrected photo, the clicked points moved with it.
+            cad::ReferenceImage shown = c;
+            shown.lens = cad::ReferenceImage::Lens{*m_lens, {}};
+            const cad::LensDistortion lens = *m_lens;
+            m_tool.toShown = [c, lens, w, h](cad::Vec2 p) {
+                return c.toPlane(cad::undistortPixel(lens, c.toPixel(p), w, h));
+            };
+            m_tool.fromShown = [c, lens, w, h](cad::Vec2 p) {
+                return c.toPlane(cad::distortPixel(lens, c.toPixel(p), w, h));
+            };
+            m_ctx.view->setCanvasOverride(shown);
+            m_tool.hasFrame = m_ctx.view->canvasFrame(shown, m_tool.frame);
+            m_ctx.viewport->update();
+            return;
+        }
+    }
     m_ctx.view->setCanvasOverride(c);
     m_tool.hasFrame = m_ctx.view->canvasFrame(c, m_tool.frame);
-    m_pointsField->setCount(int(m_tool.points.size()));
+    if(m_mode != Mode::Lens) m_pointsField->setCount(int(m_tool.points.size()));
     m_ctx.viewport->update();
 }
 
@@ -349,6 +455,12 @@ void CanvasCalibrateCommand::apply() {
         std::string why;
         if(!cad::calibrateReferenceImage(c, m_tool.points[0], m_tool.points[1], *m_distance->value(), why)) return;
         m_ctx.doc->updateCanvas(c, true, "Calibrate " + c.name);
+        return;
+    }
+    if(m_mode == Mode::Lens) {
+        if(!m_lens) return;
+        if(!setCanvasLens(*m_ctx.doc, c, cad::ReferenceImage::Lens{*m_lens, lensLines()})) return;
+        m_ctx.doc->updateCanvas(c, true, "Correct Lens of " + c.name);
         return;
     }
     // Perspective: the corners in the photo's pixels.
