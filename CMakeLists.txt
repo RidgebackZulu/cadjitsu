@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(Cadjitsu
-    VERSION 1.2.0
+    VERSION 1.3.0
     DESCRIPTION "Parametric CAD for 3D-printable parts"
     LANGUAGES C CXX)
 

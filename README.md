@@ -44,8 +44,8 @@ Releases are on the [Releases page](https://github.com/RidgebackZulu/cadjitsu/re
 
 | File | For |
 |---|---|
-| `Cadjitsu-1.2.0-macOS.dmg` | macOS 15 (Sequoia) or later on Apple Silicon |
-| `Cadjitsu-1.2.0-Linux-x86_64.tar.gz` | 64-bit Linux with X11 and OpenGL |
+| `Cadjitsu-1.3.0-macOS.dmg` | macOS 15 (Sequoia) or later on Apple Silicon |
+| `Cadjitsu-1.3.0-Linux-x86_64.tar.gz` | 64-bit Linux with X11 and OpenGL |
 
 **macOS:** open the dmg and drag Cadjitsu onto Applications. It is ad-hoc signed, so clear the quarantine flag once: `xattr -dr com.apple.quarantine /Applications/Cadjitsu.app`.
 
