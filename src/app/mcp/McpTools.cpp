@@ -19,6 +19,8 @@
 #include "features/FilletFeature.h"
 #include "features/HoleFeature.h"
 #include "features/PatternFeature.h"
+#include "features/RevolveFeature.h"
+#include "features/ShellFeature.h"
 #include "features/SketchFeature.h"
 #include "features/SplitFeature.h"
 #include "features/TextFeature.h"
@@ -1507,6 +1509,97 @@ void McpTools::define() {
             d->angle = slot(angleExpr(a.value("angle", json(5.0)), "angle"), cad::ValueKind::Angle, "angle");
             d->flip = a.value("lean_out", false);
             return commit(d, "Draft (MCP)");
+        });
+
+    add("revolve",
+        "Turns sketch profiles (regions, picked by points inside them; default every profile of the sketch) about an "
+        "axis into a solid of revolution - knobs, bottles, spacers, pulleys, rings. The axis is \"x\" / \"y\" / \"z\" "
+        "(world), {\"sketch_line\": [sketch, line id]} (a line of a sketch, often a construction centre line; ids from "
+        "the sketch's curves; or \"x_axis\" / \"y_axis\" for that sketch's own axes), or {\"edge\"} / {\"face\"} of a "
+        "body. The profile must lie on one side of the axis (it may touch it). Angle 360 (default) makes a closed "
+        "solid. Like extrude it makes a new body by default.",
+        {{"sketch", integer("sketch feature id")},
+         {"profile_points", arrayOf(xy("a point inside the region"), "which regions of the sketch (sketch coordinates)")},
+         {"axis", {{"description", "\"x\" | \"y\" | \"z\" | {\"sketch_line\": [sketch, id | \"x_axis\" | \"y_axis\"]} | "
+                                   "{\"edge\": {body, index}} | {\"face\": {body, index}}"}}},
+         {"angle", numberOrExpr("degrees, default 360")},
+         {"extent", enumOf({"one_side", "symmetric", "two_sides"}, "default one_side; symmetric turns the angle each way")},
+         {"angle2", numberOrExpr("two_sides: degrees the other way")},
+         {"reverse", boolean("turn the other way round")},
+         {"operation", enumOf({"new_body", "join", "cut", "intersect"}, "default new_body")}},
+        {"sketch", "axis"}, [begin, settle, patternAxis, commit, sketchResultOf, slot](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            auto r = std::make_shared<cad::RevolveFeature>();
+            const cad::FeatureId sid = a.at("sketch").get<int>();
+            const cad::SketchResult *sk = sketchResultOf(st, sid);
+            if(sk->profiles.empty()) fail("the sketch has no closed profiles");
+            auto addProfile = [&](const cad::Profile &p) {
+                cad::ProfileRef pr{sid, p.key, p.sample};
+                cad::captureProfileOutline(*st, pr);
+                r->profiles.push_back(pr);
+            };
+            if(a.contains("profile_points")) {
+                for(const json &q : a["profile_points"]) {
+                    const cad::Vec2 p = vec2Arg(q, "profile point");
+                    const cad::Profile *hit = nullptr;
+                    for(const auto &pr : sk->profiles)
+                        if(pr.contains(p) && (!hit || std::fabs(pr.area) < std::fabs(hit->area))) hit = &pr;
+                    if(!hit) fail("no profile of the sketch contains [" + num(p.x) + ", " + num(p.y) + "]");
+                    addProfile(*hit);
+                }
+            } else {
+                for(const auto &pr : sk->profiles) addProfile(pr);
+            }
+            const json &ax = a.at("axis");
+            if(ax.is_object() && ax.contains("sketch_line")) {
+                const json &sl = ax["sketch_line"];
+                if(!sl.is_array() || sl.size() != 2) fail("sketch_line is [sketch id, line id]");
+                r->axis.sketch = sl[0].get<int>();
+                if(sl[1].is_string()) {
+                    const std::string w = sl[1].get<std::string>();
+                    r->axis.line = w == "x_axis" ? cad::kSketchXAxis : w == "y_axis" ? cad::kSketchYAxis : 0;
+                    if(!r->axis.line) fail("sketch_line's line is an id, \"x_axis\" or \"y_axis\"");
+                } else {
+                    r->axis.line = sl[1].get<int>();
+                }
+                sketchResultOf(st, r->axis.sketch);
+            } else {
+                r->axis.axis = patternAxis(st, ax);
+            }
+            const std::string ext = a.value("extent", "one_side");
+            r->extent = cad::revolveExtentFromString(ext == "two_sides" ? "twoSides" : ext);
+            r->angle = slot(angleExpr(a.value("angle", json(360.0)), "angle"), cad::ValueKind::Angle, "angle");
+            if(r->extent == cad::RevolveExtent::TwoSides)
+                r->angle2 = slot(angleExpr(a.value("angle2", json(90.0)), "angle2"), cad::ValueKind::Angle, "angle2");
+            r->flip = a.value("reverse", false);
+            const std::string op = a.value("operation", "new_body");
+            r->operation = op == "join" ? cad::BodyOperation::Join
+                           : op == "cut" ? cad::BodyOperation::Cut
+                           : op == "intersect" ? cad::BodyOperation::Intersect
+                                               : cad::BodyOperation::NewBody;
+            return commit(r, "Create Revolve (MCP)");
+        });
+
+    add("shell",
+        "Hollows bodies out with walls of an even thickness - enclosures, boxes, cups. Give the faces to remove (the "
+        "openings, e.g. a box's top; list_faces) or bodies to hollow with a sealed void inside. direction inside "
+        "(default) keeps the outer size, outside keeps the inner size. Walls under 0.8 mm warn: they print poorly.",
+        {{"faces", arrayOf(topoItem("face"), "faces to remove")},
+         {"bodies", arrayOf(str("body id or name"), "bodies to hollow with no opening")},
+         {"thickness", numberOrExpr("wall thickness in mm (default 2)")},
+         {"direction", enumOf({"inside", "outside"}, "default inside")}},
+        {}, [begin, settle, topo, bodyOf, commit, slot](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            auto sh = std::make_shared<cad::ShellFeature>();
+            for(const json &f : a.value("faces", json::array())) sh->faces.push_back(topo(st, f, cad::TopoKind::Face));
+            for(const json &b : a.value("bodies", json::array())) sh->bodies.push_back(bodyOf(st, b)->id);
+            if(sh->faces.empty() && sh->bodies.empty()) fail("give the faces to remove, or bodies to hollow");
+            sh->thickness = slot(lengthExpr(a.value("thickness", json(2.0)), "thickness"), cad::ValueKind::Length, "thickness");
+            sh->direction = a.value("direction", "inside") == "outside" ? cad::ShellDirection::Outside
+                                                                        : cad::ShellDirection::Inside;
+            return commit(sh, "Create Shell (MCP)");
         });
 
     add("split_body",

@@ -103,6 +103,8 @@ constexpr std::array kIcons = {
     Entry{IconId::SketchFillet, "sketch-fillet"},
     Entry{IconId::Slot, "slot"},
     Entry{IconId::Polygon, "polygon"},
+    Entry{IconId::Revolve, "revolve"},
+    Entry{IconId::Shell, "shell"},
     Entry{IconId::Repeat, "repeat"},
 };
 

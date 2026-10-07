@@ -1204,6 +1204,47 @@ def polygon_tool():
     return s
 
 
+def revolve():
+    """A vase-like solid of revolution around a dashed vertical axis, with a turning arrow."""
+    iso = Iso(32, 46, 1.0)
+    s = iso.floor_shadow(-12, -12, 24, 24)
+    profile = [(0, 11), (6, 12), (12, 8), (18, 7), (25, 10)]  # (height, radius), bottom up
+    rings = [iso.top_ellipse(0, 0, z, r) for z, r in profile]
+    left = [min(ring, key=lambda q: q[0]) for ring in rings]
+    right = [max(ring, key=lambda q: q[0]) for ring in rings]
+    # The front half of the bottom ellipse closes the silhouette.
+    centre_y = iso.p(0, 0, 0)[1]
+    front = sorted([q for q in rings[0] if q[1] >= centre_y], key=lambda q: q[0])
+    s += poly(left[::-1] + front + right[1:], "url(#gLeft)")
+    s += poly(rings[-1], "url(#oTop)")
+    for (z, r) in profile[1:-1]:
+        ring = iso.top_ellipse(0, 0, z, r)
+        cy = iso.p(0, 0, z)[1]
+        band = sorted([q for q in ring if q[1] >= cy], key=lambda q: q[0])
+        s += path("M" + " L".join(f"{f(x)},{f(y)}" for x, y in band), "none", "#FFFFFF", 0.9, 'stroke-opacity="0.55"')
+    s += line(iso.p(0, 0, -5), iso.p(0, 0, 33), "#C8620C", 1.6, 'stroke-dasharray="3,2.4"')
+    s += curved_arrow(32, 15, 14, 200, 340, width=4.2, head=6.5)
+    return s
+
+
+def shell():
+    """An open-top box hollowed out, its thin walls showing at the rim."""
+    iso = Iso(31, 38, 1.0)
+    P = iso.p
+    x0, y0, dx, dy, dz, t = -13, -13, 26, 26, 18, 3.2
+    s = iso.floor_shadow(x0, y0, dx, dy)
+    s += iso.box(x0, y0, 0, dx, dy, dz, top="url(#gTop)", highlight=False)
+    x1, y1 = x0 + dx, y0 + dy
+    # The opening and the inside walls seen through it.
+    s += poly([P(x0 + t, y0 + t, dz), P(x1 - t, y0 + t, dz), P(x1 - t, y1 - t, dz), P(x0 + t, y1 - t, dz)], "#5E6E86", INK, 1.3)
+    s += poly([P(x0 + t, y0 + t, dz), P(x1 - t, y0 + t, dz), P(x1 - t, y0 + t, t + 4), P(x0 + t, y0 + t, t + 4)],
+              "url(#oSide)", None)
+    s += poly([P(x0 + t, y0 + t, dz), P(x0 + t, y1 - t, dz), P(x0 + t, y1 - t, t + 4), P(x0 + t, y0 + t, t + 4)],
+              "#8FA0B8", None)
+    s += poly([P(x0 + t, y0 + t, dz), P(x1 - t, y0 + t, dz), P(x1 - t, y1 - t, dz), P(x0 + t, y1 - t, dz)], "none", INK, 1.3)
+    return s
+
+
 ICONS = {
     "home": home, "orbit": orbit, "pan": pan, "zoom": zoom, "fit": fit, "display": display, "grid": grid,
     "camera": camera, "render": render,
@@ -1222,6 +1263,7 @@ ICONS = {
     "folder": folder, "warning": warning, "error": error,
     "timeline-first": t_first, "timeline-back": t_back, "timeline-forward": t_forward, "timeline-last": t_last,
     "origin": origin, "flip": flip,
+    "revolve": revolve, "shell": shell,
     "trim": trim_tool, "extend": extend_tool, "sketch-fillet": sketch_fillet, "slot": slot_tool,
     "polygon": polygon_tool,
     "settings": settings, "mcp-server": mcp_server, "delete": delete, "repeat": repeat,

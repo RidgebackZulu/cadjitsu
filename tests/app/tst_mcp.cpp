@@ -512,6 +512,36 @@ private slots:
         QCOMPARE(m_window->document().bodyMaterial(b), cad::defaultBodyMaterial());
     }
 
+    void revolveAndShell() {
+        initialize();
+        // A cup: an L-shaped half profile on XZ revolved about Z, then shelled from its top.
+        const auto [e0, sk] = tool("create_sketch", {{"plane", "XZ"},
+                                                     {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {20, 30}}},
+                                                                   {{"type", "line"}, {"from", {0, -5}}, {"to", {0, 40}}, {"construction", true}}}}});
+        QVERIFY2(!e0, sk.dump().c_str());
+        const int axis = sk["entities"][1]["id"];
+        const auto [e1, rv] = tool("revolve", {{"sketch", sk["sketch"]}, {"axis", {{"sketch_line", {sk["sketch"], axis}}}}});
+        QVERIFY2(!e1, rv.dump().c_str());
+        QVERIFY(tool("revolve", {{"sketch", sk["sketch"]}, {"axis", "w"}}).first);
+        const auto [e2, d] = tool("get_design", json::object());
+        QVERIFY2(!e2, d.dump().c_str());
+        const json body = d["bodies"][0];
+        QVERIFY2(std::abs(body["volume_mm3"].get<double>() - cad::kPi * 400 * 30) < 1e-2, body.dump().c_str());
+        // The top face: list_faces, the planar one facing +Z at the top.
+        const auto [e3, faces] = tool("list_faces", {{"body", body["id"]}});
+        QVERIFY2(!e3, faces.dump().c_str());
+        json top;
+        for(const json &f : faces["faces"])
+            if(f.contains("normal") && f["normal"][2].get<double>() > 0.99 && f["center"][2].get<double>() > 29) top = f;
+        QVERIFY2(!top.is_null(), faces.dump().c_str());
+        const auto [e4, sh] = tool("shell", {{"faces", {{{"body", body["id"]}, {"index", top["index"]}}}}, {"thickness", 2}});
+        QVERIFY2(!e4, sh.dump().c_str());
+        const auto [e5, d2] = tool("get_design", json::object());
+        const double v = d2["bodies"][0]["volume_mm3"].get<double>();
+        QVERIFY2(std::abs(v - (cad::kPi * 400 * 30 - cad::kPi * 324 * 28)) < 1e-2, d2.dump().c_str());
+        QVERIFY(tool("shell", {{"thickness", 2}}).first);
+    }
+
     void sketchTrimExtendFilletSlotAndPolygon() {
         initialize();
         // A rectangle with a line across it; trim the line's outer ends, fillet a corner.

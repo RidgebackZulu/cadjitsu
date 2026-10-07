@@ -8,6 +8,8 @@
 #include "command/Command.h"
 #include "command/CommandPanel.h"
 #include "command/DraftCommand.h"
+#include "command/RevolveCommand.h"
+#include "command/ShellCommand.h"
 #include "command/EdgeCommands.h"
 #include "command/HoleCommand.h"
 #include "command/MeasureCommand.h"
@@ -27,6 +29,8 @@
 #include "features/TextFeature.h"
 #include "features/CombineFeature.h"
 #include "features/DraftFeature.h"
+#include "features/RevolveFeature.h"
+#include "features/ShellFeature.h"
 #include "features/ConstructionPlaneFeature.h"
 #include "features/ExtrudeFeature.h"
 #include "features/FilletFeature.h"
@@ -780,6 +784,65 @@ private slots:
         m_window->editFeature(f->id);
         sp = command<SplitCommand>();
         QVERIFY(sp && sp->curveCount() == 1 && sp->toolBox()->currentIndex() == 1);
+        panel()->cancelButton()->click();
+        settle();
+    }
+
+    void revolveAProfileAboutASketchLine() {
+        // On XZ: a rectangle off a construction centre line (the world Z axis).
+        auto s = std::make_shared<cad::SketchFeature>();
+        s->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XZ);
+        s->sketch.addRectangle({5, 0}, {10, 20});
+        const int axisLine = s->sketch.addLine(cad::Vec2(0, -5), cad::Vec2(0, 30), true);
+        const cad::FeatureId sid = doc().addFeature(s);
+        showHome();
+        trigger("revolve");
+        auto *r = command<RevolveCommand>();
+        QVERIFY(r);
+        click(at(7.5, 0, 10)); // the profile
+        QCOMPARE(r->profileCount(), 1);
+        QVERIFY(!r->hasAxis());
+        click(at(0, 0, 26)); // the centre line, above the profile
+        QVERIFY2(r->hasAxis(), "the sketch line was not picked as the axis");
+        settle();
+        QVERIFY2(std::fabs(shown() - cad::kPi * 75 * 20) < 1e-2, qPrintable(QString::number(shown())));
+        // A half turn.
+        typeInto(r->angleField(), QStringLiteral("180"));
+        settle();
+        QVERIFY2(std::fabs(shown() - cad::kPi * 75 * 10) < 1e-2, qPrintable(QString::number(shown())));
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::RevolveFeature>(doc().features().back());
+        QVERIFY(f && f->axis.sketch == sid && f->axis.line == axisLine && f->angle.expr == "180 deg");
+        m_window->editFeature(f->id);
+        r = command<RevolveCommand>();
+        QVERIFY(r && r->hasAxis() && r->profileCount() == 1);
+        panel()->cancelButton()->click();
+        settle();
+    }
+
+    void shellABoxThroughItsTopFace() {
+        box(0, 0, 40, 30, 20);
+        showHome();
+        trigger("shell");
+        auto *sh = command<ShellCommand>();
+        QVERIFY(sh);
+        click(at(20, 15, 20)); // the top
+        QCOMPARE(sh->faceCount(), 1);
+        typeInto(sh->thicknessField(), QStringLiteral("2"));
+        settle();
+        QVERIFY2(std::fabs(shown() - (24000 - 36 * 26 * 18)) < 1e-2, qPrintable(QString::number(shown())));
+        sh->directionBox()->setCurrentIndex(1);
+        emit sh->directionBox()->activated(1);
+        settle();
+        QVERIFY2(std::fabs(shown() - (44 * 34 * 22 - 24000)) < 1e-2, qPrintable(QString::number(shown())));
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::ShellFeature>(doc().features().back());
+        QVERIFY(f && f->faces.size() == 1 && f->direction == cad::ShellDirection::Outside);
+        m_window->editFeature(f->id);
+        sh = command<ShellCommand>();
+        QVERIFY(sh && sh->faceCount() == 1);
         panel()->cancelButton()->click();
         settle();
     }

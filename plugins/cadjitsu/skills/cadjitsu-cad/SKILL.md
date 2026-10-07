@@ -114,7 +114,10 @@ text, extrude the plate, then the letters). For FDM: letters 5 mm or taller with
 
 ## 6. Designing for FDM printing
 
-- **Walls:** at least 1.2 mm (3 perimeters of a 0.4 mm nozzle); 2-3 mm for parts that carry load.
+- **Walls:** at least 1.2 mm (3 perimeters of a 0.4 mm nozzle); 2-3 mm for parts that carry load. `shell`
+  hollows a solid with even walls (remove the top face for a box or cup; give a body alone for a sealed void).
+- **Round parts:** `revolve` a half profile drawn beside a construction centre line (knobs, bottles, spacers,
+  pulleys, rings); it can also cut a groove into a turned part (`operation: "cut"`).
 - **Overhangs:** faces sloping more than 45 degrees from vertical need support; `overhangs` lists them per body
   (with face indexes) so you can chamfer them or reorient the part.
   `draft` leans walls in about a bottom edge (a taper that needs no support). Prefer chamfers (45 degrees) to
@@ -203,13 +206,11 @@ export_stl {"path": "/Users/me/Desktop/bracket.stl", "refinement": "fine"}   -> 
 
 ```text
 create_sketch {"plane": "XY", "entities": [{"type": "center_rectangle", "center": [0, 0], "width": 80, "height": 50}]}
-extrude {"sketch": 1, "distance": 30}                                  -> Body1 (outer shell)
-offset_plane {"base": "XY", "offset": 2}                               -> plane 3 (the floor thickness)
-create_sketch {"plane": {"plane": 3}, "entities": [{"type": "center_rectangle", "center": [0, 0], "width": 76, "height": 46}]}
-extrude {"sketch": 4, "distance": 40}                                  -> Body2 (the cavity tool)
-combine {"target": "Body1", "tools": ["Body2"], "operation": "cut"}   -> 2 mm walls and floor
+extrude {"sketch": 1, "distance": 30}                                  -> Body1, a solid block
 list_edges {"body": "Body1", "direction": "z"} -> the 4 outer vertical corners (midpoint x = +-40, y = +-25)
-fillet {"edges": [...4 corners...], "radius": 5}
+fillet {"edges": [...4 corners...], "radius": 5}                       (round first: the shell follows)
+list_faces {"body": "Body1", "normal": "+z"}                           -> the top face
+shell {"faces": [{"body": "Body1", "index": <top>}], "thickness": 2}  -> 2 mm walls and floor, open top
 section {"plane": "XZ", "offset": 0}; screenshot {"view": "front"}; section {"hide": true}
 ```
 

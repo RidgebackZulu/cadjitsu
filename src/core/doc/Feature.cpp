@@ -8,6 +8,8 @@
 #include "features/FilletFeature.h"
 #include "features/HoleFeature.h"
 #include "features/PatternFeature.h"
+#include "features/RevolveFeature.h"
+#include "features/ShellFeature.h"
 #include "features/SketchFeature.h"
 #include "features/SplitFeature.h"
 #include "features/TextFeature.h"
@@ -40,6 +42,8 @@ const TypeName kTypes[] = {
     {FeatureType::Pattern, "pattern", "Pattern"},
     {FeatureType::Thread, "thread", "Thread"},
     {FeatureType::Text, "text", "Text"},
+    {FeatureType::Revolve, "revolve", "Revolve"},
+    {FeatureType::Shell, "shell", "Shell"},
 };
 
 } // namespace
@@ -110,6 +114,8 @@ std::shared_ptr<Feature> Feature::create(FeatureType type) {
     case FeatureType::Pattern: return std::make_shared<PatternFeature>();
     case FeatureType::Thread: return std::make_shared<ThreadFeature>();
     case FeatureType::Text: return std::make_shared<TextFeature>();
+    case FeatureType::Revolve: return std::make_shared<RevolveFeature>();
+    case FeatureType::Shell: return std::make_shared<ShellFeature>();
     }
     return nullptr;
 }

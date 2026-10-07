@@ -1,6 +1,7 @@
 #pragma once
 
 #include "base/Status.h"
+#include "doc/Feature.h"
 #include "doc/ModelState.h"
 #include "topo/NamedShape.h"
 
@@ -10,6 +11,12 @@
 namespace cad {
 
 enum class BoolOp { Fuse, Cut, Common };
+
+// What a feature's new solid does to the model.
+enum class BodyOperation { NewBody, Join, Cut, Intersect };
+
+const char *toString(BodyOperation op);
+BodyOperation bodyOperationFromString(const std::string &s);
 
 // Boolean with topological naming. Runs in non-destructive mode (inputs are
 // shared, immutable bodies), simplifies the result (merges coplanar faces)
@@ -45,5 +52,13 @@ bool validateResult(NamedShape &shape, const std::string &prefix, Status &status
 
 // Bodies whose shape intersects (or, if `touching`, touches) `tool`.
 std::vector<BodyId> bodiesInteracting(const ModelState &state, const TopoDS_Shape &tool, bool touching);
+
+// Applies a feature's swept solid `tool` to the model: a new body, or joined
+// into / cut from / intersected with `participants` (empty: the bodies it
+// touches). Cuts and intersections show the tool while previewed, also when
+// they fail. `st` carries the feature's status so far.
+FeatureResult applyBodyOperation(const StatePtr &input, const NamedShape &tool, BodyOperation operation,
+                                 const std::vector<BodyId> &participants, FeatureId id, const std::string &prefix,
+                                 Status st);
 
 } // namespace cad

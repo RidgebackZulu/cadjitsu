@@ -1,16 +1,13 @@
 #pragma once
 
 #include "doc/Feature.h"
+#include "features/BodyOps.h"
 #include "topo/Refs.h"
 
 namespace cad {
 
-enum class BodyOperation { NewBody, Join, Cut, Intersect };
 enum class ExtentType { Distance, ThroughAll, ToObject };
 enum class ExtrudeDirection { OneSide, TwoSides, Symmetric };
-
-const char *toString(BodyOperation op);
-BodyOperation bodyOperationFromString(const std::string &s);
 
 class ExtrudeFeature : public Feature {
 public:

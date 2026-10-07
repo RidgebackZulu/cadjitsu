@@ -291,6 +291,32 @@ Tilts flat faces about a hinge edge (a draft). The hinge is a straight edge of o
 | `hinge` **(required)** | object |  |
 | `lean_out` | boolean | tilt out over the hinge instead of in (default false) |
 
+## `revolve`
+
+Turns sketch profiles (regions, picked by points inside them; default every profile of the sketch) about an axis into a solid of revolution - knobs, bottles, spacers, pulleys, rings. The axis is "x" / "y" / "z" (world), {"sketch_line": [sketch, line id]} (a line of a sketch, often a construction centre line; ids from the sketch's curves; or "x_axis" / "y_axis" for that sketch's own axes), or {"edge"} / {"face"} of a body. The profile must lie on one side of the axis (it may touch it). Angle 360 (default) makes a closed solid. Like extrude it makes a new body by default.
+
+| Argument | Type | Description |
+|---|---|---|
+| `angle` | number or string | degrees, default 360 |
+| `angle2` | number or string | two_sides: degrees the other way |
+| `axis` **(required)** | any | "x" \| "y" \| "z" \| {"sketch_line": [sketch, id \| "x_axis" \| "y_axis"]} \| {"edge": {body, index}} \| {"face": {body, index}} |
+| `extent` | `one_side` / `symmetric` / `two_sides` | default one_side; symmetric turns the angle each way |
+| `operation` | `new_body` / `join` / `cut` / `intersect` | default new_body |
+| `profile_points` | array of [x, y] | which regions of the sketch (sketch coordinates) |
+| `reverse` | boolean | turn the other way round |
+| `sketch` **(required)** | integer | sketch feature id |
+
+## `shell`
+
+Hollows bodies out with walls of an even thickness - enclosures, boxes, cups. Give the faces to remove (the openings, e.g. a box's top; list_faces) or bodies to hollow with a sealed void inside. direction inside (default) keeps the outer size, outside keeps the inner size. Walls under 0.8 mm warn: they print poorly.
+
+| Argument | Type | Description |
+|---|---|---|
+| `bodies` | array of string | bodies to hollow with no opening |
+| `direction` | `inside` / `outside` | default inside |
+| `faces` | array of objects | faces to remove |
+| `thickness` | number or string | wall thickness in mm (default 2) |
+
 ## `split_body`
 
 Splits bodies in two (or more) with a plane - "XY"/"XZ"/"YZ", a construction plane or a planar face, all unbounded - or with the curves of a sketch swept both ways along its normal. Every piece becomes a body (the biggest keeps the name). For parts too big for the printer: keep "both" and set pins to drill matching alignment pin holes into both halves of a plane cut.

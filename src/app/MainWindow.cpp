@@ -12,7 +12,9 @@
 #include "command/OverhangCommand.h"
 #include "command/PatternCommand.h"
 #include "command/PlaneCommand.h"
+#include "command/RevolveCommand.h"
 #include "command/SectionCommand.h"
+#include "command/ShellCommand.h"
 #include "command/SplitCommand.h"
 #include "command/TextCommand.h"
 #include "command/ThreadCommand.h"
@@ -392,7 +394,7 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    for(const char *name : {"extrude", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "embossText", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
+    for(const char *name : {"extrude", "revolve", "shell", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "embossText", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
         action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
@@ -522,6 +524,8 @@ void MainWindow::editFeature(cad::FeatureId id) {
     case cad::FeatureType::Draft: m_commands->start(std::make_unique<DraftCommand>(ctx, id)); return;
     case cad::FeatureType::Thread: m_commands->start(std::make_unique<ThreadCommand>(ctx, id)); return;
     case cad::FeatureType::Text: m_commands->start(std::make_unique<TextCommand>(ctx, id)); return;
+    case cad::FeatureType::Revolve: m_commands->start(std::make_unique<RevolveCommand>(ctx, id)); return;
+    case cad::FeatureType::Shell: m_commands->start(std::make_unique<ShellCommand>(ctx, id)); return;
     case cad::FeatureType::Pattern:
         m_commands->start(std::make_unique<PatternCommand>(
             ctx, std::static_pointer_cast<const cad::PatternFeature>(f)->kind, id));
@@ -725,6 +729,18 @@ void MainWindow::buildActions() {
     makeAction("patternCircular", tr("Circular Pattern"), IconId::PatternCircular, {}, [this, ctx] {
         startCommand(QStringLiteral("patternCircular"), std::make_unique<PatternCommand>(ctx, cad::PatternKind::Circular));
     });
+    makeAction("revolve", tr("Revolve"), IconId::Revolve, {},
+               [this, ctx] { startCommand(QStringLiteral("revolve"), std::make_unique<RevolveCommand>(ctx)); });
+    m_actions[QStringLiteral("revolve")]->setToolTip(
+        tr("<b>Revolve</b><p>Turns a sketch profile about an axis into a solid: knobs, bottles, spacers, "
+           "pulleys.</p><p>Select the profile, then the axis (a sketch line, an edge, or X / Y / Z), and the angle "
+           "(360: all the way round). It can join, cut or intersect too.</p>"));
+    makeAction("shell", tr("Shell"), IconId::Shell, {},
+               [this, ctx] { startCommand(QStringLiteral("shell"), std::make_unique<ShellCommand>(ctx)); });
+    m_actions[QStringLiteral("shell")]->setToolTip(
+        tr("<b>Shell</b><p>Hollows a body out, leaving walls of an even thickness: enclosures, boxes, cups.</p>"
+           "<p>Select the faces to remove (the openings) and type the thickness; a body picked without faces is "
+           "hollowed with a sealed void. Walls under 0.8 mm print poorly.</p>"));
     makeAction("draft", tr("Draft"), IconId::Draft, {},
                [this, ctx] { startCommand(QStringLiteral("draft"), std::make_unique<DraftCommand>(ctx)); });
     makeAction("split", tr("Split Body"), IconId::Split, {},
@@ -863,6 +879,7 @@ void MainWindow::buildRibbon() {
     RibbonGroup *create = m_solidTab->addGroup(tr("CREATE"));
     create->addAction(action(QStringLiteral("createSketch")));
     create->addAction(action(QStringLiteral("extrude")));
+    create->addAction(action(QStringLiteral("revolve")));
     create->addAction(action(QStringLiteral("hole")));
     create->addAction(action(QStringLiteral("thread")));
     create->addAction(action(QStringLiteral("embossText")));
@@ -872,6 +889,7 @@ void MainWindow::buildRibbon() {
     RibbonGroup *modify = m_solidTab->addGroup(tr("MODIFY"));
     modify->addAction(action(QStringLiteral("fillet")));
     modify->addAction(action(QStringLiteral("chamfer")));
+    modify->addAction(action(QStringLiteral("shell")));
     modify->addAction(action(QStringLiteral("combine")));
     modify->addAction(action(QStringLiteral("split")));
     modify->addAction(action(QStringLiteral("draft")));

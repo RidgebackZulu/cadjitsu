@@ -23,7 +23,7 @@ enum class IconId {
     Undo, Redo, Save, Open, New, ExportStl, ExportStep, Print3D,
     Eye, EyeOff, Body, SketchNode, PlaneNode, Folder, Warning, Error,
     TimelineFirst, TimelineBack, TimelineForward, TimelineLast, Origin, Flip,
-    Trim, Extend, SketchFillet, Slot, Polygon,
+    Trim, Extend, SketchFillet, Slot, Polygon, Revolve, Shell,
     Settings, McpServer, Delete, Repeat,
 };
 

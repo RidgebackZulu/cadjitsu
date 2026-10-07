@@ -41,6 +41,8 @@ IconId iconFor(cad::FeatureType t) {
     case cad::FeatureType::Pattern: return IconId::PatternRect;
     case cad::FeatureType::Thread: return IconId::Thread;
     case cad::FeatureType::Text: return IconId::Emboss;
+    case cad::FeatureType::Revolve: return IconId::Revolve;
+    case cad::FeatureType::Shell: return IconId::Shell;
     }
     return IconId::Body;
 }

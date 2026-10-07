@@ -195,6 +195,16 @@ Right-click a sketch in the browser for **Edit Sketch** or **Delete**. Deleting 
 - Cuts, holes and the tools a Combine cut removes are previewed in translucent red.
 - A feature that fails to build (a fillet radius too large for its edges...) says why in the dialog, and OK stays disabled until it builds.
 
+**Revolve** (Create)
+- Turns sketch profiles (or planar faces) about an axis into a solid: knobs, bottles, spacers, pulleys, rings.
+- Pick the profile, then the axis: a line of a sketch (often a construction centre line), a straight edge or cylinder of a body, or choose X, Y or Z in the panel. The profile must lie on one side of the axis; it may touch it.
+- **Angle** is 360° by default (a closed solid); less leaves start and end faces. **Symmetric** turns the angle each way, **Two Sides** takes a second angle, **Reverse** turns the other way. Like Extrude it makes a new body, or joins, cuts (a groove in a turned part) or intersects.
+
+**Shell** (Modify)
+- Hollows a body out with walls of an even thickness: enclosures, boxes, cups. Pick the faces to remove (the openings, e.g. a box's top) and type the **Thickness**.
+- A body picked without faces is hollowed with a sealed void inside. **Inside** keeps the outer size; **Outside** keeps the inner size and grows the walls outwards.
+- Walls under 0.8 mm (two extrusion lines) get a warning: they print poorly. Round edges before shelling and the inside follows.
+
 **Fillet (F) and Chamfer**
 - Select edges, or faces to take all their edges; tangent edges are followed.
 - Fillet takes a radius. Chamfer is Equal Distance, Two Distances, or Distance and Angle, with Flip for which side the first distance is on.

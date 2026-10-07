@@ -2281,12 +2281,96 @@ bool sketchToolsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
+// Revolve (a vase about a sketch centre line) and Shell (a box hollowed
+// through its top), driven through their dialogs.
+bool solidsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
+    Viewport *vp = w.viewport();
+    cad::Document &doc = w.document();
+    bool ok = true;
+    auto check = [&](bool cond, const QString &what) {
+        log << (cond ? "  ok   " : "  FAIL ") << what << "\n";
+        log.flush();
+        ok &= cond;
+    };
+    auto shot = [&](const char *name) {
+        waitForFrames(vp, 2);
+        processEventsFor(30);
+        w.grab().save(out.filePath(QString::fromLatin1(name)));
+    };
+    auto settle = [&] {
+        w.waitForModel(60000);
+        waitForFrames(vp, 1);
+    };
+    auto at = [&](double x, double y, double z) { return vp->camera().project(QVector3D(float(x), float(y), float(z))); };
+    auto shown = [&] { return modelVolume(w.modelView()->state()); };
+    auto lastOk = [&] { return doc.statusOf(doc.features().back()->id).isOk(); };
+    auto home = [&] {
+        w.refresh();
+        vp->setStandardView(StandardView::Home, false);
+        vp->fitAll(false);
+        waitForFrames(vp, 2);
+    };
+
+    // A vase's half profile on XZ beside a construction centre line (world Z).
+    auto vase = std::make_shared<cad::SketchFeature>();
+    vase->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XZ);
+    {
+        cad::Sketch &k = vase->sketch;
+        const std::vector<cad::Vec2> pts = {{0, 0}, {16, 0}, {20, 12}, {12, 30}, {10, 40}, {14, 50}, {0, 50}};
+        std::vector<int> ids;
+        for(const auto &p : pts) ids.push_back(k.addPoint(p.x, p.y));
+        for(size_t i = 0; i < ids.size(); ++i) k.addLine(ids[i], ids[(i + 1) % ids.size()]);
+        k.addLine(cad::Vec2(0, -8), cad::Vec2(0, 60), true);
+    }
+    doc.addFeature(vase);
+    home();
+    w.action(QStringLiteral("revolve"))->trigger();
+    clickAt(vp, at(8, 0, 20));                          // the profile
+    clickAt(vp, at(0, 0, 56));                          // the centre line, above it
+    CommandPanel *panel = w.commandPanel();
+    if(ValueField *a = panel->findChild<ValueField *>(QStringLiteral("revolveAngle"))) a->setExpression(QStringLiteral("270 deg"));
+    settle();
+    check(shown() > 1000, QStringLiteral("the revolve previews (%1 mm3)").arg(shown()));
+    shot("solids_1_revolve_preview.png");
+    panel->okButton()->click();
+    settle();
+    check(lastOk() && doc.features().back()->type() == cad::FeatureType::Revolve, QStringLiteral("Revolve committed"));
+    w.undo();
+    settle();
+
+    // A 60 x 40 x 30 box hollowed through its top, 2.5 mm walls.
+    auto s = std::make_shared<cad::SketchFeature>();
+    s->plane = cad::PlaneRef::origin(cad::PlaneRef::Kind::XY);
+    s->sketch.addRectangle({40, 0}, {100, 40});
+    const cad::FeatureId sid = doc.addFeature(s);
+    auto e = std::make_shared<cad::ExtrudeFeature>();
+    for(const auto &p : doc.stateAt(doc.marker())->sketches.at(sid)->profiles) e->profiles.push_back({sid, p.key, p.sample});
+    e->distance = doc.makeSlot("30 mm");
+    doc.addFeature(e);
+    home();
+    w.action(QStringLiteral("shell"))->trigger();
+    clickAt(vp, at(70, 20, 30));
+    if(ValueField *t = panel->findChild<ValueField *>(QStringLiteral("shellThickness"))) t->setExpression(QStringLiteral("2.5 mm"));
+    settle();
+    const double expect = 60 * 40 * 30 - 55 * 35 * 27.5;
+    check(std::abs(shown() - expect) < 1.0, QStringLiteral("the shell previews (%1 mm3, expected %2)").arg(shown()).arg(expect));
+    shot("solids_2_shell_preview.png");
+    panel->okButton()->click();
+    settle();
+    check(lastOk() && doc.features().back()->type() == cad::FeatureType::Shell, QStringLiteral("Shell committed"));
+    vp->camera().orbit(0.0f, 60.0f, vp->camera().target);
+    waitForFrames(vp, 2);
+    shot("solids_3_shell.png");
+    return ok;
+}
+
 const std::map<QString, Scenario> &scenarios() {
     static const std::map<QString, Scenario> s = {
         {QStringLiteral("smoke"), smokeScenario},
         {QStringLiteral("views"), viewsScenario},
         {QStringLiteral("sketch"), sketchScenario},
         {QStringLiteral("sketchtools"), sketchToolsScenario},
+        {QStringLiteral("solids"), solidsScenario},
         {QStringLiteral("plate"), plateScenario},
         {QStringLiteral("features"), featuresScenario},
         {QStringLiteral("section"), sectionScenario},

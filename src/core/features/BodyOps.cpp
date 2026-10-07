@@ -12,6 +12,7 @@
 #include <ShapeFix_Shape.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_DataMapOfShapeInteger.hxx>
 #include <TopTools_ListOfShape.hxx>
 
 #include <algorithm>
@@ -177,6 +178,135 @@ std::vector<BodyId> bodiesInteracting(const ModelState &state, const TopoDS_Shap
         if(hit) out.push_back(b->id);
     }
     return out;
+}
+
+
+namespace {
+
+// Joins `tool` into the participant bodies. Each result solid keeps the id of
+// the first participant it contains; absorbed bodies are recorded as merged.
+bool joinInto(ModelState &out, const ModelState &in, const std::vector<BodyId> &parts, const NamedShape &tool,
+              FeatureId fid, const std::string &prefix, Status &status) {
+    std::vector<const NamedShape *> args;
+    for(const auto &p : parts) args.push_back(&in.body(p)->shape);
+    BooleanResult br = runBoolean(BoolOp::Fuse, args, {&tool}, prefix);
+    if(!br.ok) {
+        status.merge(Status::error(br.error));
+        return false;
+    }
+    if(!validateResult(br.shape, prefix, status)) return false;
+
+    const std::vector<TopoDS_Solid> solids = solidsOf(br.shape.shape());
+    TopTools_DataMapOfShapeInteger faceSolid;
+    for(size_t k = 0; k < solids.size(); ++k)
+        for(TopExp_Explorer ex(solids[k], TopAbs_FACE); ex.More(); ex.Next()) faceSolid.Bind(ex.Current(), int(k));
+
+    auto solidOfBody = [&](const Body *b) {
+        for(int i = 1; i <= b->shape.faceCount(); ++i) {
+            const TopoDS_Face f = b->shape.face(i);
+            if(faceSolid.IsBound(f)) return faceSolid.Find(f);
+            if(!br.history.IsNull()) {
+                for(TopTools_ListOfShape::Iterator it(br.history->Modified(f)); it.More(); it.Next())
+                    if(faceSolid.IsBound(it.Value())) return faceSolid.Find(it.Value());
+            }
+        }
+        return -1;
+    };
+
+    std::vector<BodyId> owner(solids.size());
+    for(const auto &p : parts) {
+        const int k = solidOfBody(in.body(p));
+        if(k >= 0 && owner[k].empty()) owner[k] = p;
+    }
+    // Remove all participants; re-add one body per result solid.
+    std::map<BodyId, std::shared_ptr<const Body>> old;
+    for(const auto &p : parts) {
+        old[p] = out.bodies[p];
+        out.bodies.erase(p);
+    }
+    int extra = 0;
+    for(size_t k = 0; k < solids.size(); ++k) {
+        auto body = std::make_shared<Body>();
+        if(!owner[k].empty()) {
+            const auto &prev = old[owner[k]];
+            body->id = owner[k];
+            body->name = prev->name;
+            body->order = prev->order;
+            body->createdBy = prev->createdBy;
+        } else {
+            body->id = bodyIdFor(fid) + (extra ? "." + std::to_string(extra + 1) : "");
+            ++extra;
+            body->name = "Body" + std::to_string(++out.bodyCounter);
+            body->order = ++out.bodyOrder;
+            body->createdBy = fid;
+        }
+        body->shape = br.shape.subShape(solids[k]);
+        out.bodies[body->id] = body;
+    }
+    // Participants that did not keep their own solid were merged.
+    const BodyId target = parts.front();
+    for(const auto &p : parts) {
+        if(out.bodies.count(p)) continue;
+        const int k = solidOfBody(in.body(p));
+        const BodyId into = (k >= 0 && !owner[k].empty()) ? owner[k] : target;
+        if(into != p) out.mergedInto[p] = out.bodies.count(into) ? into : target;
+    }
+    return true;
+}
+
+} // namespace
+
+FeatureResult applyBodyOperation(const StatePtr &input, const NamedShape &tool, BodyOperation operation,
+                                 const std::vector<BodyId> &participants, FeatureId id, const std::string &prefix,
+                                 Status st) {
+    // 4. Apply the operation. Cuts and intersections show their tool while
+    // previewed (also when they fail).
+    const std::shared_ptr<const Body> shown =
+        operation == BodyOperation::Cut || operation == BodyOperation::Intersect ? toolBody(tool) : nullptr;
+    auto fail = [&](Status s) { return FeatureResult{input, std::move(s), shown}; };
+    auto out = std::make_shared<ModelState>(*input);
+    std::vector<BodyId> parts;
+    if(operation != BodyOperation::NewBody) {
+        if(participants.empty()) {
+            parts = bodiesInteracting(*input, tool.shape(), operation == BodyOperation::Join);
+        } else {
+            for(const auto &b : participants) {
+                const BodyId real = input->resolveBodyId(b);
+                if(real.empty()) st.merge(Status::warning("body " + b + " no longer exists"));
+                else if(std::find(parts.begin(), parts.end(), real) == parts.end()) parts.push_back(real);
+            }
+        }
+    }
+    switch(operation) {
+    case BodyOperation::NewBody:
+        addNewBodies(*out, tool, id);
+        break;
+    case BodyOperation::Join:
+        if(parts.empty()) addNewBodies(*out, tool, id);
+        else if(!joinInto(*out, *input, parts, tool, id, prefix, st)) return {input, st};
+        break;
+    case BodyOperation::Cut:
+    case BodyOperation::Intersect: {
+        if(parts.empty())
+            return fail(Status::error(operation == BodyOperation::Cut ? "there is no body to cut"
+                                                                      : "there is no body to intersect"));
+        const BoolOp op = operation == BodyOperation::Cut ? BoolOp::Cut : BoolOp::Common;
+        for(const auto &p : parts) {
+            const Body *body = input->body(p);
+            BooleanResult br = runBoolean(op, {&body->shape}, {&tool}, prefix);
+            if(!br.ok) return fail(Status::error(br.error));
+            if(solidsOf(br.shape.shape()).empty()) {
+                out->bodies.erase(p);
+                st.merge(Status::warning(body->name + " was removed entirely"));
+                continue;
+            }
+            if(!validateResult(br.shape, prefix, st)) return fail(st);
+            replaceBody(*out, p, br.shape);
+        }
+        break;
+    }
+    }
+    return {out, st, shown};
 }
 
 } // namespace cad
