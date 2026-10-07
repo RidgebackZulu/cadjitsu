@@ -2586,28 +2586,14 @@ private:
             Found f;
             f.canvas = placed;
             f.frame = frame;
-            f.scale = std::min(1.0, 1200.0 / std::max(pic.width(), pic.height()));
-            f.small = smallCopy(pic, f.scale);
+            const TraceSource src = traceSource(pic);
+            f.scale = src.scale;
+            f.small = src.small;
             f.seed = QPoint(int(pix.x * f.scale), int(pix.y * f.scale));
             best = f;
             bestT = t;
         }
         return best;
-    }
-
-    static QImage smallCopy(const QImage &pic, double scale) {
-        static qint64 key = 0;
-        static double keyScale = 0;
-        static QImage cached;
-        if(key != pic.cacheKey() || keyScale != scale) {
-            cached = (scale < 1.0 ? pic.scaled(int(pic.width() * scale), int(pic.height() * scale), Qt::IgnoreAspectRatio,
-                                               Qt::SmoothTransformation)
-                                  : pic)
-                         .convertToFormat(QImage::Format_RGBA8888);
-            key = pic.cacheKey();
-            keyScale = scale;
-        }
-        return cached;
     }
 
     void update(QPointF px) {
@@ -2628,17 +2614,8 @@ private:
         const qint64 key = f->small.cacheKey() ^ qint64(f->canvas.id);
         const bool inside = m_seedKey == key && m_mask.at(f->seed.x(), f->seed.y());
         if(!inside) {
-            const cad::ImageView view{f->small.constBits(), f->small.width(), f->small.height(),
-                                      int(f->small.bytesPerLine())};
-            m_mask = cad::regionAt(view, f->seed.x(), f->seed.y(), sensitivity() / 100.0 * 0.6);
             m_seedKey = key;
-            m_loops.clear();
-            const double minArea = std::max(12.0, 0.0002 * f->small.width() * f->small.height());
-            // A region filling the whole picture is the background, not a part.
-            if(m_mask.count() < size_t(f->small.width()) * size_t(f->small.height()) * 95 / 100) {
-                const double tol = std::max(1.0, 0.0015 * std::max(f->small.width(), f->small.height()));
-                for(const cad::TracedLoop &l : cad::traceLoops(m_mask, minArea)) m_loops.push_back(cad::fitContour(l.points, tol));
-            }
+            m_loops = traceRegion(f->small, f->seed, sensitivity(), &m_mask);
         }
         ed.previewLines.clear();
         for(const cad::FitLoop &loop : m_loops) outline(loop, ed.previewLines);

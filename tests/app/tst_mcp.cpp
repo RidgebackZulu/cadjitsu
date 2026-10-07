@@ -552,6 +552,78 @@ private slots:
         QVERIFY(tool("canvas_lens", {{"canvas", c["canvas"]}, {"lines", {{{0, 0}, {1, 1}}}}}).first);
     }
 
+    void agentSeesAndTracesACanvas() {
+        initialize();
+        QTemporaryDir dir;
+        // A dark 60 x 40 mm plate with a 10 mm hole, on white: 0.25 mm per pixel once inserted 100 mm wide.
+        QImage img(400, 300, QImage::Format_ARGB32);
+        img.fill(Qt::white);
+        {
+            QPainter p(&img);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(30, 40, 60));
+            p.drawRect(QRectF(80, 70, 240, 160));
+            p.setBrush(Qt::white);
+            p.drawEllipse(QPointF(260, 150), 20, 20);
+        }
+        const QString file = dir.filePath(QStringLiteral("plate.png"));
+        QVERIFY(img.save(file));
+        const auto [e0, c] = tool("insert_canvas", {{"path", file.toStdString()}, {"plane", "XY"}, {"width", 100}});
+        QVERIFY2(!e0, c.dump().c_str());
+        // The picture with a mm grid, and a zoom on the hole.
+        const json r = rpc("tools/call", {{"name", "canvas_image"}, {"arguments", {{"canvas", c["canvas"]}}}})["result"];
+        QVERIFY2(r["content"][0]["type"] == "image", r.dump().c_str());
+        const QImage seen = QImage::fromData(QByteArray::fromBase64(QByteArray::fromStdString(r["content"][0]["data"])), "PNG");
+        QVERIFY(!seen.isNull());
+        QCOMPARE(seen.width(), 1024);
+        QVERIFY2(QString::fromStdString(r["content"][1]["text"]).contains(QStringLiteral("grid every 10 mm")),
+                 r["content"][1]["text"].get<std::string>().c_str());
+        const json z = rpc("tools/call", {{"name", "canvas_image"},
+                                          {"arguments", {{"canvas", c["canvas"]}, {"region", {10, -10, 30, 10}}, {"grid", 2}}}})["result"];
+        QVERIFY2(!z.value("isError", false), z.dump().c_str());
+        QVERIFY(QString::fromStdString(z["content"][1]["text"]).contains(QStringLiteral("x 10 to 30")));
+        // Trace the plate into a sketch on XY: a point on it, left of the hole.
+        const auto [e1, sk] = tool("create_sketch", {{"plane", "XY"}, {"entities", json::array()}});
+        QVERIFY2(!e1, sk.dump().c_str());
+        const auto [e2, t] = tool("trace_canvas", {{"sketch", sk["sketch"]}, {"canvas", c["canvas"]}, {"point", {-15, 0}}});
+        QVERIFY2(!e2, t.dump().c_str());
+        QCOMPARE(t["traced"]["loops"].get<int>(), 2);
+        QCOMPARE(int(t["traced"]["curves"].size()), 5); // four lines and the hole
+        QVERIFY(t["traced"]["constraints"].get<int>() >= 4);
+        QCOMPARE(int(t["profiles"].size()), 2);
+        // Made exact with what was measured: the hole 10.2, the plate 60.5 wide.
+        int hole = 0, bottom = 0;
+        for(const json &cv : t["curves"]) {
+            if(cv["type"] == "circle") hole = cv["id"].get<int>();
+            if(cv["type"] == "line" && std::abs(cv["from"][1].get<double>() + 20) < 1 && std::abs(cv["to"][1].get<double>() + 20) < 1)
+                bottom = cv["id"].get<int>();
+        }
+        QVERIFY(hole && bottom);
+        const auto [e4, d1] = tool("sketch_dimension", {{"sketch", sk["sketch"]}, {"entity", hole}, {"value", 10.2}});
+        QVERIFY2(!e4, d1.dump().c_str());
+        QVERIFY(!d1["dimension"]["parameter"].get<std::string>().empty());
+        const auto [e5, d2] = tool("sketch_dimension", {{"sketch", sk["sketch"]}, {"entity", bottom}, {"value", 60.5}});
+        QVERIFY2(!e5, d2.dump().c_str());
+        for(const json &cv : d2["curves"]) {
+            if(cv["id"] == hole) QVERIFY(std::abs(cv["radius"].get<double>() - 5.1) < 1e-3);
+            if(cv["id"] == bottom)
+                QVERIFY(std::abs(std::abs(cv["to"][0].get<double>() - cv["from"][0].get<double>()) - 60.5) < 1e-3);
+        }
+        // Two points: the bottom line's ends are 60.5 apart along x; 5 apart along y conflicts with it being horizontal.
+        json ends;
+        for(const json &cv : d2["curves"])
+            if(cv["id"] == bottom) ends = cv["point_ids"];
+        QCOMPARE(int(ends.size()), 2);
+        QVERIFY(tool("sketch_dimension", {{"sketch", sk["sketch"]}, {"points", ends}, {"direction", "y"}, {"value", 5}}).first);
+        QVERIFY(tool("sketch_dimension", {{"sketch", sk["sketch"]}, {"entity", 99999}, {"value", 5}}).first);
+        // Off the plate, and on another plane: refused.
+        QVERIFY(tool("trace_canvas", {{"sketch", sk["sketch"]}, {"canvas", c["canvas"]}, {"point", {500, 0}}}).first);
+        const auto [e3, side] = tool("create_sketch", {{"plane", "XZ"}, {"entities", json::array()}});
+        QVERIFY(!e3);
+        QVERIFY(tool("trace_canvas", {{"sketch", side["sketch"]}, {"canvas", c["canvas"]}, {"point", {-15, 0}}}).first);
+    }
+
     void insertViewsLinesUpThreePictures() {
         initialize();
         QTemporaryDir dir;

@@ -186,6 +186,39 @@ bool applyPerspective(const cad::Document &doc, cad::ReferenceImage &canvas, con
     return true;
 }
 
+TraceSource traceSource(const QImage &picture) {
+    static qint64 key = 0;
+    static TraceSource cachedSource;
+    if(picture.isNull()) return {};
+    if(key != picture.cacheKey() || cachedSource.small.isNull()) {
+        const double scale = std::min(1.0, 1200.0 / std::max(picture.width(), picture.height()));
+        cachedSource.scale = scale;
+        cachedSource.small = (scale < 1.0 ? picture.scaled(std::max(1, int(picture.width() * scale)),
+                                                           std::max(1, int(picture.height() * scale)),
+                                                           Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                                          : picture)
+                                 .convertToFormat(QImage::Format_RGBA8888);
+        key = picture.cacheKey();
+    }
+    return cachedSource;
+}
+
+std::vector<cad::FitLoop> traceRegion(const QImage &small, QPoint seed, double sensitivity, cad::Mask *maskOut) {
+    std::vector<cad::FitLoop> loops;
+    if(small.isNull() || !small.rect().contains(seed)) return loops;
+    const QImage rgba = small.format() == QImage::Format_RGBA8888 ? small : small.convertToFormat(QImage::Format_RGBA8888);
+    const cad::ImageView view{rgba.constBits(), rgba.width(), rgba.height(), int(rgba.bytesPerLine())};
+    cad::Mask mask = cad::regionAt(view, seed.x(), seed.y(), std::clamp(sensitivity, 0.0, 100.0) / 100.0 * 0.6);
+    // A region filling the whole picture is the background, not a part.
+    if(mask.count() < size_t(rgba.width()) * size_t(rgba.height()) * 95 / 100) {
+        const double minArea = std::max(12.0, 0.0002 * rgba.width() * rgba.height());
+        const double tol = std::max(1.0, 0.0015 * std::max(rgba.width(), rgba.height()));
+        for(const cad::TracedLoop &l : cad::traceLoops(mask, minArea)) loops.push_back(cad::fitContour(l.points, tol));
+    }
+    if(maskOut) *maskOut = std::move(mask);
+    return loops;
+}
+
 cad::PixelBox partBox(const QImage &picture) {
     if(picture.isNull()) return {};
     // Found on a copy at most 800 pixels a side, then scaled back.

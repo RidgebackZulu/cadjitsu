@@ -183,7 +183,14 @@ text, extrude the plate, then the letters). For FDM: letters 5 mm or taller with
    files and one measured size sets all of them up at one scale on XZ, YZ and XY, the part standing on z = 0 and
    centred on the Z axis. Sketch each view on its plane: e.g. the front outline on XZ, extruded symmetric through
    the depth that `size` reports, then cuts from the top view's holes on XY.
-6. `get_design` reports each canvas's `center`, `mm_per_pixel` and corners; sketch on the same plane over it, and
+6. **Look before you sketch**: `canvas_image` returns the picture as corrected with a labelled grid in plane mm,
+   so you can read positions and sizes off it (`region` zooms in on a detail; `grid` sets the spacing).
+7. **Trace instead of drawing by eye**: create an empty sketch on the canvas's plane, then `trace_canvas` with a
+   point inside the part (read off `canvas_image`): its outline and holes come back as lines, arcs and circles
+   with horizontal / vertical / tangent constraints. Check the result with `canvas_image` again or a
+   `screenshot`, then add the user's measured dimensions (`sketch_dimension`) so the sizes are exact rather than
+   traced; a shadow or a background close in colour may need another `sensitivity` (lower takes in less).
+8. `get_design` reports each canvas's `center`, `mm_per_pixel` and corners; sketch on the same plane over it, and
    prefer the user's caliper measurements to what the picture shows for the dimensions that matter (holes,
    fits). Hide canvases (`set_visibility {"folders": ["canvases"], "visible": false}`) before screenshots.
 

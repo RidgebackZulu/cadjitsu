@@ -297,6 +297,8 @@ Reverse-engineer a part from a picture: put the photo on a plane at true size an
 
 **Views** (SOLID > INSERT > Views, or File > Views) sets up pictures of a part from the **front**, the **right side** and the **top** (any two do; product photos taken square on, or a drawing's views) in one go. Choose a picture for each and type one size you measured (the width, depth or height): the part is found in each picture, every view is scaled from that size, and they go on the XZ, YZ and XY planes lined up as a projection, the part standing on z = 0 and centred on the Z axis. The panel shows the part's size along X, Y and Z, and warns when the views disagree (a picture taken in perspective). Sketch each view on its plane over its picture.
 
+**With an AI agent** (see AI agents below), the same steps are MCP tools, so you can hand an agent a photo and your caliper measurements: `insert_canvas` / `insert_views` place the pictures, `canvas_lens` / `canvas_perspective` / `calibrate_canvas` correct them, `canvas_image` shows the agent the picture with a labelled millimetre grid (or zoomed on a detail) so it can read positions off it, `trace_canvas` traces the part from a point inside it, and `sketch_dimension` sets the measured sizes.
+
 Canvases live in the browser's **Canvases** folder (eye to hide, double-click to place again, Delete). Every change is one undo step. The path tracer ignores them.
 
 ## Display

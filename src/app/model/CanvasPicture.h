@@ -3,6 +3,7 @@
 #include "doc/Document.h"
 #include "doc/ReferenceImage.h"
 #include "image/ViewAlign.h"
+#include "sketch/ContourFit.h"
 
 #include <QImage>
 
@@ -51,6 +52,21 @@ bool applyPerspective(const cad::Document &doc, cad::ReferenceImage &canvas, con
 // Four clicked corners put in order: top-left, top-right, bottom-right,
 // bottom-left (in pixel coordinates, y down).
 std::array<cad::Vec2, 4> orderCorners(std::array<cad::Vec2, 4> corners);
+
+// Tracing a canvas: its picture at most 1200 pixels a side (`scale`: small
+// pixels per picture pixel), RGBA. The last one is kept.
+struct TraceSource {
+    QImage small;
+    double scale = 1.0;
+};
+TraceSource traceSource(const QImage &picture);
+
+// The outline of the region around `seed` (a pixel of `small`) whose colour
+// is close to it: its loops (outer and holes) fitted with lines and arcs, in
+// `small`'s pixels. `sensitivity` (0-100 %) sets how far a colour may differ
+// and still count. Empty when the region is the whole background. `mask`, if
+// given, gets the region.
+std::vector<cad::FitLoop> traceRegion(const QImage &small, QPoint seed, double sensitivity, cad::Mask *mask = nullptr);
 
 // The part in a picture: the box of what is not its background (pixels).
 cad::PixelBox partBox(const QImage &picture);

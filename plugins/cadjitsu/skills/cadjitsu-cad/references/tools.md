@@ -126,6 +126,18 @@ Rounds a sketch corner where two lines meet with a tangent arc of `radius`, like
 | `radius` **(required)** | number | mm |
 | `sketch` **(required)** | integer | sketch feature id |
 
+## `sketch_dimension`
+
+Dimensions sketch geometry with a measured value, as the Dimension tool does: a line's length, a circle's diameter or an arc's radius (`entity`), or the distance between two points (`points`, along x, y or straight). The geometry moves to match; the value becomes a parameter. Use it to make traced or sketched geometry exact with caliper measurements. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `direction` | `aligned` / `x` / `y` | for two points: straight (default), along x or along y |
+| `entity` | integer | a line, circle or arc id |
+| `points` | array of integer | or: two point ids (curves list theirs as point_ids) |
+| `sketch` **(required)** | integer | sketch feature id |
+| `value` **(required)** | number | mm |
+
 ## `set_construction`
 
 Makes sketch geometry construction geometry (dotted, a reference for drawing: it bounds no profile and is never extruded) or normal again. One undo step.
@@ -558,6 +570,30 @@ Corrects a canvas's lens distortion (a phone or wide-angle photo whose straight 
 | `canvas` **(required)** | any | canvas id or name |
 | `lines` | array of array of [x, y] | the edges |
 | `remove` | boolean | remove the lens correction instead |
+
+## `canvas_image`
+
+A PNG of a canvas's picture as shown (lens and perspective corrected) with a grid in plane millimetres drawn over it, labelled: read positions and sizes of the part's features straight off it, in the coordinates of a sketch on the canvas's plane (x right, y up). `region` zooms in on part of it. Use it to see a photo before sketching over it, and the points to give trace_canvas.
+
+| Argument | Type | Description |
+|---|---|---|
+| `canvas` **(required)** | any | canvas id or name |
+| `grid` | number | grid spacing, mm (default: about ten lines across) |
+| `max_size` | integer | the picture's longer side, pixels (default 1024) |
+| `region` | array of number | [x_min, y_min, x_max, y_max] in plane mm: only this part, enlarged |
+
+## `trace_canvas`
+
+Traces a part (or a hole, or any region of one colour) in a canvas's picture into a sketch, like the Trace Canvas tool: give a point inside it (plane mm, as canvas_image shows them; or picture pixels with `pixels: true`). Its outline and the holes in it are fitted with lines, arcs and circles and added, with horizontal, vertical and tangent constraints where they fit. The sketch must be on the canvas's plane (or parallel to it). Then dimension it with what was measured. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `canvas` **(required)** | any | canvas id or name |
+| `holes` | boolean | also trace the holes in the region (default true) |
+| `pixels` | boolean | point is a picture pixel (x right, y down) instead of plane mm |
+| `point` **(required)** | [x, y] | a point inside the region to trace |
+| `sensitivity` | number | 0-100 %: how far a colour may differ and still count (default 25) |
+| `sketch` **(required)** | integer | sketch feature id |
 
 ## `insert_views`
 

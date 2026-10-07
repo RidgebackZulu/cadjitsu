@@ -51,6 +51,8 @@
 #include <gp_Pln.hxx>
 
 #include <QBuffer>
+#include <QFontMetricsF>
+#include <QPainter>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -159,9 +161,15 @@ json curvesJson(const cad::Sketch &s) {
     for(const auto &e : s.entities) {
         json j{{"id", e.id}};
         switch(e.type) {
-        case cad::SkType::Line: j["type"] = "line", j["from"] = xy(e.a), j["to"] = xy(e.b); break;
-        case cad::SkType::Circle: j["type"] = "circle", j["center"] = xy(e.a), j["radius"] = std::round(e.r * 1000) / 1000; break;
-        case cad::SkType::Arc: j["type"] = "arc", j["center"] = xy(e.a), j["start"] = xy(e.b), j["end"] = xy(e.c); break;
+        case cad::SkType::Line:
+            j["type"] = "line", j["from"] = xy(e.a), j["to"] = xy(e.b), j["point_ids"] = {e.a, e.b};
+            break;
+        case cad::SkType::Circle:
+            j["type"] = "circle", j["center"] = xy(e.a), j["radius"] = std::round(e.r * 1000) / 1000, j["point_ids"] = {e.a};
+            break;
+        case cad::SkType::Arc:
+            j["type"] = "arc", j["center"] = xy(e.a), j["start"] = xy(e.b), j["end"] = xy(e.c), j["point_ids"] = {e.a, e.b, e.c};
+            break;
         case cad::SkType::Text: j["type"] = "text", j["text"] = e.text, j["origin"] = xy(e.a); break;
         case cad::SkType::Point:
             if(used.count(e.id)) continue;
@@ -1020,6 +1028,61 @@ void McpTools::define() {
                 made = {{"arc", arc}, {"radius_parameter", c->param}};
             });
             r["created"] = made;
+            return r;
+        });
+
+    add("sketch_dimension",
+        "Dimensions sketch geometry with a measured value, as the Dimension tool does: a line's length, a circle's "
+        "diameter or an arc's radius (`entity`), or the distance between two points (`points`, along x, y or "
+        "straight). The geometry moves to match; the value becomes a parameter. Use it to make traced or sketched "
+        "geometry exact with caliper measurements. One undo step.",
+        {{"sketch", integer("sketch feature id")},
+         {"entity", integer("a line, circle or arc id")},
+         {"points", arrayOf(integer("point id"), "or: two point ids (curves list theirs as point_ids)")},
+         {"direction", enumOf({"aligned", "x", "y"}, "for two points: straight (default), along x or along y")},
+         {"value", number("mm")}},
+        {"sketch", "value"}, [&doc, editSketch](const json &a) {
+            const double value = a.at("value").get<double>();
+            if(!(value > 0)) fail("the value must be more than 0");
+            json made;
+            json r = editSketch(a, "Dimension", [&](cad::Sketch &s, const cad::SketchResult &, const cad::StatePtr &) {
+                int cid = 0;
+                if(a.contains("entity")) {
+                    const cad::SkEntity *e = s.find(a["entity"].get<int>());
+                    if(!e) fail("no entity " + a["entity"].dump() + " in this sketch");
+                    switch(e->type) {
+                    case cad::SkType::Line: cid = s.addConstraint(cad::SkCon::Distance, e->id); break;
+                    case cad::SkType::Circle: cid = s.addConstraint(cad::SkCon::Diameter, e->id); break;
+                    case cad::SkType::Arc: cid = s.addConstraint(cad::SkCon::Radius, e->id); break;
+                    default: fail("dimension a line, circle or arc (or give two points)");
+                    }
+                } else {
+                    const json pts = a.value("points", json::array());
+                    if(!pts.is_array() || pts.size() != 2) fail("give an entity, or two points");
+                    const int p1 = pts[0].get<int>(), p2 = pts[1].get<int>();
+                    for(int id : {p1, p2}) {
+                        const cad::SkEntity *e = s.find(id);
+                        if(!e || e->type != cad::SkType::Point) fail(std::to_string(id) + " is not a point of this sketch");
+                    }
+                    const std::string dir = a.value("direction", std::string("aligned"));
+                    const cad::SkCon type = dir == "x" ? cad::SkCon::HDistance : dir == "y" ? cad::SkCon::VDistance : cad::SkCon::Distance;
+                    cid = s.addConstraint(type, p1, p2);
+                }
+                cad::SkConstraint *c = s.findConstraint(cid);
+                c->param = doc.allocateParamName();
+                c->expr = num(value) + " mm";
+                // Solvable with the new value (other dimensions left free)?
+                cad::Sketch probe = s;
+                const std::string param = c->param;
+                const cad::SolveOutcome solved = cad::solveSketch(probe, [&](const std::string &n, double &v) {
+                    if(n != param) return false;
+                    v = value;
+                    return true;
+                });
+                if(!solved.ok) fail("the sketch cannot take that dimension: " + solved.message);
+                made = {{"constraint", cid}, {"parameter", param}};
+            });
+            r["dimension"] = made;
             return r;
         });
 
@@ -2322,6 +2385,166 @@ void McpTools::define() {
             doc.updateCanvas(c, true, "Correct Lens of " + c.name + " (MCP)");
             return json{{"canvas", c.id}, {"k1", lens->k1}, {"k2", lens->k2}, {"bend_before_px", before},
                         {"bend_after_px", after}};
+        });
+    add("canvas_image",
+        "A PNG of a canvas's picture as shown (lens and perspective corrected) with a grid in plane millimetres "
+        "drawn over it, labelled: read positions and sizes of the part's features straight off it, in the "
+        "coordinates of a sketch on the canvas's plane (x right, y up). `region` zooms in on part of it. Use it to "
+        "see a photo before sketching over it, and the points to give trace_canvas.",
+        {{"canvas", {{"description", "canvas id or name"}}},
+         {"region", arrayOf(number("mm"), "[x_min, y_min, x_max, y_max] in plane mm: only this part, enlarged")},
+         {"grid", number("grid spacing, mm (default: about ten lines across)")},
+         {"max_size", integer("the picture's longer side, pixels (default 1024)")}},
+        {"canvas"}, [&doc, begin, canvasOf](const json &a) {
+            begin();
+            cad::ReferenceImage c = *canvasOf(a.at("canvas"));
+            const QImage pic = canvasPicture(doc, c);
+            if(pic.isNull()) fail("the canvas's picture cannot be read");
+            c.pixelWidth = pic.width();
+            c.pixelHeight = pic.height();
+            // The plane rectangle shown.
+            double x0 = 1e300, y0 = 1e300, x1 = -1e300, y1 = -1e300;
+            for(const cad::Vec2 &p : c.planeCorners()) {
+                x0 = std::min(x0, p.x), y0 = std::min(y0, p.y), x1 = std::max(x1, p.x), y1 = std::max(y1, p.y);
+            }
+            if(a.contains("region")) {
+                const json &r = a["region"];
+                if(!r.is_array() || r.size() != 4) fail("region is [x_min, y_min, x_max, y_max]");
+                x0 = std::max(x0, r[0].get<double>()), y0 = std::max(y0, r[1].get<double>());
+                x1 = std::min(x1, r[2].get<double>()), y1 = std::min(y1, r[3].get<double>());
+                if(!(x1 > x0) || !(y1 > y0)) fail("the region is outside the canvas");
+            }
+            // Its pixels.
+            double u0 = 1e300, v0 = 1e300, u1 = -1e300, v1 = -1e300;
+            for(const cad::Vec2 &p : {cad::Vec2(x0, y0), cad::Vec2(x1, y0), cad::Vec2(x1, y1), cad::Vec2(x0, y1)}) {
+                const cad::Vec2 q = c.toPixel(p);
+                u0 = std::min(u0, q.x), v0 = std::min(v0, q.y), u1 = std::max(u1, q.x), v1 = std::max(v1, q.y);
+            }
+            const QRect crop = QRectF(QPointF(u0, v0), QPointF(u1, v1)).toAlignedRect().intersected(pic.rect());
+            if(crop.width() < 2 || crop.height() < 2) fail("the region is too small");
+            const int maxSize = std::clamp(a.value("max_size", 1024), 200, 2048);
+            const double k = std::min(8.0, double(maxSize) / std::max(crop.width(), crop.height()));
+            QImage out(std::max(1, int(crop.width() * k)), std::max(1, int(crop.height() * k)), QImage::Format_ARGB32);
+            out.fill(Qt::white);
+            QPainter p(&out);
+            p.setRenderHint(QPainter::SmoothPixmapTransform);
+            p.drawImage(QRectF(0, 0, out.width(), out.height()), pic, QRectF(crop));
+            p.setRenderHint(QPainter::Antialiasing);
+            auto at = [&](cad::Vec2 plane) {
+                const cad::Vec2 q = c.toPixel(plane);
+                return QPointF((q.x - crop.left()) * k, (q.y - crop.top()) * k);
+            };
+            double step = a.value("grid", 0.0);
+            if(!(step > 0)) {
+                const double raw = std::max(x1 - x0, y1 - y0) / 10.0;
+                const double mag = std::pow(10.0, std::floor(std::log10(raw)));
+                step = raw / mag < 2 ? mag : raw / mag < 5 ? 2 * mag : 5 * mag;
+            }
+            if((x1 - x0) / step > 200 || (y1 - y0) / step > 200) fail("the grid is too fine for that region");
+            QFont font = p.font();
+            font.setPixelSize(12);
+            font.setBold(true);
+            p.setFont(font);
+            auto label = [&](QPointF where, const QString &text) {
+                const QRectF r = QFontMetricsF(font).boundingRect(text).adjusted(-3, -1, 3, 1);
+                QRectF box(where, r.size());
+                box.moveLeft(std::clamp(box.left(), 0.0, out.width() - box.width()));
+                box.moveTop(std::clamp(box.top(), 0.0, out.height() - box.height()));
+                if(box.left() < 1 && box.top() < 18) box.moveTop(18); // clear of the x labels' row
+                p.setPen(Qt::NoPen);
+                p.setBrush(QColor(255, 255, 255, 220));
+                p.drawRect(box);
+                p.setPen(QColor(150, 0, 110));
+                p.drawText(box, Qt::AlignCenter, text);
+            };
+            auto mmText = [](double v) { return QString::number(std::abs(v) < 1e-9 ? 0.0 : v, 'g', 6); };
+            // A label every line, or every few where they would overlap.
+            const double pxPerStep = step / c.mmPerPixel * k;
+            int every = 1;
+            for(int e : {1, 2, 5, 10, 20, 50, 100})
+                if((every = e) * pxPerStep >= 64.0) break;
+            for(int pass = 0; pass < 2; ++pass) // lines, then labels on top
+                for(int axis = 0; axis < 2; ++axis) {
+                    const double lo = axis == 0 ? x0 : y0, hi = axis == 0 ? x1 : y1;
+                    for(int i = int(std::ceil(lo / step)); i * step <= hi + 1e-9; ++i) {
+                        const double v = i * step;
+                        const QPointF a0 = axis == 0 ? at({v, y1}) : at({x0, v}), a1 = axis == 0 ? at({v, y0}) : at({x1, v});
+                        if(pass == 0) {
+                            p.setPen(QPen(i == 0 ? QColor(0, 150, 220, 230) : QColor(220, 0, 160, 150), i == 0 ? 2.0 : 1.0));
+                            p.drawLine(a0, a1);
+                        } else if(i % every == 0) {
+                            label(a0 + QPointF(2, 2), (axis == 0 ? QStringLiteral("x=") : QStringLiteral("y=")) + mmText(v));
+                        }
+                    }
+                }
+            p.end();
+            QByteArray png;
+            QBuffer buf(&png);
+            buf.open(QIODevice::WriteOnly);
+            out.save(&buf, "PNG");
+            const std::string text = "Canvas " + c.name + " on plane " + c.plane.toJson().dump() + ": grid every " + num(step) +
+                                     " mm in plane coordinates (x right, y up; the blue lines are x = 0 and y = 0). Shown: x " +
+                                     num(x0) + " to " + num(x1) + ", y " + num(y0) + " to " + num(y1) + " mm; one pixel here is " +
+                                     num(c.mmPerPixel / k) + " mm.";
+            return json{{"content", json::array({{{"type", "image"}, {"data", png.toBase64().toStdString()}, {"mimeType", "image/png"}},
+                                                 {{"type", "text"}, {"text", text}}})},
+                        {"isError", false}};
+        });
+    add("trace_canvas",
+        "Traces a part (or a hole, or any region of one colour) in a canvas's picture into a sketch, like the Trace "
+        "Canvas tool: give a point inside it (plane mm, as canvas_image shows them; or picture pixels with "
+        "`pixels: true`). Its outline and the holes in it are fitted with lines, arcs and circles and added, with "
+        "horizontal, vertical and tangent constraints where they fit. The sketch must be on the canvas's plane (or "
+        "parallel to it). Then dimension it with what was measured. One undo step.",
+        {{"sketch", integer("sketch feature id")},
+         {"canvas", {{"description", "canvas id or name"}}},
+         {"point", xy("a point inside the region to trace")},
+         {"pixels", boolean("point is a picture pixel (x right, y down) instead of plane mm")},
+         {"sensitivity", number("0-100 %: how far a colour may differ and still count (default 25)")},
+         {"holes", boolean("also trace the holes in the region (default true)")}},
+        {"sketch", "canvas", "point"}, [&doc, editSketch, canvasOf](const json &a) {
+            cad::ReferenceImage c = *canvasOf(a.at("canvas"));
+            const QImage pic = canvasPicture(doc, c);
+            if(pic.isNull()) fail("the canvas's picture cannot be read");
+            c.pixelWidth = pic.width();
+            c.pixelHeight = pic.height();
+            const cad::Vec2 point = vec2Arg(a.at("point"), "point");
+            const cad::Vec2 seed = a.value("pixels", false) ? point : c.toPixel(point);
+            if(seed.x < 0 || seed.y < 0 || seed.x >= pic.width() || seed.y >= pic.height()) fail("the point is not on the canvas");
+            const TraceSource src = traceSource(pic);
+            std::vector<cad::FitLoop> loops =
+                traceRegion(src.small, QPoint(int(seed.x * src.scale), int(seed.y * src.scale)), a.value("sensitivity", 25.0));
+            if(loops.empty())
+                fail("nothing to trace there (the point is on the background, or the region fills the picture): try "
+                     "another point or sensitivity");
+            if(!a.value("holes", true)) loops.resize(1);
+            json made;
+            json r = editSketch(a, "Trace", [&](cad::Sketch &s, const cad::SketchResult &res, const cad::StatePtr &st) {
+                gp_Ax3 frame;
+                cad::Status status;
+                if(!cad::resolvePlane(*st, c.plane, frame, status)) fail("the canvas's plane is gone");
+                if(std::abs(frame.Direction().Dot(res.frame.Direction())) < 0.999)
+                    fail("the sketch is not on the canvas's plane (or parallel to it)");
+                auto toSketch = [&](cad::Vec2 smallPx) {
+                    const cad::Vec2 plane = c.toPlane(smallPx / src.scale);
+                    const gp_XYZ w = frame.Location().XYZ() + frame.XDirection().XYZ() * plane.x +
+                                     frame.YDirection().XYZ() * plane.y - res.frame.Location().XYZ();
+                    return cad::Vec2(w.Dot(res.frame.XDirection().XYZ()), w.Dot(res.frame.YDirection().XYZ()));
+                };
+                std::vector<cad::SuggestedConstraint> hints;
+                json curves = json::array();
+                for(const cad::FitLoop &loop : loops)
+                    for(int id : cad::addFittedLoop(s, loop, toSketch, hints)) curves.push_back(id);
+                // The suggested constraints, if the sketch still solves with them.
+                const cad::Sketch plain = s;
+                for(const auto &h : hints) s.addConstraint(h.type, h.e1, h.e2);
+                cad::Sketch probe = s;
+                const bool solves = cad::solveSketch(probe, [](const std::string &, double &) { return false; }).ok;
+                if(!solves) s = plain;
+                made = {{"curves", curves}, {"loops", loops.size()}, {"constraints", solves ? hints.size() : 0}};
+            });
+            r["traced"] = made;
+            return r;
         });
     add("insert_views",
         "Sets up pictures of a part from the front, the right side and the top (any of them; two or three are best) "
