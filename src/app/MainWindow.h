@@ -91,6 +91,12 @@ public:
     void startCommand(const QString &name, std::unique_ptr<Command> cmd);
     void editFeature(cad::FeatureId id);
     void editSection(int id);
+    // Canvases: insert a picture file (asks for the plane and size in the
+    // panel), place one again, calibrate it, correct its perspective.
+    bool insertCanvas(const QString &path);
+    void editCanvas(int id);
+    void calibrateCanvas(int id);
+    void correctCanvasPerspective(int id);
     // The shown section's depth arrow on the canvas (always there to drag).
     DistanceManipulator *sectionArrow() const { return m_sectionArrow.get(); }
     // The shown section's depth, typed or following the arrow (on the canvas).

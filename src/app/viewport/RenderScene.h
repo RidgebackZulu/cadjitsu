@@ -69,6 +69,14 @@ struct TriangleBatch {
     bool twoSided = true;
 };
 
+// A reference picture on a plane (a canvas): drawn see-through, behind
+// sketch geometry, hidden by bodies in front of it.
+struct CanvasQuad {
+    QImage image;          // any format; cached on the GPU by its cacheKey()
+    QVector3D corners[4];  // world positions of the picture's top-left, top-right, bottom-right, bottom-left
+    float opacity = 0.5f;
+};
+
 struct RenderScene {
     DisplayStyle style = DisplayStyle::ShadedWithEdges;
     bool grid = true;
@@ -83,6 +91,7 @@ struct RenderScene {
     std::vector<PointBatch> points;
     std::vector<LineBatch> lines;
     std::vector<TriangleBatch> triangles;
+    std::vector<CanvasQuad> canvases;
 
     std::optional<QVector4D> clipPlane; // section analysis: dot(n, p) + d > 0 is removed
     // Section analysis: a square on the clip plane (4 corners) that closes the

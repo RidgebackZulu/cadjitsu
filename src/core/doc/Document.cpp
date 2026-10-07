@@ -1,10 +1,12 @@
 #include "doc/Document.h"
 
+#include "base/Base64.h"
 #include "base/Hash.h"
 #include "base/KernelLock.h"
 #include "base/Version.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <fstream>
 #include <sstream>
 
@@ -300,7 +302,7 @@ void Document::setPlaneVisible(FeatureId id, bool visible) {
 bool Document::planeVisible(FeatureId id) const { return !m_hiddenPlanes.count(id); }
 
 const std::vector<std::string> &Document::folderNames() {
-    static const std::vector<std::string> names = {"bodies", "sketches", "construction", "origin"};
+    static const std::vector<std::string> names = {"bodies", "sketches", "construction", "origin", "canvases"};
     return names;
 }
 
@@ -450,6 +452,65 @@ Status Document::statusOf(FeatureId id) {
     return m_eval.statuses[size_t(i)];
 }
 
+std::string Document::addImage(std::string bytes) {
+    char key[32];
+    std::snprintf(key, sizeof key, "%016llx-%zu", static_cast<unsigned long long>(mix64(hashBytes(bytes.data(), bytes.size()))),
+                  bytes.size());
+    auto &slot = m_images[key];
+    if(!slot) slot = std::make_shared<const std::string>(std::move(bytes));
+    return key;
+}
+
+std::shared_ptr<const std::string> Document::image(const std::string &key) const {
+    auto it = m_images.find(key);
+    return it == m_images.end() ? nullptr : it->second;
+}
+
+const ReferenceImage *Document::canvas(int id) const {
+    for(const auto &c : m_canvases)
+        if(c.id == id) return &c;
+    return nullptr;
+}
+
+int Document::addCanvas(ReferenceImage c) {
+    pushUndo("Insert Canvas");
+    c.id = m_nextCanvas++;
+    if(c.name.empty()) c.name = "Canvas" + std::to_string(c.id);
+    m_canvases.push_back(c);
+    touch(false);
+    return c.id;
+}
+
+bool Document::updateCanvas(const ReferenceImage &c, bool recordUndo, const std::string &undoLabel) {
+    for(auto &o : m_canvases)
+        if(o.id == c.id) {
+            if(recordUndo) pushUndo(undoLabel.empty() ? "Edit " + o.name : undoLabel);
+            o = c;
+            touch(false);
+            return true;
+        }
+    return false;
+}
+
+bool Document::deleteCanvas(int id) {
+    for(auto it = m_canvases.begin(); it != m_canvases.end(); ++it)
+        if(it->id == id) {
+            pushUndo("Delete " + it->name);
+            m_canvases.erase(it);
+            touch(false);
+            return true;
+        }
+    return false;
+}
+
+void Document::setCanvasVisible(int id, bool visible) {
+    for(auto &c : m_canvases)
+        if(c.id == id && c.visible != visible) {
+            c.visible = visible;
+            touch(false);
+        }
+}
+
 void Document::touch(bool structural) {
     if(structural) {
         m_params.reset();
@@ -471,6 +532,8 @@ json Document::snapshot() const {
     for(const auto &[id, visible] : m_sketchVisibility) sketches[std::to_string(id)] = visible;
     json sections = json::array();
     for(const auto &s : m_sections) sections.push_back(s.toJson());
+    json canvases = json::array();
+    for(const auto &c : m_canvases) canvases.push_back(c.toJson());
     std::vector<int> hiddenPlanes(m_hiddenPlanes.begin(), m_hiddenPlanes.end());
     json folders = json::object();
     for(const auto &[name, visible] : m_folderVisibility) folders[name] = visible;
@@ -488,7 +551,9 @@ json Document::snapshot() const {
                 {"hiddenPlanes", hiddenPlanes},
                 {"folderVisibility", folders},
                 {"sections", sections},
-                {"nextSection", m_nextSection}};
+                {"nextSection", m_nextSection},
+                {"canvases", canvases},
+                {"nextCanvas", m_nextCanvas}};
 }
 
 void Document::restore(const json &snap) {
@@ -526,6 +591,10 @@ void Document::restore(const json &snap) {
     for(const auto &js : snap.value("sections", json::array())) m_sections.push_back(SectionAnalysis::fromJson(js));
     m_nextSection = jget<int>(snap, "nextSection", 1);
     for(const auto &s : m_sections) m_nextSection = std::max(m_nextSection, s.id + 1);
+    m_canvases.clear();
+    for(const auto &jc : snap.value("canvases", json::array())) m_canvases.push_back(ReferenceImage::fromJson(jc));
+    m_nextCanvas = jget<int>(snap, "nextCanvas", 1);
+    for(const auto &c : m_canvases) m_nextCanvas = std::max(m_nextCanvas, c.id + 1);
     touch(true);
 }
 
@@ -560,6 +629,12 @@ bool Document::redo() {
 
 json Document::toJson() const {
     json j = snapshot();
+    // The pictures the canvases show (others are left out).
+    json images = json::object();
+    for(const auto &c : m_canvases)
+        if(const auto bytes = image(c.imageKey); bytes && !images.contains(c.imageKey))
+            images[c.imageKey] = base64Encode(*bytes);
+    if(!images.empty()) j["images"] = images;
     j["format"] = "cadjitsu";
     j["version"] = kFormatVersion;
     j["generator"] = std::string("Cadjitsu ") + version();
@@ -577,6 +652,13 @@ bool Document::fromJson(const json &j, std::string &error) {
     if(jget<int>(j, "version", 0) > kFormatVersion) {
         error = "this document was made by a newer version of Cadjitsu";
         return false;
+    }
+    m_images.clear();
+    const json images = j.value("images", json::object());
+    for(auto it = images.begin(); it != images.end(); ++it) {
+        std::string bytes;
+        if(it.value().is_string() && base64Decode(it.value().get<std::string>(), bytes))
+            m_images[it.key()] = std::make_shared<const std::string>(std::move(bytes));
     }
     restore(j);
     m_undo.clear();
@@ -628,6 +710,9 @@ void Document::clear() {
     m_folderVisibility.clear();
     m_sections.clear();
     m_nextSection = 1;
+    m_canvases.clear();
+    m_nextCanvas = 1;
+    m_images.clear();
     m_undo.clear();
     m_redo.clear();
     touch(true);

@@ -2,6 +2,7 @@
 
 #include "doc/Feature.h"
 #include "doc/ResultCache.h"
+#include "doc/ReferenceImage.h"
 #include "doc/Section.h"
 #include "expr/ParamTable.h"
 #include "render/Materials.h"
@@ -94,7 +95,7 @@ public:
     std::optional<bool> sketchVisibility(FeatureId id) const;
     void setPlaneVisible(FeatureId id, bool visible);
     bool planeVisible(FeatureId id) const;
-    // Browser folders ("bodies", "sketches", "construction", "origin"): hiding one
+    // Browser folders ("bodies", "sketches", "construction", "origin", "canvases"): hiding one
     // hides everything in it without changing the items' own settings. Origin is
     // hidden by default, the others are shown.
     static const std::vector<std::string> &folderNames();
@@ -109,6 +110,19 @@ public:
     bool updateSection(const SectionAnalysis &s, bool recordUndo = true);
     bool deleteSection(int id);
     void setSectionVisible(int id, bool visible); // showing one hides the others
+
+    // --- Canvases: reference pictures on planes (Insert > Canvas) --------------------
+    // Picture bytes are kept once per content (`addImage` returns its key) and
+    // saved in the file with the canvases that use them; undo steps refer to
+    // them by key only.
+    std::string addImage(std::string bytes);
+    std::shared_ptr<const std::string> image(const std::string &key) const;
+    const std::vector<ReferenceImage> &canvases() const { return m_canvases; }
+    const ReferenceImage *canvas(int id) const;
+    int addCanvas(ReferenceImage c); // named; one undo step
+    bool updateCanvas(const ReferenceImage &c, bool recordUndo = true, const std::string &undoLabel = {});
+    bool deleteCanvas(int id);
+    void setCanvasVisible(int id, bool visible);
 
     // --- Parameters -------------------------------------------------------------
     std::string allocateParamName();
@@ -179,6 +193,9 @@ private:
     std::map<std::string, bool> m_folderVisibility; // explicit settings only
     std::vector<SectionAnalysis> m_sections;
     int m_nextSection = 1;
+    std::vector<ReferenceImage> m_canvases;
+    int m_nextCanvas = 1;
+    std::map<std::string, std::shared_ptr<const std::string>> m_images; // by content key
 
     std::vector<UndoEntry> m_undo, m_redo;
     uint64_t m_revision = 0;

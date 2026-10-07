@@ -391,7 +391,7 @@ Shows or hides bodies, sketches and construction planes (like the eyes in the br
 | Argument | Type | Description |
 |---|---|---|
 | `bodies` | array of string | bodies to show or hide |
-| `folders` | array of `bodies` / `sketches` / `construction` / `origin` | folders to show or hide as a whole |
+| `folders` | array of `bodies` / `sketches` / `construction` / `origin` / `canvases` | folders to show or hide as a whole |
 | `planes` | array of integer or string | construction plane ids or names |
 | `sketches` | array of integer or string | sketch ids or names |
 | `visible` **(required)** | boolean | true to show, false to hide |
@@ -512,6 +512,42 @@ Section analysis: cuts the view (not the model) by a plane moved along its norma
 | `hide` | boolean | turn all sections off |
 | `offset` | number | mm along the plane normal |
 | `plane` | string or object | Where: "XY", "XZ" or "YZ" (origin planes), {"plane": <construction plane feature id>}, or {"face": {"body": "b2", "index": 5}} for a planar face of a body. |
+
+## `insert_canvas`
+
+Places a picture (PNG, JPEG...) on a plane as a canvas, to trace over in a sketch on the same plane: a photo of the part to reverse-engineer, a drawing, a screenshot. Plane coordinates are the sketch coordinates of a sketch on that plane. Then calibrate it: calibrate_canvas (two marks a known distance apart) and, for a photo taken at an angle, canvas_perspective. Not a timeline feature; one undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `center` | [x, y] | where the picture's middle goes on the plane (default [0, 0]) |
+| `opacity` | number | 0-1 (default 0.5) |
+| `path` **(required)** | string | absolute path of the picture |
+| `plane` | string or object | Where: "XY", "XZ" or "YZ" (origin planes), {"plane": <construction plane feature id>}, or {"face": {"body": "b2", "index": 5}} for a planar face of a body. |
+| `rotation` | number | degrees, anticlockwise (default 0) |
+| `width` | number | mm across the picture (default 100) |
+
+## `calibrate_canvas`
+
+Scales a canvas so two points on it (plane coordinates, e.g. the ends of a ruler's 100 mm span or a part's measured width read off the picture) are `distance` mm apart. The first point stays put. A picture pixel's plane position is center + (its offset from the picture's middle) x mm_per_pixel, with y up; or give the two points as picture pixels with `pixels: true`. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `canvas` **(required)** | any | canvas id or name |
+| `distance` **(required)** | number | their real distance, mm |
+| `p1` **(required)** | [x, y] | first point |
+| `p2` **(required)** | [x, y] | second point |
+| `pixels` | boolean | p1 / p2 are picture pixels (x right, y down from the top-left) instead of plane mm |
+
+## `canvas_perspective`
+
+Corrects a canvas photographed at an angle into a true top view: give the picture pixels (x right, y down from the top-left of the photo as inserted) of the four corners of something rectangular in it - a sheet of paper, a cutting mat - in any order, and its real width and height (mm). The corrected picture is to scale (no calibrate_canvas needed), with the rectangle centred on the canvas's center and square to the plane's axes. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `canvas` **(required)** | any | canvas id or name |
+| `corners` **(required)** | array of [x, y] | the four corners |
+| `height` **(required)** | number | its real height, mm |
+| `width` **(required)** | number | the rectangle's real width (along its top edge), mm |
 
 ## `new_design`
 

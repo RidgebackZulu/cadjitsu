@@ -1245,6 +1245,20 @@ def shell():
     return s
 
 
+def canvas():
+    """A photo pinned flat on a plane: a framed picture with hills and a sun."""
+    iso = Iso(32, 34, 1.0)
+    P = iso.p
+    s = iso.floor_shadow(-16, -16, 32, 32, 1.0)
+    s += iso_sheet(iso, -17, -17, 34, 34)
+    frame = [P(-13, -13, 1), P(13, -13, 1), P(13, 13, 1), P(-13, 13, 1)]
+    s += poly(frame, "#EAF3FF", INK, 1.5)
+    hills = [P(-13, 13, 1), P(-13, 3, 1), P(-4, -6, 1), P(2, 2, 1), P(7, -3, 1), P(13, 5, 1), P(13, 13, 1)]
+    s += poly(hills, "#4FA060", "#2E6E3C", 1.1)
+    s += ellipse(P(7, 8, 1), 3.2, 1.9, "#F2B630")
+    return s
+
+
 ICONS = {
     "home": home, "orbit": orbit, "pan": pan, "zoom": zoom, "fit": fit, "display": display, "grid": grid,
     "camera": camera, "render": render,
@@ -1263,7 +1277,7 @@ ICONS = {
     "folder": folder, "warning": warning, "error": error,
     "timeline-first": t_first, "timeline-back": t_back, "timeline-forward": t_forward, "timeline-last": t_last,
     "origin": origin, "flip": flip,
-    "revolve": revolve, "shell": shell,
+    "revolve": revolve, "shell": shell, "canvas": canvas,
     "trim": trim_tool, "extend": extend_tool, "sketch-fillet": sketch_fillet, "slot": slot_tool,
     "polygon": polygon_tool,
     "settings": settings, "mcp-server": mcp_server, "delete": delete, "repeat": repeat,

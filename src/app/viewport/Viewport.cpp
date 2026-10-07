@@ -123,6 +123,8 @@ void Viewport::render(QRhiCommandBuffer *cb) {
         for(const auto &p : pb.points) bounds.add(p);
     for(const auto &t : scene.triangles)
         for(const auto &p : t.triangles) bounds.add(p);
+    for(const auto &c : scene.canvases)
+        for(const auto &p : c.corners) bounds.add(p);
     std::vector<QVector3D> grid;
     if(scene.grid) {
         const float e = scene.gridExtent;
@@ -224,6 +226,8 @@ Box3 Viewport::contentBounds() const {
         for(const auto &p : pb.points) b.add(p);
     for(const auto &t : m_content.triangles)
         for(const auto &p : t.triangles) b.add(p);
+    for(const auto &c : m_content.canvases)
+        for(const auto &p : c.corners) b.add(p);
     return b;
 }
 

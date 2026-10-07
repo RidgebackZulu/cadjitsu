@@ -145,6 +145,19 @@ struct Renderer::Pipelines {
     std::unique_ptr<QRhiShaderResourceBindings> pbrSrb, reflPassSrb, shadowSrb, thickSrb;
     QSize screenSize;
 
+    // Canvases: one texture (and bindings) per picture, by QImage::cacheKey.
+    struct CanvasTexture {
+        std::unique_ptr<QRhiTexture> tex;
+        std::unique_ptr<QRhiShaderResourceBindings> srb;
+        uint64_t lastUsed = 0;
+    };
+    std::unordered_map<qint64, CanvasTexture> canvasTextures;
+    std::unique_ptr<QRhiTexture> canvasDummy;
+    std::unique_ptr<QRhiSampler> canvasSampler;
+    std::unique_ptr<QRhiShaderResourceBindings> canvasLayoutSrb;
+    std::unique_ptr<QRhiBuffer> dynCanvas;
+    std::unique_ptr<QRhiGraphicsPipeline> canvas;
+
     // The path tracer's image.
     std::unique_ptr<QRhiTexture> tracedTex;
     qint64 tracedKey = 0;
@@ -201,6 +214,16 @@ void Renderer::rebuildBindings() {
                               QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage,
                                                                         p.silTex.get(), p.silSampler.get())});
     p.groundSrb->create();
+    if(p.canvasLayoutSrb) {
+        auto canvasBindings = [&](QRhiShaderResourceBindings *srb, QRhiTexture *tex) {
+            srb->setBindings({QRhiShaderResourceBinding::uniformBuffer(0, stages, p.frameUbo.get()), draw,
+                              QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage, tex,
+                                                                        p.canvasSampler.get())});
+            srb->create();
+        };
+        canvasBindings(p.canvasLayoutSrb.get(), p.canvasDummy.get());
+        for(auto &[key, ct] : p.canvasTextures) canvasBindings(ct.srb.get(), ct.tex.get());
+    }
     if(p.pbrSrb) rebuildRenderedBindings();
 }
 
@@ -233,6 +256,12 @@ void Renderer::createPipelines() {
     p.srb.reset(rhi->newShaderResourceBindings());
     p.silSrb.reset(rhi->newShaderResourceBindings());
     p.groundSrb.reset(rhi->newShaderResourceBindings());
+    p.canvasDummy.reset(rhi->newTexture(QRhiTexture::RGBA8, QSize(1, 1)));
+    p.canvasDummy->create();
+    p.canvasSampler.reset(rhi->newSampler(QRhiSampler::Linear, QRhiSampler::Linear, QRhiSampler::None,
+                                          QRhiSampler::ClampToEdge, QRhiSampler::ClampToEdge));
+    p.canvasSampler->create();
+    p.canvasLayoutSrb.reset(rhi->newShaderResourceBindings());
     rebuildBindings();
 
     p.bgUbo.reset(rhi->newBuffer(QRhiBuffer::Dynamic, QRhiBuffer::UniformBuffer, sizeof(BackgroundUniforms)));
@@ -346,6 +375,11 @@ void Renderer::createPipelines() {
     p.point = make("point.vert", "point.frag", pointLayout, true, false, AlphaBlend, p.srb.get());
     p.pointNoDepth = make("point.vert", "point.frag", pointLayout, false, false, AlphaBlend, p.srb.get());
     p.grid = make("grid.vert", "grid.frag", gridLayout, true, false, Premultiplied, p.srb.get());
+    QRhiVertexInputLayout canvasLayout;
+    canvasLayout.setBindings({{5 * sizeof(float)}});
+    canvasLayout.setAttributes({{0, 0, QRhiVertexInputAttribute::Float3, 0},
+                                {0, 1, QRhiVertexInputAttribute::Float2, 3 * sizeof(float)}});
+    p.canvas = make("canvas.vert", "canvas.frag", canvasLayout, true, false, AlphaBlend, p.canvasLayoutSrb.get());
 
     // Section caps. The parity pass flips the stencil for every (unclipped)
     // surface of a body along each view ray, without drawing: it ends up set
@@ -1086,6 +1120,57 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
         d.vb0 = p.quadCorners.get();
         d.count = 6;
         draws.push_back(d);
+    }
+
+    // Canvases: reference pictures on their planes, under sketch geometry.
+    if(!scene.canvases.empty()) {
+        std::vector<float> verts;
+        std::vector<DrawCall> canvasDraws;
+        for(const CanvasQuad &c : scene.canvases) {
+            if(c.image.isNull()) continue;
+            auto [it, made] = p.canvasTextures.try_emplace(c.image.cacheKey());
+            Pipelines::CanvasTexture &ct = it->second;
+            if(made) {
+                const QImage img = c.image.convertToFormat(QImage::Format_RGBA8888);
+                ct.tex.reset(m_rhi->newTexture(QRhiTexture::RGBA8, img.size()));
+                ct.tex->create();
+                u->uploadTexture(ct.tex.get(), img);
+                ct.srb.reset(m_rhi->newShaderResourceBindings());
+                const auto stages = QRhiShaderResourceBinding::VertexStage | QRhiShaderResourceBinding::FragmentStage;
+                ct.srb->setBindings({QRhiShaderResourceBinding::uniformBuffer(0, stages, p.frameUbo.get()),
+                                     QRhiShaderResourceBinding::uniformBufferWithDynamicOffset(1, stages, p.drawUbo.get(),
+                                                                                              sizeof(DrawUniforms)),
+                                     QRhiShaderResourceBinding::sampledTexture(2, QRhiShaderResourceBinding::FragmentStage,
+                                                                               ct.tex.get(), p.canvasSampler.get())});
+                ct.srb->create();
+            }
+            ct.lastUsed = m_frame;
+            DrawCall d;
+            d.pipeline = p.canvas.get();
+            d.srb = ct.srb.get();
+            d.uniform = uniform(QColor(255, 255, 255), QColor(255, 255, 255), 0, 0, 0, 0);
+            uniforms.back().color[3] = std::clamp(c.opacity, 0.0f, 1.0f);
+            d.vb0Offset = quint32(verts.size() * sizeof(float));
+            d.count = 6;
+            static const int order[6] = {0, 1, 2, 0, 2, 3};
+            static const float uv[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+            for(int k : order)
+                verts.insert(verts.end(), {c.corners[k].x(), c.corners[k].y(), c.corners[k].z(), uv[k][0], uv[k][1]});
+            canvasDraws.push_back(d);
+        }
+        if(!verts.empty()) {
+            ensureDynamicBuffer(p.dynCanvas, quint32(verts.size() * sizeof(float)), QRhiBuffer::VertexBuffer);
+            u->updateDynamicBuffer(p.dynCanvas.get(), 0, quint32(verts.size() * sizeof(float)), verts.data());
+            for(DrawCall &d : canvasDraws) {
+                d.vb0 = p.dynCanvas.get();
+                draws.push_back(d);
+            }
+        }
+        // Pictures not shown for a while are let go.
+        for(auto it = p.canvasTextures.begin(); it != p.canvasTextures.end();) {
+            if(m_frame - it->second.lastUsed > 240) it = p.canvasTextures.erase(it);
+            else ++it;
+        }
     }
 
     // Body edges.

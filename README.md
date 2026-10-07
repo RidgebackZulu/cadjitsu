@@ -284,6 +284,17 @@ Right-click a sketch in the browser for **Edit Sketch** or **Delete**. Deleting 
 
 **Files:** New, Open, Save and Save As (`.cadjitsu`, a JSON document with the whole history). On macOS, double-clicking a `.cadjitsu` file in Finder (or dropping it on the Dock icon) opens it; `Cadjitsu design.cadjitsu` does the same from a shell.
 
+## Canvases: tracing a photo
+
+Reverse-engineer a part from a picture: put the photo on a plane at true size and sketch over it.
+
+1. **SOLID > INSERT > Canvas** (or File > Canvas) opens a picture (PNG, JPEG, BMP...). Pick the plane: an origin plane, a construction plane or a planar face. Set its **Width**, where its middle goes (**X / Y**), **Rotation**, **Flip** and **Opacity**. The picture is saved inside the design.
+2. **Correct Perspective** (right-click the canvas in the browser), for a photo taken at an angle: lay the part on a sheet of paper or a cutting mat, click the sheet's four corners in the picture, and type its real size (A4 is 297 x 210 mm, the default). The picture becomes a true top view at scale, with the sheet centred and square on the plane.
+3. **Calibrate...** for a picture taken square on: click two marks a known distance apart (a ruler, a coin, the part's width measured with calipers) and type the real distance. The picture is scaled about the first mark.
+4. Start a sketch on the same plane and draw over it: the canvas shows under the sketch. Prefer your caliper measurements to what the photo shows for the sizes that matter (holes, fits), as dimensions.
+
+Canvases live in the browser's **Canvases** folder (eye to hide, double-click to place again, Delete). Every change is one undo step. The path tracer ignores them.
+
 ## Display
 
 **View > visual style** (also the display button in the navigation bar under the canvas):

@@ -14,7 +14,7 @@ class ModelView;
 QIcon bodyIcon(const cad::BodyMaterial &m, bool chosen);
 
 // Fusion 360's BROWSER: the design's Origin, Analysis (section analyses),
-// Bodies, Sketches and Construction folders, with eye icons to show / hide
+// Bodies, Canvases (reference pictures), Sketches and Construction folders, with eye icons to show / hide
 // each item, in-place renaming of bodies, and double-click to edit a sketch
 // or a section analysis.
 class BrowserTree : public QTreeWidget {
@@ -32,6 +32,10 @@ public:
 signals:
     void editSketchRequested(cad::FeatureId id);
     void editSectionRequested(int id);
+    // Canvases: edit (place), calibrate, correct perspective.
+    void editCanvasRequested(int id);
+    void calibrateCanvasRequested(int id);
+    void perspectiveCanvasRequested(int id);
     // "Delete" on a sketch.
     void deleteSketchRequested(cad::FeatureId id);
     // "Material..." on bodies.
@@ -52,7 +56,9 @@ private:
         SketchItem,
         PlaneItem,
         AnalysisFolder,
-        SectionItem
+        SectionItem,
+        CanvasesFolder,
+        CanvasItem
     };
 
     void onClicked(QTreeWidgetItem *item, int column);

@@ -1,8 +1,10 @@
 #include "mcp/McpTools.h"
+
 #include "mcp/McpLog.h"
 
 #include "MainWindow.h"
 #include "io/Exporter.h"
+#include "model/CanvasPicture.h"
 #include "model/ModelView.h"
 #include "selftest/TestUtil.h"
 #include "viewport/TraceScene.h"
@@ -50,6 +52,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QFile>
 #include <QImage>
 
 #include <algorithm>
@@ -587,7 +590,25 @@ void McpTools::define() {
                                   {"visible", doc.planeVisible(id) && doc.folderVisible("construction")}});
             json folders = json::object();
             for(const std::string &f : cad::Document::folderNames()) folders[f] = doc.folderVisible(f);
+            json canvases = json::array();
+            for(const auto &c : doc.canvases()) {
+                const auto corners = c.planeCorners();
+                json jc = {{"id", c.id},
+                           {"name", c.name},
+                           {"plane", c.plane.toJson()},
+                           {"pixels", {c.pixelWidth, c.pixelHeight}},
+                           {"width_mm", r3(c.width())},
+                           {"height_mm", r3(c.pixelHeight * c.mmPerPixel)},
+                           {"mm_per_pixel", c.mmPerPixel},
+                           {"center", {r3(c.origin.x), r3(c.origin.y)}},
+                           {"rotation", c.rotation},
+                           {"corners", {{r3(corners[0].x), r3(corners[0].y)}, {r3(corners[2].x), r3(corners[2].y)}}},
+                           {"perspective_corrected", c.perspective.has_value()},
+                           {"visible", c.visible && doc.folderVisible("canvases")}};
+                canvases.push_back(jc);
+            }
             return json{{"units", "mm, degrees; Z is up (print direction)"},
+                        {"canvases", canvases},
                         {"features", features},
                         {"marker", doc.marker()},
                         {"bodies", bodiesJson(st)},
@@ -1804,7 +1825,7 @@ void McpTools::define() {
          {"sketches", arrayOf({{"anyOf", json::array({{{"type", "integer"}}, {{"type", "string"}}})}}, "sketch ids or names")},
          {"planes", arrayOf({{"anyOf", json::array({{{"type", "integer"}}, {{"type", "string"}}})}},
                             "construction plane ids or names")},
-         {"folders", arrayOf(enumOf({"bodies", "sketches", "construction", "origin"}, "a browser folder"),
+         {"folders", arrayOf(enumOf({"bodies", "sketches", "construction", "origin", "canvases"}, "a browser folder"),
                              "folders to show or hide as a whole")},
          {"visible", boolean("true to show, false to hide")}},
         {"visible"}, [&doc, begin, settle, bodyOf, visibilityJson](const json &a) {
@@ -1826,7 +1847,7 @@ void McpTools::define() {
             for(const json &v : a.value("folders", json::array())) {
                 const auto &names = cad::Document::folderNames();
                 if(!v.is_string() || std::find(names.begin(), names.end(), v.get<std::string>()) == names.end())
-                    fail("folder must be bodies, sketches, construction or origin");
+                    fail("folder must be bodies, sketches, construction, origin or canvases");
             }
             if(bodies.empty() && sketches.empty() && planes.empty() && a.value("folders", json::array()).empty())
                 fail("name at least one body, sketch, plane or folder");
@@ -2169,6 +2190,102 @@ void McpTools::define() {
         if(!QFileInfo(QFileInfo(p).absolutePath()).isDir()) fail("the folder " + QFileInfo(p).absolutePath().toStdString() + " does not exist");
         return p;
     };
+    // --- canvases ----------------------------------------------------------------------------------
+    auto canvasOf = [&doc](const json &v) -> const cad::ReferenceImage * {
+        if(v.is_number_integer())
+            if(const auto *c = doc.canvas(v.get<int>())) return c;
+        if(v.is_string())
+            for(const auto &c : doc.canvases())
+                if(c.name == v.get<std::string>()) return &c;
+        fail("no such canvas (see get_design's canvases)");
+        return nullptr;
+    };
+    add("insert_canvas",
+        "Places a picture (PNG, JPEG...) on a plane as a canvas, to trace over in a sketch on the same plane: a photo of "
+        "the part to reverse-engineer, a drawing, a screenshot. Plane coordinates are the sketch coordinates of a sketch "
+        "on that plane. Then calibrate it: calibrate_canvas (two marks a known distance apart) and, for a photo taken at "
+        "an angle, canvas_perspective. Not a timeline feature; one undo step.",
+        {{"path", str("absolute path of the picture")},
+         {"plane", planeSpec()},
+         {"width", number("mm across the picture (default 100)")},
+         {"center", xy("where the picture's middle goes on the plane (default [0, 0])")},
+         {"rotation", number("degrees, anticlockwise (default 0)")},
+         {"opacity", number("0-1 (default 0.5)")}},
+        {"path"}, [&doc, begin, settle, planeOf, path](const json &a) {
+            begin();
+            const QString p = path(a.at("path"));
+            QFile f(p);
+            if(!f.open(QIODevice::ReadOnly)) fail("cannot read " + p.toStdString());
+            const QByteArray bytes = f.readAll();
+            const QImage img = QImage::fromData(bytes);
+            if(img.isNull()) fail(p.toStdString() + " is not a picture that can be read (PNG, JPEG, BMP...)");
+            const cad::StatePtr st = settle();
+            cad::ReferenceImage c;
+            c.plane = planeOf(st, a.value("plane", json("XY")));
+            c.imageKey = doc.addImage(bytes.toStdString());
+            c.pixelWidth = img.width();
+            c.pixelHeight = img.height();
+            const double width = a.value("width", 100.0);
+            if(!(width > 0)) fail("width must be more than 0");
+            c.mmPerPixel = width / img.width();
+            if(a.contains("center")) c.origin = vec2Arg(a["center"], "center");
+            c.rotation = a.value("rotation", 0.0);
+            c.opacity = std::clamp(a.value("opacity", 0.5), 0.0, 1.0);
+            const int id = doc.addCanvas(c);
+            const cad::ReferenceImage &made = *doc.canvas(id);
+            return json{{"canvas", id}, {"name", made.name}, {"pixels", {made.pixelWidth, made.pixelHeight}},
+                        {"width_mm", made.width()}, {"mm_per_pixel", made.mmPerPixel}};
+        });
+    add("calibrate_canvas",
+        "Scales a canvas so two points on it (plane coordinates, e.g. the ends of a ruler's 100 mm span or a part's "
+        "measured width read off the picture) are `distance` mm apart. The first point stays put. A picture pixel's "
+        "plane position is center + (its offset from the picture's middle) x mm_per_pixel, with y up; or give the two "
+        "points as picture pixels with `pixels: true`. One undo step.",
+        {{"canvas", {{"description", "canvas id or name"}}},
+         {"p1", xy("first point")},
+         {"p2", xy("second point")},
+         {"pixels", boolean("p1 / p2 are picture pixels (x right, y down from the top-left) instead of plane mm")},
+         {"distance", number("their real distance, mm")}},
+        {"canvas", "p1", "p2", "distance"}, [&doc, begin, canvasOf](const json &a) {
+            begin();
+            cad::ReferenceImage c = *canvasOf(a.at("canvas"));
+            cad::Vec2 p1 = vec2Arg(a.at("p1"), "p1"), p2 = vec2Arg(a.at("p2"), "p2");
+            if(a.value("pixels", false)) {
+                p1 = c.toPlane(p1);
+                p2 = c.toPlane(p2);
+            }
+            std::string why;
+            if(!cad::calibrateReferenceImage(c, p1, p2, a.at("distance").get<double>(), why)) fail(why);
+            doc.updateCanvas(c, true, "Calibrate " + c.name + " (MCP)");
+            return json{{"canvas", c.id}, {"mm_per_pixel", c.mmPerPixel}, {"width_mm", c.width()},
+                        {"center", {c.origin.x, c.origin.y}}};
+        });
+    add("canvas_perspective",
+        "Corrects a canvas photographed at an angle into a true top view: give the picture pixels (x right, y down "
+        "from the top-left of the photo as inserted) of the four corners of something rectangular in it - a sheet of "
+        "paper, a cutting mat - in any order, and its real width and height (mm). The corrected picture is to scale "
+        "(no calibrate_canvas needed), with the rectangle centred on the canvas's center and square to the plane's "
+        "axes. One undo step.",
+        {{"canvas", {{"description", "canvas id or name"}}},
+         {"corners", arrayOf(xy("a corner, photo pixels"), "the four corners")},
+         {"width", number("the rectangle's real width (along its top edge), mm")},
+         {"height", number("its real height, mm")}},
+        {"canvas", "corners", "width", "height"}, [&doc, begin, canvasOf](const json &a) {
+            begin();
+            cad::ReferenceImage c = *canvasOf(a.at("canvas"));
+            const json &jc = a.at("corners");
+            if(!jc.is_array() || jc.size() != 4) fail("give exactly four corners");
+            std::array<cad::Vec2, 4> corners;
+            for(size_t k = 0; k < 4; ++k) corners[k] = vec2Arg(jc[k], "corner");
+            const double w = a.at("width").get<double>(), h = a.at("height").get<double>();
+            if(!(w > 0) || !(h > 0)) fail("width and height must be more than 0");
+            if(canvasPhoto(doc, c).isNull()) fail("the canvas's picture cannot be read");
+            if(!applyPerspective(doc, c, corners, w, h)) fail("those corners do not make a usable rectangle");
+            doc.updateCanvas(c, true, "Correct Perspective of " + c.name + " (MCP)");
+            return json{{"canvas", c.id}, {"pixels", {c.pixelWidth, c.pixelHeight}}, {"mm_per_pixel", c.mmPerPixel},
+                        {"width_mm", c.width()}};
+        });
+
     add("new_design", "Starts a new, empty design (the current one is discarded; save it first).", nullptr, {},
         [this, settle](const json &) {
             m_w.newDocument();

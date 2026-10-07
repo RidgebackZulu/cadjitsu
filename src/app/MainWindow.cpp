@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "command/Command.h"
+#include "command/CanvasCommands.h"
 #include "command/CanvasValueBox.h"
 #include "command/CommandPanel.h"
 #include "command/CombineCommand.h"
@@ -168,6 +169,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
         QTimer::singleShot(0, this, [this, id] { editFeature(id); });
     });
     connect(m_browser, &BrowserTree::editSectionRequested, this, &MainWindow::editSection);
+    connect(m_browser, &BrowserTree::editCanvasRequested, this, &MainWindow::editCanvas);
+    connect(m_browser, &BrowserTree::calibrateCanvasRequested, this, &MainWindow::calibrateCanvas);
+    connect(m_browser, &BrowserTree::perspectiveCanvasRequested, this, &MainWindow::correctCanvasPerspective);
     connect(m_browser, &BrowserTree::deleteSketchRequested, this, [this](cad::FeatureId id) {
         // Deferred: the browser rebuilds once the sketch is gone.
         QTimer::singleShot(0, this, [this, id] { deleteSketch(id); });
@@ -394,7 +398,7 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    for(const char *name : {"extrude", "revolve", "shell", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "embossText", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs"})
+    for(const char *name : {"extrude", "revolve", "shell", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "embossText", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs", "insertCanvas"})
         action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
@@ -496,6 +500,48 @@ void MainWindow::startCommand(const QString &name, std::unique_ptr<Command> cmd)
     m_sketch->cancelCreateSketch();
     m_lastCommand = name;
     m_commands->start(std::move(cmd));
+}
+
+bool MainWindow::insertCanvas(const QString &path) {
+    QFile file(path);
+    if(!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::warning(this, tr("Insert Canvas"), tr("Cannot open %1.").arg(path));
+        return false;
+    }
+    const QByteArray bytes = file.readAll();
+    const QImage img = QImage::fromData(bytes);
+    if(img.isNull()) {
+        QMessageBox::warning(this, tr("Insert Canvas"), tr("%1 is not a picture Cadjitsu can read (PNG, JPEG, BMP...).").arg(path));
+        return false;
+    }
+    finishInteractions();
+    const std::string key = m_document->addImage(bytes.toStdString());
+    startCommand(QStringLiteral("insertCanvas"),
+                 std::make_unique<CanvasCommand>(CommandContext{m_document.get(), m_modelView, m_viewport, m_commandPanel},
+                                                 0, key, img.size()));
+    return true;
+}
+
+void MainWindow::editCanvas(int id) {
+    if(!m_document->canvas(id)) return;
+    finishInteractions();
+    m_commands->start(
+        std::make_unique<CanvasCommand>(CommandContext{m_document.get(), m_modelView, m_viewport, m_commandPanel}, id));
+}
+
+void MainWindow::calibrateCanvas(int id) {
+    if(!m_document->canvas(id)) return;
+    finishInteractions();
+    m_commands->start(std::make_unique<CanvasCalibrateCommand>(
+        CommandContext{m_document.get(), m_modelView, m_viewport, m_commandPanel}, id, CanvasCalibrateCommand::Mode::Scale));
+}
+
+void MainWindow::correctCanvasPerspective(int id) {
+    if(!m_document->canvas(id)) return;
+    finishInteractions();
+    m_commands->start(std::make_unique<CanvasCalibrateCommand>(
+        CommandContext{m_document.get(), m_modelView, m_viewport, m_commandPanel}, id,
+        CanvasCalibrateCommand::Mode::Perspective));
 }
 
 void MainWindow::editSection(int id) {
@@ -747,6 +793,16 @@ void MainWindow::buildActions() {
                [this, ctx] { startCommand(QStringLiteral("split"), std::make_unique<SplitCommand>(ctx)); });
     makeAction("offsetPlane", tr("Offset Plane"), IconId::Plane, {},
                [this, ctx] { startCommand(QStringLiteral("offsetPlane"), std::make_unique<PlaneCommand>(ctx)); });
+    makeAction("insertCanvas", tr("Canvas"), IconId::Canvas, {}, [this] {
+        const QString path = QFileDialog::getOpenFileName(this, tr("Insert Canvas"), QString(),
+                                                          tr("Pictures (*.png *.jpg *.jpeg *.bmp *.gif *.webp *.tif *.tiff)"));
+        if(!path.isEmpty()) insertCanvas(path);
+    });
+    m_actions[QStringLiteral("insertCanvas")]->setToolTip(
+        tr("<b>Canvas</b><p>Places a picture on a plane or face, to trace over in a sketch: a photo of a part, a "
+           "drawing, a screenshot.</p><p>Then right-click it in the browser to <b>Calibrate</b> it (click two marks "
+           "a known distance apart and type that distance) or <b>Correct Perspective</b> (click the corners of a "
+           "sheet of paper under the part and type its size).</p>"));
     makeAction("sectionAnalysis", tr("Section Analysis"), IconId::Section, {}, [this, ctx] {
         startCommand(QStringLiteral("sectionAnalysis"), std::make_unique<SectionCommand>(ctx));
     });
@@ -895,6 +951,8 @@ void MainWindow::buildRibbon() {
     modify->addAction(action(QStringLiteral("draft")));
     RibbonGroup *construct = m_solidTab->addGroup(tr("CONSTRUCT"));
     construct->addAction(action(QStringLiteral("offsetPlane")));
+    RibbonGroup *insert = m_solidTab->addGroup(tr("INSERT"));
+    insert->addAction(action(QStringLiteral("insertCanvas")));
     RibbonGroup *inspect = m_solidTab->addGroup(tr("INSPECT"));
     inspect->addAction(action(QStringLiteral("measure")));
     inspect->addAction(action(QStringLiteral("sectionAnalysis")));
@@ -940,6 +998,7 @@ void MainWindow::buildMenus() {
     QMenu *file = menuBar()->addMenu(tr("&File"));
     for(const char *name : {"newDocument", "open", "save", "saveAs"}) file->addAction(action(QString::fromLatin1(name)));
     file->addSeparator();
+    file->addAction(action(QStringLiteral("insertCanvas")));
     file->addAction(action(QStringLiteral("export")));
     file->addAction(action(QStringLiteral("print3d")));
     file->addSeparator();

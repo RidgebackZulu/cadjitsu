@@ -12,6 +12,8 @@
 #include "command/OverhangCommand.h"
 #include "command/Manipulator.h"
 #include "command/PatternCommand.h"
+#include "model/CanvasPicture.h"
+#include "command/CanvasCommands.h"
 #include "command/PlaneCommand.h"
 #include "ui/AngleDial.h"
 #include "command/SectionCommand.h"
@@ -2364,6 +2366,128 @@ bool solidsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     return ok;
 }
 
+// Canvas: a photo of a bracket on an A4 sheet, taken at an angle, put on the
+// XY plane, its perspective corrected from the sheet's corners, then traced.
+bool canvasScenario(MainWindow &w, const QDir &out, QTextStream &log) {
+    Viewport *vp = w.viewport();
+    cad::Document &doc = w.document();
+    bool ok = true;
+    auto check = [&](bool cond, const QString &what) {
+        log << (cond ? "  ok   " : "  FAIL ") << what << "\n";
+        log.flush();
+        ok &= cond;
+    };
+    auto shot = [&](const char *name) {
+        waitForFrames(vp, 2);
+        processEventsFor(30);
+        w.grab().save(out.filePath(QString::fromLatin1(name)));
+    };
+    auto settle = [&] {
+        w.waitForModel(60000);
+        waitForFrames(vp, 2);
+    };
+
+    // The "photo": a wooden table, the sheet in perspective, the part on it.
+    const QPolygonF sheetInPhoto({QPointF(430, 250), QPointF(1170, 235), QPointF(1450, 1010), QPointF(150, 1040)});
+    QImage photo(1600, 1200, QImage::Format_ARGB32);
+    {
+        QPainter p(&photo);
+        QLinearGradient wood(0, 0, 1600, 1200);
+        wood.setColorAt(0, QColor(150, 108, 72));
+        wood.setColorAt(1, QColor(118, 82, 52));
+        p.fillRect(photo.rect(), wood);
+        p.setPen(QPen(QColor(100, 70, 44, 90), 3));
+        for(int y = 20; y < 1200; y += 37) p.drawLine(0, y, 1600, y + 60);
+        p.setRenderHint(QPainter::Antialiasing);
+        QTransform onSheet;
+        QPolygonF sheetMm({QPointF(0, 0), QPointF(297, 0), QPointF(297, 210), QPointF(0, 210)});
+        QTransform::quadToQuad(sheetMm, sheetInPhoto, onSheet);
+        p.setTransform(onSheet);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(246, 246, 242));
+        p.drawRect(QRectF(0, 0, 297, 210));
+        // The bracket (sheet mm, y down) and its two holes.
+        p.setBrush(QColor(52, 58, 66));
+        p.drawPolygon(QPolygonF({QPointF(60, 50), QPointF(200, 50), QPointF(200, 85), QPointF(100, 85), QPointF(100, 170),
+                                 QPointF(60, 170)}));
+        p.setBrush(QColor(246, 246, 242));
+        p.drawEllipse(QPointF(170, 67.5), 7, 7);
+        p.drawEllipse(QPointF(80, 140), 7, 7);
+        // A ruler along the bottom edge, every 10 mm.
+        p.setPen(QPen(QColor(30, 30, 30), 0.6));
+        for(int x = 20; x <= 270; x += 10) p.drawLine(QPointF(x, 196), QPointF(x, x % 50 == 0 ? 186 : 191));
+    }
+    const QString path = out.filePath(QStringLiteral("canvas_photo.png"));
+    photo.save(path);
+
+    if(!w.insertCanvas(path)) return false;
+    CommandPanel *panel = w.commandPanel();
+    if(ValueField *wd = panel->findChild<ValueField *>(QStringLiteral("canvasWidth"))) wd->setExpression(QStringLiteral("400 mm"));
+    if(ValueField *op = panel->findChild<ValueField *>(QStringLiteral("canvasOpacity"))) op->setExpression(QStringLiteral("80"));
+    settle();
+    panel->okButton()->click();
+    settle();
+    check(doc.canvases().size() == 1, QStringLiteral("the photo is a canvas on XY"));
+    if(doc.canvases().empty()) return false;
+    const int id = doc.canvases().front().id;
+    w.refresh();
+    vp->setStandardView(StandardView::Home, false);
+    vp->fitAll(false);
+    shot("canvas_1_photo.png");
+
+    // Correct the perspective from the sheet's corners (A4: 297 x 210).
+    vp->setStandardView(StandardView::Top, false);
+    vp->fitAll(false);
+    w.correctCanvasPerspective(id);
+    auto *cmd = qobject_cast<CanvasCalibrateCommand *>(w.commands()->command());
+    check(cmd != nullptr, QStringLiteral("Correct Perspective opens"));
+    if(!cmd) return false;
+    settle();
+    const cad::ReferenceImage before = *doc.canvas(id);
+    for(const QPointF &c : sheetInPhoto) cmd->addPoint(before.toPlane({c.x(), c.y()}));
+    cmd->widthField()->setExpression(QStringLiteral("297 mm"));
+    cmd->heightField()->setExpression(QStringLiteral("210 mm"));
+    settle();
+    vp->fitAll(false);
+    shot("canvas_2_corners.png");
+    panel->okButton()->click();
+    settle();
+    const cad::ReferenceImage after = *doc.canvas(id);
+    check(after.perspective.has_value(), QStringLiteral("the perspective is corrected"));
+    vp->fitAll(false);
+    shot("canvas_3_corrected.png");
+
+    // The part's corners now read true: plane x = sheet x - 148.5, y = 105 - sheet y.
+    const QImage shown = canvasPicture(doc, after);
+    auto lightAt = [&](double sx, double sy) {
+        const cad::Vec2 px = after.toPixel({sx - 148.5, 105 - sy});
+        return shown.pixelColor(int(px.x), int(px.y)).lightness();
+    };
+    check(lightAt(80, 100) < 110 && lightAt(150, 120) > 200 && lightAt(170, 67.5) > 200,
+          QStringLiteral("the bracket is where it is on the sheet (dark %1, paper %2, hole %3)")
+              .arg(lightAt(80, 100)).arg(lightAt(150, 120)).arg(lightAt(170, 67.5)));
+
+    // Trace it in a sketch on the same plane.
+    SketchMode *mode = w.sketchMode();
+    if(!mode->beginNewSketch(cad::PlaneRef::origin(cad::PlaneRef::Kind::XY), false)) return false;
+    SketchEditor *ed = mode->editor();
+    ed->edit(QStringLiteral("traced"), [](cad::Sketch &s) {
+        auto P = [](double x, double y) { return cad::Vec2(x - 148.5, 105 - y); };
+        const std::vector<cad::Vec2> pts = {P(60, 50), P(200, 50), P(200, 85), P(100, 85), P(100, 170), P(60, 170)};
+        std::vector<int> ids;
+        for(const auto &q : pts) ids.push_back(s.addPoint(q.x, q.y));
+        for(size_t i = 0; i < ids.size(); ++i) s.addLine(ids[i], ids[(i + 1) % ids.size()]);
+        s.addCircle(P(170, 67.5), 7);
+        s.addCircle(P(80, 140), 7);
+    }, false);
+    vp->fitAll(false);
+    shot("canvas_4_traced.png");
+    check(ed->profiles().size() == 3, QStringLiteral("the traced bracket: outline and two holes"));
+    mode->finish();
+    settle();
+    return ok;
+}
+
 const std::map<QString, Scenario> &scenarios() {
     static const std::map<QString, Scenario> s = {
         {QStringLiteral("smoke"), smokeScenario},
@@ -2371,6 +2495,7 @@ const std::map<QString, Scenario> &scenarios() {
         {QStringLiteral("sketch"), sketchScenario},
         {QStringLiteral("sketchtools"), sketchToolsScenario},
         {QStringLiteral("solids"), solidsScenario},
+        {QStringLiteral("canvas"), canvasScenario},
         {QStringLiteral("plate"), plateScenario},
         {QStringLiteral("features"), featuresScenario},
         {QStringLiteral("section"), sectionScenario},

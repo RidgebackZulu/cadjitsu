@@ -169,6 +169,18 @@ text, extrude the plate, then the letters). For FDM: letters 5 mm or taller with
 - `add_to_sketch` adds geometry to an existing sketch. Bodies already made from it keep their shape; the new
   regions can be extruded as new bodies.
 
+## 7b. Reverse engineering from a photo
+
+1. `insert_canvas {"path": "/abs/photo.jpg", "plane": "XY", "width": 100}` puts the picture on a plane (use XZ / YZ
+   for side views). Plane coordinates are those of a sketch on the same plane.
+2. Photo taken at an angle with the part on a sheet of paper: `canvas_perspective` with the sheet's four corners
+   (picture pixels) and its real size (A4: 297 x 210) - the picture becomes a true-scale top view.
+3. Otherwise `calibrate_canvas` with two points a known distance apart (a ruler's marks, or the part's width the
+   user measured with calipers), `pixels: true` to give them as picture pixels.
+4. `get_design` reports each canvas's `center`, `mm_per_pixel` and corners; sketch on the same plane over it, and
+   prefer the user's caliper measurements to what the picture shows for the dimensions that matter (holes,
+   fits). Hide canvases (`set_visibility {"folders": ["canvases"], "visible": false}`) before screenshots.
+
 ## 8. When a tool fails
 
 Failures come back as tool errors with the reason (a fillet radius too large for its edges, a lost

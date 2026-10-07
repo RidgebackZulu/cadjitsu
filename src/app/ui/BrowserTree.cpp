@@ -1,5 +1,7 @@
 #include "ui/BrowserTree.h"
 
+#include "model/CanvasPicture.h"
+
 #include "model/ModelView.h"
 #include "ui/Icons.h"
 
@@ -152,6 +154,9 @@ void BrowserTree::rebuild() {
 
     const cad::StatePtr st = m_view->state();
     QTreeWidgetItem *bodies = makeFolder(tr("Bodies"), BodiesFolder);
+    QTreeWidgetItem *canvases = makeFolder(tr("Canvases"), CanvasesFolder);
+    const bool canvasesOn = m_doc.folderVisible("canvases");
+    setEye(canvases, canvasesOn);
     QTreeWidgetItem *sketches = makeFolder(tr("Sketches"), SketchesFolder);
     QTreeWidgetItem *construction = makeFolder(tr("Construction"), ConstructionFolder);
     // Folder eyes: hide or show everything inside, whatever each item says.
@@ -164,6 +169,15 @@ void BrowserTree::rebuild() {
         it->setData(1, OverriddenRole, !folderOn);
         if(!folderOn) it->setToolTip(1, it->toolTip(1) + tr(" (the folder is hidden)"));
     };
+    for(const auto &c : m_doc.canvases()) {
+        auto *it = new QTreeWidgetItem(canvases, {QString::fromStdString(c.name)});
+        it->setData(0, KindRole, CanvasItem);
+        it->setData(0, IdRole, c.id);
+        it->setIcon(0, icon(IconId::Canvas));
+        it->setToolTip(0, tr("%1 mm wide; right-click to calibrate it").arg(c.width(), 0, 'f', 1));
+        setEye(it, c.visible);
+        child(it, canvasesOn);
+    }
     if(st) {
         for(const cad::Body *b : st->orderedBodies()) {
             auto *it = new QTreeWidgetItem(bodies, {QString::fromStdString(m_doc.bodyName(*b))});
@@ -197,7 +211,7 @@ void BrowserTree::rebuild() {
         }
     }
     root->setExpanded(true);
-    for(QTreeWidgetItem *f : {origin, analysis, bodies, sketches, construction}) {
+    for(QTreeWidgetItem *f : {origin, analysis, bodies, canvases, sketches, construction}) {
         const Kind k = Kind(f->data(0, KindRole).toInt());
         f->setExpanded(firstBuild ? k != OriginFolder && k != ConstructionFolder : !collapsed.count(k));
         f->setHidden(f->childCount() == 0 && k != OriginFolder && k != BodiesFolder);
@@ -227,11 +241,19 @@ void BrowserTree::onClicked(QTreeWidgetItem *item, int column) {
             m_doc.setPlaneVisible(id, !m_doc.planeVisible(id));
             break;
         }
+        case CanvasItem: {
+            const int id = item->data(0, IdRole).toInt();
+            if(const cad::ReferenceImage *c = m_doc.canvas(id)) m_doc.setCanvasVisible(id, !c->visible);
+            break;
+        }
         case BodiesFolder:
         case SketchesFolder:
+        case CanvasesFolder:
         case ConstructionFolder: {
-            const std::string folder = kind == BodiesFolder ? "bodies" : kind == SketchesFolder ? "sketches"
-                                                                                                : "construction";
+            const std::string folder = kind == BodiesFolder     ? "bodies"
+                                       : kind == SketchesFolder ? "sketches"
+                                       : kind == CanvasesFolder ? "canvases"
+                                                                : "construction";
             m_doc.setFolderVisible(folder, !m_doc.folderVisible(folder));
             break;
         }
@@ -263,6 +285,7 @@ void BrowserTree::onDoubleClicked(QTreeWidgetItem *item, int column) {
     const Kind kind = Kind(item->data(0, KindRole).toInt());
     if(kind == SketchItem) emit editSketchRequested(item->data(0, IdRole).toInt());
     else if(kind == SectionItem) emit editSectionRequested(item->data(0, IdRole).toInt());
+    else if(kind == CanvasItem) emit editCanvasRequested(item->data(0, IdRole).toInt());
     else if(kind == BodyItem) editItem(item, 0); // rename, as in Fusion
 }
 
@@ -288,6 +311,34 @@ void BrowserTree::contextMenuEvent(QContextMenuEvent *e) {
         menu.addAction(icon(IconId::Sketch), tr("Edit Sketch"), this, [this, id] { emit editSketchRequested(id); });
         menu.addSeparator();
         menu.addAction(icon(IconId::Delete), tr("Delete"), this, [this, id] { emit deleteSketchRequested(id); });
+        menu.exec(e->globalPos());
+        return;
+    }
+    if(kind == CanvasItem) {
+        const int id = item->data(0, IdRole).toInt();
+        const cad::ReferenceImage *c = m_doc.canvas(id);
+        if(!c) return;
+        QMenu menu(this);
+        menu.addAction(icon(IconId::Canvas), tr("Edit Canvas"), this, [this, id] { emit editCanvasRequested(id); });
+        menu.addAction(icon(IconId::Measure), tr("Calibrate..."), this, [this, id] { emit calibrateCanvasRequested(id); });
+        menu.addAction(tr("Correct Perspective..."), this, [this, id] { emit perspectiveCanvasRequested(id); });
+        if(c->perspective)
+            menu.addAction(tr("Remove Perspective Correction"), this, [this, id] {
+                if(const cad::ReferenceImage *old = m_doc.canvas(id)) {
+                    cad::ReferenceImage r = *old;
+                    const QImage photo = canvasPhoto(m_doc, r);
+                    if(photo.isNull()) return;
+                    // The photo as taken, as wide as the corrected picture was.
+                    r.mmPerPixel = r.width() / photo.width();
+                    r.pixelWidth = photo.width();
+                    r.pixelHeight = photo.height();
+                    r.perspective.reset();
+                    m_doc.updateCanvas(r, true, "Remove Perspective Correction");
+                }
+            });
+        menu.addSeparator();
+        menu.addAction(c->visible ? tr("Hide") : tr("Show"), this, [this, id, on = !c->visible] { m_doc.setCanvasVisible(id, on); });
+        menu.addAction(icon(IconId::Delete), tr("Delete"), this, [this, id] { m_doc.deleteCanvas(id); });
         menu.exec(e->globalPos());
         return;
     }

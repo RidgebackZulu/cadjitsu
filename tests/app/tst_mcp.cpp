@@ -512,6 +512,35 @@ private slots:
         QCOMPARE(m_window->document().bodyMaterial(b), cad::defaultBodyMaterial());
     }
 
+    void canvasInsertCalibrateAndPerspective() {
+        initialize();
+        QTemporaryDir dir;
+        QImage img(400, 300, QImage::Format_ARGB32);
+        img.fill(Qt::white);
+        const QString file = dir.filePath(QStringLiteral("part.png"));
+        QVERIFY(img.save(file));
+        const auto [e0, c] = tool("insert_canvas", {{"path", file.toStdString()}, {"plane", "XZ"}, {"width", 80}});
+        QVERIFY2(!e0, c.dump().c_str());
+        QCOMPARE(c["pixels"][0].get<int>(), 400);
+        QVERIFY(std::abs(c["mm_per_pixel"].get<double>() - 0.2) < 1e-9);
+        // Two marks 100 px apart are really 50 mm apart.
+        const auto [e1, k] = tool("calibrate_canvas", {{"canvas", c["canvas"]}, {"p1", {100, 150}}, {"p2", {200, 150}},
+                                                       {"pixels", true}, {"distance", 50}});
+        QVERIFY2(!e1, k.dump().c_str());
+        QVERIFY(std::abs(k["mm_per_pixel"].get<double>() - 0.5) < 1e-9);
+        // A quadrilateral of the photo is really an A4 sheet.
+        const auto [e2, pr] = tool("canvas_perspective", {{"canvas", c["name"]},
+                                                          {"corners", {{40, 280}, {60, 20}, {360, 30}, {380, 270}}},
+                                                          {"width", 297}, {"height", 210}});
+        QVERIFY2(!e2, pr.dump().c_str());
+        const auto [e3, d] = tool("get_design", json::object());
+        QVERIFY2(!e3, d.dump().c_str());
+        QCOMPARE(int(d["canvases"].size()), 1);
+        QVERIFY(d["canvases"][0]["perspective_corrected"].get<bool>());
+        QVERIFY(tool("insert_canvas", {{"path", dir.filePath(QStringLiteral("missing.png")).toStdString()}}).first);
+        QVERIFY(tool("calibrate_canvas", {{"canvas", 99}, {"p1", {0, 0}}, {"p2", {1, 0}}, {"distance", 5}}).first);
+    }
+
     void revolveAndShell() {
         initialize();
         // A cup: an L-shaped half profile on XZ revolved about Z, then shelled from its top.

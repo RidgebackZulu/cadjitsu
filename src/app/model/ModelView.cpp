@@ -1,5 +1,7 @@
 #include "model/ModelView.h"
 
+#include "model/CanvasPicture.h"
+
 #include "sketch/SketchText.h"
 #include "sketch/ProfileMesh.h"
 #include "viewport/Camera.h"
@@ -139,6 +141,17 @@ bool ModelView::planeShown(cad::FeatureId id) const {
 void ModelView::setSectionOverride(std::optional<std::optional<cad::SectionAnalysis>> s) {
     m_sectionOverride = std::move(s);
     if(m_eval) refresh();
+}
+
+void ModelView::setCanvasOverride(std::optional<cad::ReferenceImage> c) {
+    m_canvasOverride = std::move(c);
+    refresh();
+}
+
+bool ModelView::canvasFrame(const cad::ReferenceImage &c, gp_Ax3 &frame) const {
+    if(!m_state) return false;
+    cad::Status st;
+    return cad::resolvePlane(*m_state, c.plane, frame, st);
 }
 
 std::optional<cad::SectionAnalysis> ModelView::shownSection() const {
@@ -357,6 +370,36 @@ void ModelView::refresh() {
     if(!points.points.empty()) scene.points.push_back(points);
     for(auto it = m_profileCache.begin(); it != m_profileCache.end();)
         it = onScreen.count(it->first.get()) ? std::next(it) : m_profileCache.erase(it);
+
+    // Canvases: reference pictures on their planes.
+    if(m_doc.folderVisible("canvases") || m_canvasOverride) {
+        std::vector<cad::ReferenceImage> shown = m_doc.canvases();
+        if(m_canvasOverride) {
+            auto it = std::find_if(shown.begin(), shown.end(), [&](const auto &c) { return c.id == m_canvasOverride->id; });
+            if(it != shown.end()) *it = *m_canvasOverride;
+            else shown.push_back(*m_canvasOverride);
+        }
+        for(const cad::ReferenceImage &c : shown) {
+            const bool overriding = m_canvasOverride && c.id == m_canvasOverride->id;
+            if(!overriding && (!c.visible || !m_doc.folderVisible("canvases"))) continue;
+            gp_Ax3 frame;
+            if(!canvasFrame(c, frame)) continue;
+            CanvasQuad q;
+            q.image = canvasPicture(m_doc, c);
+            if(q.image.isNull()) continue;
+            cad::ReferenceImage placed = c;
+            placed.pixelWidth = q.image.width();
+            placed.pixelHeight = q.image.height();
+            const auto corners = placed.planeCorners();
+            for(int k = 0; k < 4; ++k) {
+                const gp_XYZ w = frame.Location().XYZ() + frame.XDirection().XYZ() * corners[size_t(k)].x +
+                                 frame.YDirection().XYZ() * corners[size_t(k)].y;
+                q.corners[k] = toQ(w);
+            }
+            q.opacity = float(c.opacity);
+            scene.canvases.push_back(std::move(q));
+        }
+    }
 
     // Section analysis: cut the model by the plane (it follows the model) and
     // close the cut bodies with caps.
