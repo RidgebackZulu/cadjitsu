@@ -481,6 +481,20 @@ int Document::addCanvas(ReferenceImage c) {
     return c.id;
 }
 
+std::vector<int> Document::addCanvases(std::vector<ReferenceImage> cs, const std::string &undoLabel) {
+    std::vector<int> ids;
+    if(cs.empty()) return ids;
+    pushUndo(undoLabel);
+    for(ReferenceImage &c : cs) {
+        c.id = m_nextCanvas++;
+        if(c.name.empty()) c.name = "Canvas" + std::to_string(c.id);
+        m_canvases.push_back(c);
+        ids.push_back(c.id);
+    }
+    touch(false);
+    return ids;
+}
+
 bool Document::updateCanvas(const ReferenceImage &c, bool recordUndo, const std::string &undoLabel) {
     for(auto &o : m_canvases)
         if(o.id == c.id) {

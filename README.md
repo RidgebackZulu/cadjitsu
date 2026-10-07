@@ -295,6 +295,8 @@ Reverse-engineer a part from a picture: put the photo on a plane at true size an
 5. Start a sketch on the same plane and draw over it: the canvas shows under the sketch. Prefer your caliper measurements to what the photo shows for the sizes that matter (holes, fits), as dimensions.
 6. Or let it trace: **SKETCH > CREATE > Trace Canvas**. Hover the part in the photo and its outline previews, fitted with lines, arcs and circles (holes included); click to add it to the sketch, with horizontal, vertical and tangent constraints where they fit. If it takes in too much or too little (shadows, a part close in colour to the background), type a **Sensitivity** (%) and hover again. Then add the dimensions you measured.
 
+**Views** (SOLID > INSERT > Views, or File > Views) sets up pictures of a part from the **front**, the **right side** and the **top** (any two do; product photos taken square on, or a drawing's views) in one go. Choose a picture for each and type one size you measured (the width, depth or height): the part is found in each picture, every view is scaled from that size, and they go on the XZ, YZ and XY planes lined up as a projection, the part standing on z = 0 and centred on the Z axis. The panel shows the part's size along X, Y and Z, and warns when the views disagree (a picture taken in perspective). Sketch each view on its plane over its picture.
+
 Canvases live in the browser's **Canvases** folder (eye to hide, double-click to place again, Delete). Every change is one undo step. The path tracer ignores them.
 
 ## Display

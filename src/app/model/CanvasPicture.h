@@ -2,6 +2,7 @@
 
 #include "doc/Document.h"
 #include "doc/ReferenceImage.h"
+#include "image/ViewAlign.h"
 
 #include <QImage>
 
@@ -50,5 +51,19 @@ bool applyPerspective(const cad::Document &doc, cad::ReferenceImage &canvas, con
 // Four clicked corners put in order: top-left, top-right, bottom-right,
 // bottom-left (in pixel coordinates, y down).
 std::array<cad::Vec2, 4> orderCorners(std::array<cad::Vec2, 4> corners);
+
+// The part in a picture: the box of what is not its background (pixels).
+cad::PixelBox partBox(const QImage &picture);
+
+// Canvases for photos of a part from the front, the right side and the top
+// (their images already in `doc`), on XZ, YZ and XY at one scale from the
+// size measured along `axis` (see cad::alignViews). `out` gets one canvas per
+// view, named after it; the result says the part's size, or what is wrong.
+struct ViewPhoto {
+    cad::ViewSide side = cad::ViewSide::Front;
+    std::string imageKey;
+};
+cad::ViewsResult viewCanvases(const cad::Document &doc, const std::vector<ViewPhoto> &views, int axis, double mm,
+                              std::vector<cad::ReferenceImage> &out);
 
 } // namespace cadjitsu

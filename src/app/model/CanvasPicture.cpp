@@ -186,6 +186,61 @@ bool applyPerspective(const cad::Document &doc, cad::ReferenceImage &canvas, con
     return true;
 }
 
+cad::PixelBox partBox(const QImage &picture) {
+    if(picture.isNull()) return {};
+    // Found on a copy at most 800 pixels a side, then scaled back.
+    const double s = std::min(1.0, 800.0 / std::max(picture.width(), picture.height()));
+    const QImage small = (s < 1.0 ? picture.scaled(std::max(1, int(picture.width() * s)), std::max(1, int(picture.height() * s)),
+                                                   Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                                  : picture)
+                             .convertToFormat(QImage::Format_RGBA8888);
+    const cad::ImageView view{small.constBits(), small.width(), small.height(), int(small.bytesPerLine())};
+    const cad::PixelBox b = cad::boundingBox(cad::foreground(view, 0.2));
+    if(b.empty()) return b;
+    const double kx = double(picture.width()) / small.width(), ky = double(picture.height()) / small.height();
+    return {int(std::floor(b.x0 * kx)), int(std::floor(b.y0 * ky)),
+            std::min(picture.width() - 1, int(std::ceil((b.x1 + 1) * kx)) - 1),
+            std::min(picture.height() - 1, int(std::ceil((b.y1 + 1) * ky)) - 1)};
+}
+
+cad::ViewsResult viewCanvases(const cad::Document &doc, const std::vector<ViewPhoto> &views, int axis, double mm,
+                              std::vector<cad::ReferenceImage> &out) {
+    out.clear();
+    std::vector<cad::ViewInput> in;
+    for(const ViewPhoto &v : views) {
+        cad::ReferenceImage probe;
+        probe.imageKey = v.imageKey;
+        const QImage photo = canvasPhoto(doc, probe);
+        if(photo.isNull()) {
+            cad::ViewsResult bad;
+            bad.error = "a view's picture cannot be read";
+            return bad;
+        }
+        static QHash<QString, cad::PixelBox> boxes; // finding the part takes a moment: once a picture
+        const QString key = QString::fromStdString(v.imageKey);
+        if(!boxes.contains(key)) boxes.insert(key, partBox(photo));
+        in.push_back({v.side, photo.width(), photo.height(), boxes.value(key)});
+    }
+    cad::ViewsResult r = cad::alignViews(in, axis, mm);
+    if(!r.ok) return r;
+    for(size_t i = 0; i < views.size(); ++i) {
+        cad::ReferenceImage c;
+        const cad::ViewSide side = views[i].side;
+        c.name = side == cad::ViewSide::Front ? "Front" : side == cad::ViewSide::Side ? "Side" : "Top";
+        c.plane = cad::PlaneRef::origin(side == cad::ViewSide::Front  ? cad::PlaneRef::Kind::XZ
+                                        : side == cad::ViewSide::Side ? cad::PlaneRef::Kind::YZ
+                                                                      : cad::PlaneRef::Kind::XY);
+        c.imageKey = views[i].imageKey;
+        c.pixelWidth = in[i].width;
+        c.pixelHeight = in[i].height;
+        c.mmPerPixel = r.views[i].mmPerPixel;
+        c.origin = r.views[i].origin;
+        c.opacity = 0.6;
+        out.push_back(c);
+    }
+    return r;
+}
+
 bool setCanvasLens(const cad::Document &doc, cad::ReferenceImage &canvas,
                    const std::optional<cad::ReferenceImage::Lens> &lens) {
     const QImage photo = canvasPhoto(doc, canvas);

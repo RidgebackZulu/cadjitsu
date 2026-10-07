@@ -15,7 +15,10 @@
 #include "sketch/SketchTools.h"
 #include "viewport/Viewport.h"
 
+#include <QAction>
 #include <QCheckBox>
+#include <QComboBox>
+#include <QLabel>
 #include <QPainter>
 #include <QPushButton>
 #include <QTemporaryDir>
@@ -317,6 +320,47 @@ private slots:
         for(const cad::Vec2 &c : both.perspective->corners) found |= cad::distance(c, raw) < 1e-6;
         QVERIFY(found);
         QVERIFY(!canvasPicture(doc(), both).isNull());
+    }
+
+    void insertViewsPanelLinesUpTheViews() {
+        // A 50 x 20 x 30 block: front (X 50 across, Z 30 up) and top (X 50, Y 20).
+        auto picture = [&](const char *name, QRect part) {
+            QImage img(300, 240, QImage::Format_ARGB32);
+            img.fill(QColor(240, 238, 230));
+            QPainter p(&img);
+            p.fillRect(part, QColor(40, 50, 70));
+            return savePhoto(img, name);
+        };
+        QAction *a = m_window->action(QStringLiteral("insertViews"));
+        QVERIFY(a && a->isEnabled());
+        a->trigger();
+        auto *cmd = command<InsertViewsCommand>();
+        QVERIFY(cmd);
+        settle();
+        QVERIFY(!panel()->okButton()->isEnabled()); // no pictures yet
+        QVERIFY(cmd->setView(cad::ViewSide::Front, picture("front.png", QRect(40, 60, 200, 120))));
+        QVERIFY(cmd->setView(cad::ViewSide::Top, picture("top.png", QRect(80, 100, 100, 40))));
+        QVERIFY(!cmd->setView(cad::ViewSide::Side, m_dir.filePath(QStringLiteral("missing.png"))));
+        cmd->axisChoice()->setCurrentIndex(0);
+        cmd->sizeField()->setExpression(QStringLiteral("50 mm"));
+        settle();
+        QVERIFY2(panel()->okButton()->isEnabled(), qPrintable(cmd->info()->text()));
+        QVERIFY2(cmd->info()->text().contains(QStringLiteral("20")), qPrintable(cmd->info()->text()));
+        panel()->okButton()->click();
+        settle();
+        QCOMPARE(int(doc().canvases().size()), 2);
+        QCOMPARE(QString::fromStdString(doc().undoLabel()), QStringLiteral("Insert Views"));
+        const cad::ReferenceImage front = doc().canvases()[0], top = doc().canvases()[1];
+        QCOMPARE(front.plane.kind, cad::PlaneRef::Kind::XZ);
+        QCOMPARE(top.plane.kind, cad::PlaneRef::Kind::XY);
+        // Front: 200 px is 50 mm; the block's bottom-left corner at x -25, z 0.
+        QVERIFY(std::abs(front.mmPerPixel - 0.25) < 1e-6);
+        QVERIFY(cad::distance(front.toPlane({40, 180}), {-25, 0}) < 0.3);
+        // Top: 100 px is 50 mm; centred on the origin.
+        QVERIFY(std::abs(top.mmPerPixel - 0.5) < 1e-6);
+        QVERIFY(cad::distance(top.toPlane({130, 120}), {0, 0}) < 0.3);
+        doc().undo();
+        QVERIFY(doc().canvases().empty());
     }
 
     void traceAPlateIntoTheSketch() {

@@ -29,6 +29,7 @@
 #include <QTcpServer>
 #include <QTemporaryDir>
 #include <QTreeWidget>
+#include <QPainter>
 #include <QtTest>
 
 #include <nlohmann/json.hpp>
@@ -539,6 +540,45 @@ private slots:
         QVERIFY(d["canvases"][0]["perspective_corrected"].get<bool>());
         QVERIFY(tool("insert_canvas", {{"path", dir.filePath(QStringLiteral("missing.png")).toStdString()}}).first);
         QVERIFY(tool("calibrate_canvas", {{"canvas", 99}, {"p1", {0, 0}}, {"p2", {1, 0}}, {"distance", 5}}).first);
+        // A lens correction from points along bowed edges, then taken off again.
+        const auto [e4, ln] = tool("canvas_lens", {{"canvas", c["canvas"]},
+                                                   {"lines", {{{20, 30}, {200, 20}, {380, 30}}, {{20, 270}, {200, 280}, {380, 270}}}}});
+        QVERIFY2(!e4, ln.dump().c_str());
+        QVERIFY(ln["bend_after_px"].get<double>() < ln["bend_before_px"].get<double>());
+        QVERIFY(m_window->document().canvases().front().lens.has_value());
+        QVERIFY(m_window->document().canvases().front().perspective.has_value()); // kept
+        QVERIFY(!tool("canvas_lens", {{"canvas", c["canvas"]}, {"remove", true}}).first);
+        QVERIFY(!m_window->document().canvases().front().lens.has_value());
+        QVERIFY(tool("canvas_lens", {{"canvas", c["canvas"]}, {"lines", {{{0, 0}, {1, 1}}}}}).first);
+    }
+
+    void insertViewsLinesUpThreePictures() {
+        initialize();
+        QTemporaryDir dir;
+        // A 60 x 40 x 30 block: front at 4 px/mm, side at 5, top at 3.
+        auto picture = [&](const char *name, int w, int h, QRect part) {
+            QImage img(w, h, QImage::Format_ARGB32);
+            img.fill(QColor(245, 245, 240));
+            QPainter p(&img);
+            p.fillRect(part, QColor(50, 60, 80));
+            const QString f = dir.filePath(QString::fromLatin1(name));
+            img.save(f);
+            return f.toStdString();
+        };
+        const auto [e0, r] = tool("insert_views", {{"front", picture("front.png", 400, 300, QRect(50, 100, 240, 120))},
+                                                   {"side", picture("side.png", 400, 300, QRect(150, 60, 200, 150))},
+                                                   {"top", picture("top.png", 300, 300, QRect(20, 20, 180, 120))},
+                                                   {"measured", "x"},
+                                                   {"size", 60}});
+        QVERIFY2(!e0, r.dump().c_str());
+        QVERIFY(std::abs(r["size"][1].get<double>() - 40) < 0.5);
+        QVERIFY(std::abs(r["size"][2].get<double>() - 30) < 0.5);
+        QCOMPARE(int(r["canvases"].size()), 3);
+        QCOMPARE(r["canvases"][1]["plane"].get<std::string>(), std::string("yz"));
+        QVERIFY(std::abs(r["canvases"][0]["mm_per_pixel"].get<double>() - 0.25) < 0.01);
+        QVERIFY2(r["warnings"].empty(), r.dump().c_str());
+        QCOMPARE(QString::fromStdString(m_window->document().undoLabel()), QStringLiteral("Insert Views (MCP)"));
+        QVERIFY(tool("insert_views", {{"measured", "x"}, {"size", 60}}).first);
     }
 
     void revolveAndShell() {

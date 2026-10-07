@@ -7,6 +7,11 @@
 #include "viewport/Viewport.h"
 
 #include <QCheckBox>
+#include <QComboBox>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QMessageBox>
 #include <QLabel>
 #include <QPushButton>
 #include <QMouseEvent>
@@ -472,5 +477,103 @@ void CanvasCalibrateCommand::apply() {
 }
 
 void CanvasCalibrateCommand::end() { m_ctx.view->setCanvasOverride(std::nullopt); }
+
+// --- InsertViewsCommand ---------------------------------------------------------------
+
+InsertViewsCommand::InsertViewsCommand(const CommandContext &ctx) : Command(ctx, cad::kNoFeature) {}
+
+IconId InsertViewsCommand::iconId() const { return IconId::Views; }
+
+void InsertViewsCommand::setup() {
+    CommandPanel &panel = *m_ctx.panel;
+    const std::array<QString, 3> labels{tr("Front"), tr("Right Side"), tr("Top")};
+    const std::array<const char *, 3> names{"viewsFront", "viewsSide", "viewsTop"};
+    const std::array<cad::ViewSide, 3> sides{cad::ViewSide::Front, cad::ViewSide::Side, cad::ViewSide::Top};
+    for(size_t i = 0; i < 3; ++i) {
+        m_buttons[i] = panel.addButton(labels[i], tr("Choose..."), names[i]);
+        connect(m_buttons[i], &QPushButton::clicked, this, [this, i, side = sides[i], label = labels[i]] {
+            const QString path = QFileDialog::getOpenFileName(m_ctx.panel, tr("%1 View").arg(label), QString(),
+                                                              tr("Pictures (*.png *.jpg *.jpeg *.bmp *.webp *.tif *.tiff)"));
+            if(!path.isEmpty() && !setView(side, path))
+                QMessageBox::warning(m_ctx.panel, title(), tr("%1 is not a picture Cadjitsu can read.").arg(path));
+        });
+    }
+    m_axis = panel.addChoice(tr("Measured"), {tr("Width (X)"), tr("Depth (Y)"), tr("Height (Z)")}, "viewsAxis");
+    connect(m_axis, &QComboBox::currentIndexChanged, this, &Command::inputsChanged);
+    m_size = panel.addValue(tr("Real Size"), cad::ValueKind::Length, evaluator(), "viewsSize");
+    m_size->setExpression(QStringLiteral("50 mm"));
+    connect(m_size, &ValueField::edited, this, &Command::inputsChanged);
+    m_info = panel.addInfo(tr("Part"), "viewsInfo");
+    m_info->setWordWrap(true);
+    SelectFilter none;
+    none.faces = none.edges = none.vertices = none.bodies = none.profiles = false;
+    m_ctx.view->setFilter(none);
+}
+
+bool InsertViewsCommand::setView(cad::ViewSide side, const QString &path) {
+    QFile file(path);
+    if(!file.open(QIODevice::ReadOnly)) return false;
+    const QByteArray bytes = file.readAll();
+    if(QImage::fromData(bytes).isNull()) return false;
+    const size_t i = size_t(side);
+    m_keys[i] = m_ctx.doc->addImage(bytes.toStdString());
+    if(m_buttons[i]) m_buttons[i]->setText(QFileInfo(path).fileName());
+    emit inputsChanged();
+    return true;
+}
+
+void InsertViewsCommand::compute() {
+    m_canvases.clear();
+    m_result = {};
+    std::vector<ViewPhoto> views;
+    const std::array<cad::ViewSide, 3> sides{cad::ViewSide::Front, cad::ViewSide::Side, cad::ViewSide::Top};
+    for(size_t i = 0; i < 3; ++i)
+        if(!m_keys[i].empty()) views.push_back({sides[i], m_keys[i]});
+    if(views.empty()) {
+        m_result.error = tr("Choose a picture for the front, side or top view.").toStdString();
+        return;
+    }
+    if(!m_size->valid() || !(*m_size->value() > 0)) {
+        m_result.error = tr("Type a size you measured on the part.").toStdString();
+        return;
+    }
+    m_result = viewCanvases(*m_ctx.doc, views, m_axis->currentIndex(), *m_size->value(), m_canvases);
+}
+
+bool InsertViewsCommand::ready(QString &why) {
+    compute();
+    if(!m_result.ok) {
+        why = QString::fromStdString(m_result.error);
+        return false;
+    }
+    return true;
+}
+
+void InsertViewsCommand::showPreview() {
+    compute();
+    QString text;
+    if(m_result.ok) {
+        auto mm = [](double v) { return lengthText(v); };
+        text = tr("%1 x %2 x %3 (X x Y x Z)")
+                   .arg(m_result.size[0] > 0 ? mm(m_result.size[0]) : QStringLiteral("?"),
+                        m_result.size[1] > 0 ? mm(m_result.size[1]) : QStringLiteral("?"),
+                        m_result.size[2] > 0 ? mm(m_result.size[2]) : QStringLiteral("?"));
+        for(const std::string &w : m_result.warnings) text += QStringLiteral("\n") + QString::fromStdString(w);
+    } else {
+        text = QString::fromStdString(m_result.error);
+    }
+    m_info->setText(text);
+    m_ctx.view->setExtraCanvases(m_canvases);
+    m_ctx.viewport->update();
+}
+
+void InsertViewsCommand::apply() {
+    compute();
+    if(!m_result.ok || m_canvases.empty()) return;
+    m_ctx.view->setExtraCanvases({});
+    m_ctx.doc->addCanvases(m_canvases, "Insert Views");
+}
+
+void InsertViewsCommand::end() { m_ctx.view->setExtraCanvases({}); }
 
 } // namespace cadjitsu

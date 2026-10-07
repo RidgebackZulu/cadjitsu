@@ -1270,6 +1270,23 @@ def trace_tool():
     return s
 
 
+def views():
+    """Three pictures on the three planes round a corner: front, side and top views of a part."""
+    iso = Iso(32, 40, 1.0)
+    P = iso.p
+    s = iso.floor_shadow(-14, -14, 28, 28, 1.0)
+    # Top view: a sheet on the floor with the part's outline.
+    s += poly([P(-14, -14, 0), P(14, -14, 0), P(14, 14, 0), P(-14, 14, 0)], "#EAF3FF", INK, 1.3)
+    s += poly([P(-6, -4, 0), P(6, -4, 0), P(6, 4, 0), P(-6, 4, 0)], "#5E6E86", None)
+    # Front view: standing on the back edge (XZ), the part's profile.
+    s += poly([P(-14, 14, 0), P(14, 14, 0), P(14, 14, 24), P(-14, 14, 24)], "#DCEBFF", INK, 1.3)
+    s += poly([P(-6, 14, 0), P(6, 14, 0), P(6, 14, 10), P(-6, 14, 10)], "#4C7FD0", None)
+    # Side view: on the left edge (YZ).
+    s += poly([P(-14, -14, 0), P(-14, 14, 0), P(-14, 14, 24), P(-14, -14, 24)], "#C9DDF7", INK, 1.3)
+    s += poly([P(-14, -4, 0), P(-14, 4, 0), P(-14, 4, 10), P(-14, -4, 10)], "#3A68B4", None)
+    return s
+
+
 ICONS = {
     "home": home, "orbit": orbit, "pan": pan, "zoom": zoom, "fit": fit, "display": display, "grid": grid,
     "camera": camera, "render": render,
@@ -1290,7 +1307,7 @@ ICONS = {
     "origin": origin, "flip": flip,
     "revolve": revolve, "shell": shell, "canvas": canvas,
     "trim": trim_tool, "extend": extend_tool, "sketch-fillet": sketch_fillet, "slot": slot_tool,
-    "polygon": polygon_tool, "trace": trace_tool,
+    "polygon": polygon_tool, "trace": trace_tool, "views": views,
     "settings": settings, "mcp-server": mcp_server, "delete": delete, "repeat": repeat,
 }
 

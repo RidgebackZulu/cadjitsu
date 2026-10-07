@@ -120,6 +120,7 @@ public:
     const std::vector<ReferenceImage> &canvases() const { return m_canvases; }
     const ReferenceImage *canvas(int id) const;
     int addCanvas(ReferenceImage c); // named; one undo step
+    std::vector<int> addCanvases(std::vector<ReferenceImage> cs, const std::string &undoLabel); // one undo step
     bool updateCanvas(const ReferenceImage &c, bool recordUndo = true, const std::string &undoLabel = {});
     bool deleteCanvas(int id);
     void setCanvasVisible(int id, bool visible);

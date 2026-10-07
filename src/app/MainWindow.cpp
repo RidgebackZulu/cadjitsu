@@ -399,7 +399,7 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    for(const char *name : {"extrude", "revolve", "shell", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "embossText", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs", "insertCanvas"})
+    for(const char *name : {"extrude", "revolve", "shell", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "embossText", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs", "insertCanvas", "insertViews"})
         action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
@@ -811,6 +811,14 @@ void MainWindow::buildActions() {
            "drawing, a screenshot.</p><p>Then right-click it in the browser to <b>Calibrate</b> it (click two marks "
            "a known distance apart and type that distance) or <b>Correct Perspective</b> (click the corners of a "
            "sheet of paper under the part and type its size).</p>"));
+    makeAction("insertViews", tr("Views"), IconId::Views, {}, [this, ctx] {
+        startCommand(QStringLiteral("insertViews"), std::make_unique<InsertViewsCommand>(ctx));
+    });
+    m_actions[QStringLiteral("insertViews")]->setToolTip(
+        tr("<b>Views</b><p>Sets up pictures of a part from the front, the right side and the top (two will do) on "
+           "the XZ, YZ and XY planes at one scale, lined up so you can sketch each view over its picture.</p><p>Type "
+           "one size you measured (its width, depth or height): the part is found in each picture and every view is "
+           "scaled from it. Works best with pictures taken square on, or drawings.</p>"));
     makeAction("sectionAnalysis", tr("Section Analysis"), IconId::Section, {}, [this, ctx] {
         startCommand(QStringLiteral("sectionAnalysis"), std::make_unique<SectionCommand>(ctx));
     });
@@ -967,6 +975,7 @@ void MainWindow::buildRibbon() {
     construct->addAction(action(QStringLiteral("offsetPlane")));
     RibbonGroup *insert = m_solidTab->addGroup(tr("INSERT"));
     insert->addAction(action(QStringLiteral("insertCanvas")));
+    insert->addAction(action(QStringLiteral("insertViews")));
     RibbonGroup *inspect = m_solidTab->addGroup(tr("INSPECT"));
     inspect->addAction(action(QStringLiteral("measure")));
     inspect->addAction(action(QStringLiteral("sectionAnalysis")));
@@ -1014,6 +1023,7 @@ void MainWindow::buildMenus() {
     for(const char *name : {"newDocument", "open", "save", "saveAs"}) file->addAction(action(QString::fromLatin1(name)));
     file->addSeparator();
     file->addAction(action(QStringLiteral("insertCanvas")));
+    file->addAction(action(QStringLiteral("insertViews")));
     file->addAction(action(QStringLiteral("export")));
     file->addAction(action(QStringLiteral("print3d")));
     file->addSeparator();

@@ -540,7 +540,7 @@ Scales a canvas so two points on it (plane coordinates, e.g. the ends of a ruler
 
 ## `canvas_perspective`
 
-Corrects a canvas photographed at an angle into a true top view: give the picture pixels (x right, y down from the top-left of the photo as inserted) of the four corners of something rectangular in it - a sheet of paper, a cutting mat - in any order, and its real width and height (mm). The corrected picture is to scale (no calibrate_canvas needed), with the rectangle centred on the canvas's center and square to the plane's axes. One undo step.
+Corrects a canvas photographed at an angle into a true top view: give the picture pixels (x right, y down from the top-left of the photo as inserted, after any canvas_lens correction) of the four corners of something rectangular in it - a sheet of paper, a cutting mat - in any order, and its real width and height (mm). The corrected picture is to scale (no calibrate_canvas needed), with the rectangle centred on the canvas's center and square to the plane's axes. One undo step.
 
 | Argument | Type | Description |
 |---|---|---|
@@ -548,6 +548,28 @@ Corrects a canvas photographed at an angle into a true top view: give the pictur
 | `corners` **(required)** | array of [x, y] | the four corners |
 | `height` **(required)** | number | its real height, mm |
 | `width` **(required)** | number | the rectangle's real width (along its top edge), mm |
+
+## `canvas_lens`
+
+Corrects a canvas's lens distortion (a phone or wide-angle photo whose straight edges bow): give points along two or three edges that are straight in reality (photo pixels of the picture as inserted, x right, y down; three or more points each, near the photo's sides is best). The radial distortion that straightens them is applied; do this before canvas_perspective. `remove: true` takes the correction off. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `canvas` **(required)** | any | canvas id or name |
+| `lines` | array of array of [x, y] | the edges |
+| `remove` | boolean | remove the lens correction instead |
+
+## `insert_views`
+
+Sets up pictures of a part from the front, the right side and the top (any of them; two or three are best) as canvases on the XZ, YZ and XY planes at one scale, lined up as a projection: the part is found in each picture (what differs from its border colour), sized from one real dimension you give, stands on z = 0 and is centred on the Z axis. Front: X across, Z up (seen from -Y); right side: Y across, Z up (seen from +X); top: X across, Y up. Then sketch each view on its plane over its picture. Best with pictures taken square on (or drawings); warnings say where the views disagree. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `front` | string | absolute path of the front view's picture |
+| `measured` **(required)** | `x` / `y` / `z` | the axis of the size you measured: x width, y depth, z height |
+| `side` | string | absolute path of the right side view's picture |
+| `size` **(required)** | number | that size, mm |
+| `top` | string | absolute path of the top view's picture |
 
 ## `new_design`
 

@@ -2542,6 +2542,62 @@ bool canvasScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     check(ed->profiles().size() == 3, QStringLiteral("the traced bracket: outline and two holes"));
     mode->finish();
     settle();
+
+    // Three views of an angle bracket (80 wide, 40 deep, 50 tall, 6 thick),
+    // each drawn at its own zoom, set up at one scale from its width.
+    auto view = [&](const char *name, QSize size, double pxPerMm, QPointF at, const std::function<void(QPainter &)> &draw) {
+        QImage img(size, QImage::Format_ARGB32);
+        img.fill(QColor(244, 242, 236));
+        QPainter p(&img);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.translate(at);
+        p.scale(pxPerMm, pxPerMm);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(60, 72, 92));
+        draw(p);
+        p.end();
+        const QString f = out.filePath(QString::fromLatin1(name));
+        img.save(f);
+        return f;
+    };
+    const QString front = view("views_front.png", {900, 700}, 8, {120, 120}, [](QPainter &p) {
+        p.drawRect(QRectF(0, 0, 80, 50)); // seen from the front: the upright face
+    });
+    const QString side = view("views_side.png", {700, 600}, 7, {200, 120}, [](QPainter &p) {
+        p.drawPolygon(QPolygonF({QPointF(0, 0), QPointF(6, 0), QPointF(6, 44), QPointF(40, 44), QPointF(40, 50),
+                                 QPointF(0, 50)})); // the L
+    });
+    const QString top = view("views_top.png", {800, 600}, 6, {160, 140}, [](QPainter &p) {
+        p.drawRect(QRectF(0, 0, 80, 40));
+        p.setBrush(QColor(244, 242, 236));
+        p.drawEllipse(QPointF(20, 25), 4, 4);
+        p.drawEllipse(QPointF(60, 25), 4, 4);
+    });
+    if(QAction *views = w.action(QStringLiteral("insertViews"))) views->trigger();
+    if(auto *iv = qobject_cast<InsertViewsCommand *>(w.commands()->command())) {
+        iv->setView(cad::ViewSide::Front, front);
+        iv->setView(cad::ViewSide::Side, side);
+        iv->setView(cad::ViewSide::Top, top);
+        iv->axisChoice()->setCurrentIndex(0);
+        iv->sizeField()->setExpression(QStringLiteral("80 mm"));
+        settle();
+        doc.setCanvasVisible(id, false);
+        doc.setFolderVisible("sketches", false);
+        vp->setStandardView(StandardView::Home, false);
+        vp->fitAll(false);
+        shot("canvas_8_views_setup.png");
+        log << "  views: " << iv->info()->text() << "\n";
+        panel->okButton()->click();
+        settle();
+    }
+    check(doc.canvases().size() == 4, QStringLiteral("front, side and top views are canvases"));
+    if(doc.canvases().size() == 4) {
+        const cad::ReferenceImage &f = doc.canvases()[1], &t = doc.canvases()[3];
+        check(std::abs(f.mmPerPixel - 0.125) < 0.002 && std::abs(t.mmPerPixel - 1.0 / 6) < 0.003,
+              QStringLiteral("each view at its own scale (front %1, top %2 mm/px)").arg(f.mmPerPixel).arg(t.mmPerPixel));
+    }
+    vp->fitAll(false);
+    shot("canvas_9_views.png");
     return ok;
 }
 

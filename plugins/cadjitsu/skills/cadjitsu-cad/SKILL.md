@@ -173,11 +173,17 @@ text, extrude the plate, then the letters). For FDM: letters 5 mm or taller with
 
 1. `insert_canvas {"path": "/abs/photo.jpg", "plane": "XY", "width": 100}` puts the picture on a plane (use XZ / YZ
    for side views). Plane coordinates are those of a sketch on the same plane.
-2. Photo taken at an angle with the part on a sheet of paper: `canvas_perspective` with the sheet's four corners
+2. A phone or wide-angle photo whose straight edges bow: `canvas_lens` with points (picture pixels) along two or
+   three edges that are straight in reality, near the photo's sides. Do it before the perspective correction.
+3. Photo taken at an angle with the part on a sheet of paper: `canvas_perspective` with the sheet's four corners
    (picture pixels) and its real size (A4: 297 x 210) - the picture becomes a true-scale top view.
-3. Otherwise `calibrate_canvas` with two points a known distance apart (a ruler's marks, or the part's width the
+4. Otherwise `calibrate_canvas` with two points a known distance apart (a ruler's marks, or the part's width the
    user measured with calipers), `pixels: true` to give them as picture pixels.
-4. `get_design` reports each canvas's `center`, `mm_per_pixel` and corners; sketch on the same plane over it, and
+5. Pictures of the part from the front, side and top (product photos, a drawing's views): `insert_views` with the
+   files and one measured size sets all of them up at one scale on XZ, YZ and XY, the part standing on z = 0 and
+   centred on the Z axis. Sketch each view on its plane: e.g. the front outline on XZ, extruded symmetric through
+   the depth that `size` reports, then cuts from the top view's holes on XY.
+6. `get_design` reports each canvas's `center`, `mm_per_pixel` and corners; sketch on the same plane over it, and
    prefer the user's caliper measurements to what the picture shows for the dimensions that matter (holes,
    fits). Hide canvases (`set_visibility {"folders": ["canvases"], "visible": false}`) before screenshots.
 

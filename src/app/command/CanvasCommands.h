@@ -5,11 +5,15 @@
 #include "viewport/ViewportTool.h"
 
 #include "doc/ReferenceImage.h"
+#include "image/ViewAlign.h"
 
+#include <array>
 #include <optional>
 #include <vector>
 
 class QCheckBox;
+class QComboBox;
+class QPushButton;
 class QLabel;
 
 namespace cadjitsu {
@@ -136,6 +140,50 @@ private:
     QLabel *m_lensInfo = nullptr;
     QCheckBox *m_preview = nullptr;
     std::optional<cad::LensDistortion> m_lens; // Lens: the estimate from the lines
+};
+
+// Insert > Views: photos (or drawings) of a part from the front, the right
+// side and the top (any two, or one), put on the XZ, YZ and XY planes at one
+// scale, lined up as a projection, from one size measured for real. The part
+// is found in each picture (what differs from the picture's border), stands
+// on z = 0 and is centred on the Z axis.
+class InsertViewsCommand : public Command {
+    Q_OBJECT
+
+public:
+    explicit InsertViewsCommand(const CommandContext &ctx);
+
+    QString title() const override { return tr("Insert Views"); }
+    QString prompt() const override {
+        return tr("Choose pictures of the part from the front, the right side and the top, and type one size you "
+                  "measured.");
+    }
+    IconId iconId() const override;
+    void setup() override;
+    std::shared_ptr<cad::Feature> build(QString &) override { return nullptr; }
+    bool makesFeature() const override { return false; }
+    bool ready(QString &why) override;
+    void showPreview() override;
+    void apply() override;
+    void end() override;
+
+    // A view's picture, from a file (what its Choose button does). False if
+    // it cannot be read.
+    bool setView(cad::ViewSide side, const QString &path);
+    QComboBox *axisChoice() const { return m_axis; }
+    ValueField *sizeField() const { return m_size; }
+    QLabel *info() const { return m_info; }
+
+private:
+    void compute();
+
+    std::array<std::string, 3> m_keys;            // front, side, top: the pictures in the document
+    std::array<QPushButton *, 3> m_buttons{};
+    QComboBox *m_axis = nullptr;
+    ValueField *m_size = nullptr;
+    QLabel *m_info = nullptr;
+    std::vector<cad::ReferenceImage> m_canvases;
+    cad::ViewsResult m_result;
 };
 
 } // namespace cadjitsu

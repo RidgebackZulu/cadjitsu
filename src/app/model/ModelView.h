@@ -120,6 +120,8 @@ public:
     // A canvas being inserted (id 0) or edited, shown instead of the
     // document's while a command previews it.
     void setCanvasOverride(std::optional<cad::ReferenceImage> c);
+    // New canvases shown while a command sets them up (not yet in the document).
+    void setExtraCanvases(std::vector<cad::ReferenceImage> cs);
     // Where a canvas is (its plane resolved in the shown model).
     bool canvasFrame(const cad::ReferenceImage &c, gp_Ax3 &frame) const;
     // Overhang analysis: shown bodies are coloured by how printable their
@@ -203,6 +205,7 @@ private:
     bool m_originForced = false;
     std::optional<std::optional<cad::SectionAnalysis>> m_sectionOverride;
     std::optional<cad::ReferenceImage> m_canvasOverride;
+    std::vector<cad::ReferenceImage> m_extraCanvases;
     std::optional<QVector4D> m_clip;
     std::optional<cad::OverhangOptions> m_overhang;
     std::array<double, size_t(cad::OverhangKind::Count)> m_overhangAreas{};

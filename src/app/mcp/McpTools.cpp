@@ -28,6 +28,8 @@
 #include "features/TextFeature.h"
 #include "features/ThreadFeature.h"
 #include "geom/OcctUtil.h"
+#include "image/LensModel.h"
+#include "image/ViewAlign.h"
 #include "measure/Measure.h"
 #include "measure/MeasureBetween.h"
 #include "measure/Overhang.h"
@@ -604,6 +606,7 @@ void McpTools::define() {
                            {"rotation", c.rotation},
                            {"corners", {{r3(corners[0].x), r3(corners[0].y)}, {r3(corners[2].x), r3(corners[2].y)}}},
                            {"perspective_corrected", c.perspective.has_value()},
+                           {"lens_corrected", c.lens.has_value()},
                            {"visible", c.visible && doc.folderVisible("canvases")}};
                 canvases.push_back(jc);
             }
@@ -2262,7 +2265,7 @@ void McpTools::define() {
         });
     add("canvas_perspective",
         "Corrects a canvas photographed at an angle into a true top view: give the picture pixels (x right, y down "
-        "from the top-left of the photo as inserted) of the four corners of something rectangular in it - a sheet of "
+        "from the top-left of the photo as inserted, after any canvas_lens correction) of the four corners of something rectangular in it - a sheet of "
         "paper, a cutting mat - in any order, and its real width and height (mm). The corrected picture is to scale "
         "(no calibrate_canvas needed), with the rectangle centred on the canvas's center and square to the plane's "
         "axes. One undo step.",
@@ -2284,6 +2287,83 @@ void McpTools::define() {
             doc.updateCanvas(c, true, "Correct Perspective of " + c.name + " (MCP)");
             return json{{"canvas", c.id}, {"pixels", {c.pixelWidth, c.pixelHeight}}, {"mm_per_pixel", c.mmPerPixel},
                         {"width_mm", c.width()}};
+        });
+    add("canvas_lens",
+        "Corrects a canvas's lens distortion (a phone or wide-angle photo whose straight edges bow): give points along "
+        "two or three edges that are straight in reality (photo pixels of the picture as inserted, x right, y down; "
+        "three or more points each, near the photo's sides is best). The radial distortion that straightens them is "
+        "applied; do this before canvas_perspective. `remove: true` takes the correction off. One undo step.",
+        {{"canvas", {{"description", "canvas id or name"}}},
+         {"lines", arrayOf(arrayOf(xy("a point on the edge, photo pixels"), "one straight edge"), "the edges")},
+         {"remove", boolean("remove the lens correction instead")}},
+        {"canvas"}, [&doc, begin, canvasOf](const json &a) {
+            begin();
+            cad::ReferenceImage c = *canvasOf(a.at("canvas"));
+            const QImage photo = canvasPhoto(doc, c);
+            if(photo.isNull()) fail("the canvas's picture cannot be read");
+            if(a.value("remove", false)) {
+                if(!setCanvasLens(doc, c, std::nullopt)) fail("cannot remove the correction");
+                doc.updateCanvas(c, true, "Remove Lens Correction (MCP)");
+                return json{{"canvas", c.id}, {"lens", nullptr}};
+            }
+            if(!a.contains("lines") || !a["lines"].is_array()) fail("give the lines: points along straight edges");
+            std::vector<std::vector<cad::Vec2>> lines;
+            for(const json &l : a["lines"]) {
+                if(!l.is_array()) fail("each line is a list of [x, y] points");
+                std::vector<cad::Vec2> pts;
+                for(const json &p : l) pts.push_back(vec2Arg(p, "point"));
+                lines.push_back(std::move(pts));
+            }
+            const auto lens = cad::estimateLens(lines, photo.width(), photo.height());
+            if(!lens) fail("those lines do not tell the lens: give three or more points on each edge");
+            const double before = cad::lineStraightness({}, lines, photo.width(), photo.height());
+            const double after = cad::lineStraightness(*lens, lines, photo.width(), photo.height());
+            if(!setCanvasLens(doc, c, cad::ReferenceImage::Lens{*lens, lines})) fail("cannot correct the picture");
+            doc.updateCanvas(c, true, "Correct Lens of " + c.name + " (MCP)");
+            return json{{"canvas", c.id}, {"k1", lens->k1}, {"k2", lens->k2}, {"bend_before_px", before},
+                        {"bend_after_px", after}};
+        });
+    add("insert_views",
+        "Sets up pictures of a part from the front, the right side and the top (any of them; two or three are best) "
+        "as canvases on the XZ, YZ and XY planes at one scale, lined up as a projection: the part is found in each "
+        "picture (what differs from its border colour), sized from one real dimension you give, stands on z = 0 and "
+        "is centred on the Z axis. Front: X across, Z up (seen from -Y); right side: Y across, Z up (seen from +X); "
+        "top: X across, Y up. Then sketch each view on its plane over its picture. Best with pictures taken square on "
+        "(or drawings); warnings say where the views disagree. One undo step.",
+        {{"front", str("absolute path of the front view's picture")},
+         {"side", str("absolute path of the right side view's picture")},
+         {"top", str("absolute path of the top view's picture")},
+         {"measured", enumOf({"x", "y", "z"}, "the axis of the size you measured: x width, y depth, z height")},
+         {"size", number("that size, mm")}},
+        {"measured", "size"}, [&doc, begin, path](const json &a) {
+            begin();
+            std::vector<ViewPhoto> views;
+            const std::array<std::pair<const char *, cad::ViewSide>, 3> keys{
+                {{"front", cad::ViewSide::Front}, {"side", cad::ViewSide::Side}, {"top", cad::ViewSide::Top}}};
+            for(const auto &[key, side] : keys) {
+                if(!a.contains(key)) continue;
+                const QString p = path(a.at(key));
+                QFile f(p);
+                if(!f.open(QIODevice::ReadOnly)) fail("cannot read " + p.toStdString());
+                const QByteArray bytes = f.readAll();
+                if(QImage::fromData(bytes).isNull()) fail(p.toStdString() + " is not a picture that can be read");
+                views.push_back({side, doc.addImage(bytes.toStdString())});
+            }
+            if(views.empty()) fail("give at least one of front, side, top");
+            const std::string m = a.at("measured").get<std::string>();
+            const int axis = m == "x" ? 0 : m == "y" ? 1 : m == "z" ? 2 : -1;
+            if(axis < 0) fail("measured is x, y or z");
+            std::vector<cad::ReferenceImage> canvases;
+            const cad::ViewsResult r = viewCanvases(doc, views, axis, a.at("size").get<double>(), canvases);
+            if(!r.ok) fail(r.error);
+            const std::vector<int> ids = doc.addCanvases(canvases, "Insert Views (MCP)");
+            json out = json::array();
+            for(size_t i = 0; i < ids.size(); ++i) {
+                const cad::ReferenceImage &c = *doc.canvas(ids[i]);
+                out.push_back({{"canvas", c.id}, {"name", c.name}, {"plane", cad::viewPlaneName(views[i].side)},
+                               {"mm_per_pixel", c.mmPerPixel}, {"center", {c.origin.x, c.origin.y}}});
+            }
+            return json{{"canvases", out}, {"size", {r.size[0], r.size[1], r.size[2]}}, {"warnings", r.warnings}};
         });
 
     add("new_design", "Starts a new, empty design (the current one is discarded; save it first).", nullptr, {},

@@ -148,6 +148,11 @@ void ModelView::setCanvasOverride(std::optional<cad::ReferenceImage> c) {
     refresh();
 }
 
+void ModelView::setExtraCanvases(std::vector<cad::ReferenceImage> cs) {
+    m_extraCanvases = std::move(cs);
+    refresh();
+}
+
 bool ModelView::canvasFrame(const cad::ReferenceImage &c, gp_Ax3 &frame) const {
     if(!m_state) return false;
     cad::Status st;
@@ -372,15 +377,18 @@ void ModelView::refresh() {
         it = onScreen.count(it->first.get()) ? std::next(it) : m_profileCache.erase(it);
 
     // Canvases: reference pictures on their planes.
-    if(m_doc.folderVisible("canvases") || m_canvasOverride) {
+    if(m_doc.folderVisible("canvases") || m_canvasOverride || !m_extraCanvases.empty()) {
         std::vector<cad::ReferenceImage> shown = m_doc.canvases();
+        const size_t extraFrom = shown.size();
+        shown.insert(shown.end(), m_extraCanvases.begin(), m_extraCanvases.end());
         if(m_canvasOverride) {
             auto it = std::find_if(shown.begin(), shown.end(), [&](const auto &c) { return c.id == m_canvasOverride->id; });
             if(it != shown.end()) *it = *m_canvasOverride;
             else shown.push_back(*m_canvasOverride);
         }
-        for(const cad::ReferenceImage &c : shown) {
-            const bool overriding = m_canvasOverride && c.id == m_canvasOverride->id;
+        for(size_t ci = 0; ci < shown.size(); ++ci) {
+            const cad::ReferenceImage &c = shown[ci];
+            const bool overriding = (m_canvasOverride && c.id == m_canvasOverride->id) || ci >= extraFrom;
             if(!overriding && (!c.visible || !m_doc.folderVisible("canvases"))) continue;
             gp_Ax3 frame;
             if(!canvasFrame(c, frame)) continue;
