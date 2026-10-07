@@ -1259,6 +1259,17 @@ def canvas():
     return s
 
 
+def trace_tool():
+    """A photo corner with a part's blob, its outline traced by sketch lines and an arc."""
+    s = poly([(6, 8), (58, 8), (58, 56), (6, 56)], "#EAF3FF", "#7F93AD", 1.4)
+    s += path("M16,46 L16,22 L34,22 A12,12 0 0 1 46,34 L46,46 Z", "#5E6E86", None, 0, 'fill-opacity="0.45"')
+    s += path("M16,46 L16,22 L34,22 A12,12 0 0 1 46,34 L46,46 Z", "none", ACCENT, 3.2)
+    for p in [(16, 46), (16, 22), (34, 22), (46, 34), (46, 46)]:
+        s += sketch_point(p, 3.0)
+    s += arrow_poly([(50, 50), (60, 56), (54, 60)])
+    return s
+
+
 ICONS = {
     "home": home, "orbit": orbit, "pan": pan, "zoom": zoom, "fit": fit, "display": display, "grid": grid,
     "camera": camera, "render": render,
@@ -1279,7 +1290,7 @@ ICONS = {
     "origin": origin, "flip": flip,
     "revolve": revolve, "shell": shell, "canvas": canvas,
     "trim": trim_tool, "extend": extend_tool, "sketch-fillet": sketch_fillet, "slot": slot_tool,
-    "polygon": polygon_tool,
+    "polygon": polygon_tool, "trace": trace_tool,
     "settings": settings, "mcp-server": mcp_server, "delete": delete, "repeat": repeat,
 }
 

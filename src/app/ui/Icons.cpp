@@ -106,6 +106,7 @@ constexpr std::array kIcons = {
     Entry{IconId::Revolve, "revolve"},
     Entry{IconId::Shell, "shell"},
     Entry{IconId::Canvas, "canvas"},
+    Entry{IconId::Trace, "trace"},
     Entry{IconId::Repeat, "repeat"},
 };
 

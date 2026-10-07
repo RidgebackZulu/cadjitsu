@@ -8,6 +8,10 @@
 #include "model/CanvasPicture.h"
 #include "model/ModelView.h"
 #include "selftest/TestUtil.h"
+#include "sketch/SketchEditor.h"
+#include "sketch/SketchMode.h"
+#include "sketch/SketchText.h"
+#include "sketch/SketchTools.h"
 #include "viewport/Viewport.h"
 
 #include <QPainter>
@@ -237,6 +241,53 @@ private slots:
         QVERIFY(back.fromJson(file, err));
         QVERIFY(back.canvas(id) && back.canvas(id)->perspective);
         QVERIFY(!canvasPicture(back, *back.canvas(id)).isNull());
+    }
+
+    void traceAPlateIntoTheSketch() {
+        // A dark plate 60 x 40 mm with 10 mm round corners and a 12 mm hole,
+        // on a light table: 0.25 mm per pixel once inserted 100 mm wide.
+        QImage img(400, 300, QImage::Format_ARGB32);
+        img.fill(QColor(235, 232, 225));
+        {
+            QPainter p(&img);
+            p.setRenderHint(QPainter::Antialiasing);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(40, 45, 60));
+            p.drawRoundedRect(QRectF(80, 70, 240, 160), 40, 40);
+            p.setBrush(QColor(235, 232, 225));
+            p.drawEllipse(QPointF(260, 150), 24, 24);
+        }
+        QVERIFY(m_window->insertCanvas(savePhoto(img, "plate.png")));
+        settle();
+        panel()->okButton()->click();
+        settle();
+        SketchMode *sm = m_window->sketchMode();
+        QVERIFY(sm->beginNewSketch(cad::PlaneRef::origin(cad::PlaneRef::Kind::XY), false));
+        topView();
+        QAction *a = m_window->action(QStringLiteral("sketchTrace"));
+        QVERIFY(a && a->isEnabled());
+        a->trigger();
+        QCOMPARE(sm->tool(), SketchToolKind::TraceCanvas);
+        // Inside the plate, left of the hole: (-15, 0) mm from the middle.
+        click(at({-15, 0, 0}));
+        settle();
+        const cad::Sketch &sk = sm->editor()->sketch();
+        int lines = 0, arcs = 0, circles = 0;
+        for(const auto &e : sk.entities) {
+            lines += e.type == cad::SkType::Line;
+            arcs += e.type == cad::SkType::Arc;
+            circles += e.type == cad::SkType::Circle;
+        }
+        QVERIFY2(lines == 4 && arcs == 4 && circles == 1,
+                 qPrintable(QStringLiteral("%1 lines, %2 arcs, %3 circles").arg(lines).arg(arcs).arg(circles)));
+        // Two profiles: the plate less its hole (at the photo's scale), and the hole.
+        const auto profiles = cad::sketchProfiles(sk);
+        QCOMPARE(int(profiles.size()), 2);
+        double big = 0;
+        for(const auto &pr : profiles) big = std::max(big, std::abs(pr.area));
+        const double area = 60 * 40 - 100 * (4 - cad::kPi) - cad::kPi * 36;
+        QVERIFY2(std::abs(big - area) < 0.04 * area,
+                 qPrintable(QString::number(big)));
     }
 };
 

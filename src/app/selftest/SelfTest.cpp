@@ -14,6 +14,7 @@
 #include "command/PatternCommand.h"
 #include "model/CanvasPicture.h"
 #include "command/CanvasCommands.h"
+#include "sketch/SketchTools.h"
 #include "command/PlaneCommand.h"
 #include "ui/AngleDial.h"
 #include "command/SectionCommand.h"
@@ -2471,17 +2472,26 @@ bool canvasScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     SketchMode *mode = w.sketchMode();
     if(!mode->beginNewSketch(cad::PlaneRef::origin(cad::PlaneRef::Kind::XY), false)) return false;
     SketchEditor *ed = mode->editor();
-    ed->edit(QStringLiteral("traced"), [](cad::Sketch &s) {
-        auto P = [](double x, double y) { return cad::Vec2(x - 148.5, 105 - y); };
-        const std::vector<cad::Vec2> pts = {P(60, 50), P(200, 50), P(200, 85), P(100, 85), P(100, 170), P(60, 170)};
-        std::vector<int> ids;
-        for(const auto &q : pts) ids.push_back(s.addPoint(q.x, q.y));
-        for(size_t i = 0; i < ids.size(); ++i) s.addLine(ids[i], ids[(i + 1) % ids.size()]);
-        s.addCircle(P(170, 67.5), 7);
-        s.addCircle(P(80, 140), 7);
-    }, false);
     vp->fitAll(false);
-    shot("canvas_4_traced.png");
+    waitForFrames(vp, 2);
+    if(QAction *trace = w.action(QStringLiteral("sketchTrace"))) trace->trigger();
+    check(mode->tool() == SketchToolKind::TraceCanvas, QStringLiteral("Trace Canvas is the tool"));
+    // Hover the bracket's upright (sheet 80, 110): its outline previews.
+    const QPointF inside = vp->camera().project(QVector3D(float(80 - 148.5), float(105 - 110), 0));
+    sendMouse(vp, QEvent::MouseMove, inside, Qt::NoButton, Qt::NoButton);
+    shot("canvas_4_trace_hover.png");
+    check(!ed->previewLines.empty(), QStringLiteral("hovering the part previews its outline"));
+    sendMouse(vp, QEvent::MouseButtonPress, inside, Qt::LeftButton, Qt::LeftButton);
+    sendMouse(vp, QEvent::MouseButtonRelease, inside, Qt::LeftButton, Qt::NoButton);
+    if(QAction *select = w.action(QStringLiteral("sketchSelect"))) select->trigger();
+    shot("canvas_5_traced.png");
+    int lines = 0, circles = 0;
+    for(const auto &e : ed->sketch().entities) {
+        lines += e.type == cad::SkType::Line && !e.construction;
+        circles += e.type == cad::SkType::Circle;
+    }
+    check(lines == 6 && circles == 2,
+          QStringLiteral("the bracket traces to 6 lines and 2 holes (%1 lines, %2 circles)").arg(lines).arg(circles));
     check(ed->profiles().size() == 3, QStringLiteral("the traced bracket: outline and two holes"));
     mode->finish();
     settle();

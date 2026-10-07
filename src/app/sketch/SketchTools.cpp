@@ -1,9 +1,12 @@
 #include "sketch/SketchTools.h"
 
 #include "command/CommandPanel.h"
+#include "image/RegionTrace.h"
+#include "model/CanvasPicture.h"
 #include "model/ModelView.h"
 #include "sketch/HeadsUpInput.h"
 #include "sketch/SketchMode.h"
+#include "sketch/ContourFit.h"
 #include "sketch/SketchEdit.h"
 #include "sketch/SketchOffset.h"
 #include "sketch/SketchPalette.h"
@@ -96,6 +99,7 @@ QString sketchToolName(SketchToolKind k) {
     case SketchToolKind::SketchFillet: return SketchTool::tr("Fillet");
     case SketchToolKind::Slot: return SketchTool::tr("Center to Center Slot");
     case SketchToolKind::Polygon: return SketchTool::tr("Polygon");
+    case SketchToolKind::TraceCanvas: return SketchTool::tr("Trace Canvas");
     }
     return {};
 }
@@ -2494,6 +2498,234 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Trace: hover a part in a canvas (a photo on a plane) and its outline, fitted
+// with lines and arcs, previews; click to add it to the sketch. Sensitivity
+// (typed) sets how different a colour may be and still count as the part.
+
+class TraceTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::TraceCanvas; }
+    QString prompt() const override {
+        return m_canvas ? tr("Click to trace the outlined region into the sketch (type a sensitivity to change how much "
+                             "it takes in).")
+                        : tr("Hover a part in a canvas (Insert > Canvas) to see its outline; click to trace it.");
+    }
+    Qt::CursorShape cursor() const override { return Qt::CrossCursor; }
+    void activate() override {
+        hud().setFields({{tr("Sensitivity %"), cad::ValueKind::Scalar}});
+        hud().hide();
+    }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        update(e->position());
+        commit();
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        update(e->position());
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override {
+        if((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && !m_loops.empty()) {
+            commit();
+            return true;
+        }
+        return commonKey(e);
+    }
+    void hudCommit() override { commit(); }
+    void hudChanged() override {
+        m_seedKey = -1; // trace again with the new sensitivity
+        update(m_cursor);
+    }
+
+    size_t previewLoops() const { return m_loops.size(); }
+
+private:
+    struct Found {
+        cad::ReferenceImage canvas;
+        gp_Ax3 frame;
+        QImage small; // the picture, at most 1200 pixels a side
+        double scale = 1.0; // small pixels per picture pixel
+        QPoint seed;
+    };
+
+    double sensitivity() const { return hud().value(0).value_or(s_sensitivity); }
+
+    // The visible canvas under the cursor (in front first), and the pixel hit.
+    std::optional<Found> canvasAt(QPointF px) const {
+        ModelView *view = m_mode.modelView();
+        cad::Document &doc = m_mode.document();
+        if(!view || !doc.folderVisible("canvases")) return std::nullopt;
+        QVector3D o, d;
+        m_mode.viewport()->camera().ray(px, o, d);
+        std::optional<Found> best;
+        float bestT = std::numeric_limits<float>::max();
+        for(const cad::ReferenceImage &c : doc.canvases()) {
+            if(!c.visible) continue;
+            gp_Ax3 frame;
+            if(!view->canvasFrame(c, frame)) continue;
+            const gp_Dir n = frame.Direction();
+            const QVector3D nq(float(n.X()), float(n.Y()), float(n.Z()));
+            const gp_Pnt l = frame.Location();
+            const QVector3D lq(float(l.X()), float(l.Y()), float(l.Z()));
+            const float den = QVector3D::dotProduct(d, nq);
+            if(std::fabs(den) < 1e-6f) continue;
+            const float t = QVector3D::dotProduct(lq - o, nq) / den;
+            if(t < 0 || t >= bestT) continue;
+            const QVector3D w = o + d * t;
+            const gp_XYZ rel(w.x() - l.X(), w.y() - l.Y(), w.z() - l.Z());
+            const QImage pic = canvasPicture(doc, c);
+            if(pic.isNull()) continue;
+            cad::ReferenceImage placed = c;
+            placed.pixelWidth = pic.width();
+            placed.pixelHeight = pic.height();
+            const cad::Vec2 pix = placed.toPixel({rel.Dot(frame.XDirection().XYZ()), rel.Dot(frame.YDirection().XYZ())});
+            if(pix.x < 0 || pix.y < 0 || pix.x >= pic.width() || pix.y >= pic.height()) continue;
+            Found f;
+            f.canvas = placed;
+            f.frame = frame;
+            f.scale = std::min(1.0, 1200.0 / std::max(pic.width(), pic.height()));
+            f.small = smallCopy(pic, f.scale);
+            f.seed = QPoint(int(pix.x * f.scale), int(pix.y * f.scale));
+            best = f;
+            bestT = t;
+        }
+        return best;
+    }
+
+    static QImage smallCopy(const QImage &pic, double scale) {
+        static qint64 key = 0;
+        static double keyScale = 0;
+        static QImage cached;
+        if(key != pic.cacheKey() || keyScale != scale) {
+            cached = (scale < 1.0 ? pic.scaled(int(pic.width() * scale), int(pic.height() * scale), Qt::IgnoreAspectRatio,
+                                               Qt::SmoothTransformation)
+                                  : pic)
+                         .convertToFormat(QImage::Format_RGBA8888);
+            key = pic.cacheKey();
+            keyScale = scale;
+        }
+        return cached;
+    }
+
+    void update(QPointF px) {
+        m_cursor = px;
+        SketchEditor &ed = editor();
+        const std::optional<Found> f = canvasAt(px);
+        if(!f) {
+            m_canvas = 0;
+            m_loops.clear();
+            ed.previewLines.clear();
+            hud().hide();
+            ed.refreshView();
+            return;
+        }
+        m_found = *f;
+        m_canvas = f->canvas.id;
+        // Trace again only when the cursor leaves the region traced.
+        const qint64 key = f->small.cacheKey() ^ qint64(f->canvas.id);
+        const bool inside = m_seedKey == key && m_mask.at(f->seed.x(), f->seed.y());
+        if(!inside) {
+            const cad::ImageView view{f->small.constBits(), f->small.width(), f->small.height(),
+                                      int(f->small.bytesPerLine())};
+            m_mask = cad::regionAt(view, f->seed.x(), f->seed.y(), sensitivity() / 100.0 * 0.6);
+            m_seedKey = key;
+            m_loops.clear();
+            const double minArea = std::max(12.0, 0.0002 * f->small.width() * f->small.height());
+            // A region filling the whole picture is the background, not a part.
+            if(m_mask.count() < size_t(f->small.width()) * size_t(f->small.height()) * 95 / 100) {
+                const double tol = std::max(1.0, 0.0015 * std::max(f->small.width(), f->small.height()));
+                for(const cad::TracedLoop &l : cad::traceLoops(m_mask, minArea)) m_loops.push_back(cad::fitContour(l.points, tol));
+            }
+        }
+        ed.previewLines.clear();
+        for(const cad::FitLoop &loop : m_loops) outline(loop, ed.previewLines);
+        hud().setLive(0, sensitivity());
+        hud().place(0, px + QPointF(24, 24));
+        m_mode.showStatus(prompt());
+        ed.refreshView();
+    }
+
+    // Picture pixel (of the small copy) to sketch coordinates.
+    cad::Vec2 toSketch(cad::Vec2 smallPx) const {
+        const cad::Vec2 plane = m_found.canvas.toPlane(smallPx / m_found.scale);
+        const gp_Ax3 &f = m_found.frame;
+        const gp_XYZ w = f.Location().XYZ() + f.XDirection().XYZ() * plane.x + f.YDirection().XYZ() * plane.y;
+        const gp_Ax3 &s = editor().frame();
+        const gp_XYZ rel = w - s.Location().XYZ();
+        return {rel.Dot(s.XDirection().XYZ()), rel.Dot(s.YDirection().XYZ())};
+    }
+
+    void outline(const cad::FitLoop &loop, std::vector<std::pair<Vec2, Vec2>> &out) const {
+        auto arcPoints = [&](Vec2 c, double r, Vec2 a, Vec2 m, Vec2 b) {
+            // From a through m to b, in the picture.
+            const double a0 = (a - c).angle();
+            double s1 = cad::normAngle((m - c).angle() - a0), s2 = cad::normAngle((b - c).angle() - a0);
+            double sweep = s2;
+            if(s1 > s2) sweep = s2 - 2 * cad::kPi; // clockwise
+            std::vector<Vec2> pts;
+            const int n = std::max(8, int(std::fabs(sweep) / 0.08));
+            for(int i = 0; i <= n; ++i) {
+                const double t = a0 + sweep * i / n;
+                pts.push_back(toSketch(c + Vec2(std::cos(t), std::sin(t)) * r));
+            }
+            return pts;
+        };
+        if(loop.circle) {
+            const Vec2 c = loop.centre;
+            const double r = loop.radius;
+            Vec2 prev = toSketch(c + Vec2(r, 0));
+            for(int i = 1; i <= 72; ++i) {
+                const double t = 2 * cad::kPi * i / 72;
+                const Vec2 p = toSketch(c + Vec2(std::cos(t), std::sin(t)) * r);
+                out.push_back({prev, p});
+                prev = p;
+            }
+            return;
+        }
+        for(const cad::FitSegment &s : loop.segments) {
+            if(!s.arc) {
+                out.push_back({toSketch(s.a), toSketch(s.b)});
+                continue;
+            }
+            const std::vector<Vec2> pts = arcPoints(s.centre, s.radius, s.a, s.mid, s.b);
+            for(size_t i = 1; i < pts.size(); ++i) out.push_back({pts[i - 1], pts[i]});
+        }
+    }
+
+    bool commit() {
+        if(m_loops.empty()) return false;
+        SketchEditor &ed = editor();
+        cad::Sketch work = ed.sketch();
+        std::vector<cad::SuggestedConstraint> hints;
+        size_t curves = 0;
+        for(const cad::FitLoop &loop : m_loops)
+            curves += cad::addFittedLoop(work, loop, [this](Vec2 p) { return toSketch(p); }, hints).size();
+        std::vector<PendingConstraint> pending;
+        for(const auto &h : hints) pending.push_back({h.type, h.e1, h.e2});
+        const bool ok = ed.commit(tr("Trace"), std::move(work), pending);
+        s_sensitivity = sensitivity();
+        m_mode.showStatus(tr("Traced %n curve(s). Tidy up with dimensions and constraints.", nullptr, int(curves)));
+        m_loops.clear();
+        m_seedKey = -1;
+        ed.clearPreview();
+        hud().hide();
+        hud().unlockAll();
+        return ok;
+    }
+
+    static inline double s_sensitivity = 25.0;
+    int m_canvas = 0;
+    Found m_found;
+    cad::Mask m_mask;
+    qint64 m_seedKey = -1;
+    std::vector<cad::FitLoop> m_loops;
+    QPointF m_cursor;
+};
+
+// ---------------------------------------------------------------------------
 // Mirror and Circular Pattern: Fusion 360-style dialogs, open from the start.
 // The Objects field shows the geometry picked (the sketch selection); the
 // second field the mirror line or the centre point. Clicking a field makes it
@@ -3068,6 +3300,7 @@ std::unique_ptr<SketchTool> createSketchTool(SketchMode &mode, SketchToolKind ki
     case SketchToolKind::SketchFillet: return std::make_unique<SketchFilletTool>(mode);
     case SketchToolKind::Slot: return std::make_unique<SlotTool>(mode);
     case SketchToolKind::Polygon: return std::make_unique<PolygonTool>(mode);
+    case SketchToolKind::TraceCanvas: return std::make_unique<TraceTool>(mode);
     case SketchToolKind::Mirror: return std::make_unique<MirrorTool>(mode);
     case SketchToolKind::CircularPattern: return std::make_unique<PatternTool>(mode);
     case SketchToolKind::Project: return std::make_unique<ProjectTool>(mode);

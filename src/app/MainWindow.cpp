@@ -831,6 +831,7 @@ void MainWindow::buildActions() {
         {"sketchFillet", SketchToolKind::SketchFillet, IconId::SketchFillet, {}},
         {"sketchSlot", SketchToolKind::Slot, IconId::Slot, {}},
         {"sketchPolygon", SketchToolKind::Polygon, IconId::Polygon, {}},
+        {"sketchTrace", SketchToolKind::TraceCanvas, IconId::Trace, {}},
         {"sketchMirror", SketchToolKind::Mirror, IconId::Mirror, {}},
         {"sketchCircularPattern", SketchToolKind::CircularPattern, IconId::PatternCircular, {}},
         {"sketchProject", SketchToolKind::Project, IconId::Project, QKeySequence(Qt::Key_P)},
@@ -895,6 +896,11 @@ void MainWindow::buildActions() {
         tr("<b>Polygon</b><p>A regular polygon: click the centre, then a corner (inscribed) or the middle of a side "
            "(circumscribed, sized across flats like a nut). Type the number of sides and the diameter; press Space "
            "to switch between inscribed and circumscribed.</p>"));
+    m_actions[QStringLiteral("sketchTrace")]->setToolTip(
+        tr("<b>Trace Canvas</b><p>Traces a part in a photo (Insert &gt; Canvas) into the sketch.</p><p>Hover the "
+           "part: its outline, fitted with lines and arcs, previews. Click to add it, with horizontal, vertical and "
+           "tangent constraints where they fit. Type a sensitivity (%) to take in more or less of the colours "
+           "around the cursor.</p>"));
     m_sketchOnly.push_back(makeAction("sketchConstruction", tr("Normal / Construction"), IconId::Construction,
                                       QKeySequence(Qt::Key_X), [this] { m_sketch->toggleConstruction(); }));
     QAction *del = makeAction("sketchDelete", tr("Delete"), IconId::Delete, QKeySequence::Delete,
@@ -973,6 +979,7 @@ void MainWindow::buildRibbon() {
     draw->addAction(action(QStringLiteral("sketchText")), false);
     draw->addAction(action(QStringLiteral("sketchSlot")), false);
     draw->addAction(action(QStringLiteral("sketchPolygon")), false);
+    draw->addAction(action(QStringLiteral("sketchTrace")), false);
     draw->addAction(action(QStringLiteral("sketchFillet")));
     draw->addSeparator();
     draw->addAction(action(QStringLiteral("sketchConstruction")), false);
