@@ -512,6 +512,46 @@ private slots:
         QCOMPARE(m_window->document().bodyMaterial(b), cad::defaultBodyMaterial());
     }
 
+    void sketchTrimExtendFilletSlotAndPolygon() {
+        initialize();
+        // A rectangle with a line across it; trim the line's outer ends, fillet a corner.
+        const auto [e0, r] = tool("create_sketch", {{"plane", "XY"},
+                                                    {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {40, 20}}},
+                                                                  {{"type", "line"}, {"from", {-10, 10}}, {"to", {50, 10}}}}}});
+        QVERIFY2(!e0, r.dump().c_str());
+        const int sketch = r["sketch"];
+        const int across = r["entities"][1]["id"];
+        QCOMPARE(int(r["profiles"].size()), 2);
+        const auto [e1, t1] = tool("sketch_trim", {{"sketch", sketch}, {"curve", across}, {"near", {-5, 10}}});
+        QVERIFY2(!e1, t1.dump().c_str());
+        const auto [e2, t2] = tool("sketch_trim", {{"sketch", sketch}, {"curve", across}, {"near", {45, 10}}});
+        QVERIFY2(!e2, t2.dump().c_str());
+        QCOMPARE(int(t2["profiles"].size()), 2);
+        const auto [e3, f] = tool("sketch_fillet", {{"sketch", sketch}, {"near", {40, 0}}, {"radius", 4}});
+        QVERIFY2(!e3, f.dump().c_str());
+        QVERIFY(f["created"].contains("radius_parameter"));
+        double total = 0;
+        for(const json &p : f["profiles"]) total += p["area_mm2"].get<double>();
+        QVERIFY2(std::abs(total - (800 - 16 * (1 - cad::kPi / 4))) < 1e-3, f.dump().c_str());
+        QVERIFY(tool("sketch_fillet", {{"sketch", sketch}, {"near", {0, 20}}, {"radius", 40}}).first); // too big
+        // Extend a line up to the rectangle.
+        const auto [e4, a] = tool("add_to_sketch", {{"sketch", sketch},
+                                                    {"entities", {{{"type", "line"}, {"from", {-20, 5}}, {"to", {-10, 5}}}}}});
+        QVERIFY2(!e4, a.dump().c_str());
+        const auto [e5, x] = tool("sketch_extend", {{"sketch", sketch}, {"curve", a["entities"][0]["id"]}, {"near", {-11, 5}}});
+        QVERIFY2(!e5, x.dump().c_str());
+        // A slot and a nut-trap hexagon, with their dimensions as parameters.
+        const auto [e6, sl] = tool("create_sketch", {{"plane", "XY"},
+                                                     {"entities", {{{"type", "slot"}, {"start", {0, 0}}, {"end", {20, 0}}, {"width", 6}},
+                                                                   {{"type", "regular_polygon"}, {"center", {0, 30}}, {"sides", 6},
+                                                                    {"diameter", 5.5}, {"inscribed", false}}}}});
+        QVERIFY2(!e6, sl.dump().c_str());
+        QCOMPARE(int(sl["profiles"].size()), 2);
+        QVERIFY(sl["parameters"].size() >= 3);
+        QVERIFY(tool("create_sketch", {{"plane", "XY"}, {"entities", {{{"type", "regular_polygon"}, {"center", {0, 0}},
+                                                                       {"sides", 2}, {"diameter", 5}}}}}).first);
+    }
+
     void sketchMirrorPatternProjectAndConstruction() {
         initialize();
         // An open U onto the Y axis, then mirrored about it: one closed profile.

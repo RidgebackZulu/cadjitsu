@@ -1150,6 +1150,60 @@ def repeat():
     return curved_arrow(32, 32, 19, -60, 250, 7, 11)
 
 
+def trim_tool():
+    """A line crossed by two others, its middle piece red and cut away."""
+    s = line((20, 10), (20, 54), ACCENT, 3.0)
+    s += line((44, 10), (44, 54), ACCENT, 3.0)
+    s += line((6, 32), (20, 32), ACCENT, 3.4) + line((44, 32), (58, 32), ACCENT, 3.4)
+    s += line((20, 32), (44, 32), "#DE3228", 3.4, 'stroke-dasharray="4,3"')
+    s += line((27, 25), (37, 39), "#DE3228", 2.6) + line((37, 25), (27, 39), "#DE3228", 2.6)
+    s += sketch_point((20, 32), 3.4) + sketch_point((44, 32), 3.4)
+    return s
+
+
+def extend_tool():
+    """A line reaching across a gap to a wall: its extension dashed, with an arrow."""
+    s = line((50, 8), (50, 56), ACCENT, 3.0)
+    s += line((8, 40), (28, 30), ACCENT, 3.4)
+    s += line((28, 30), (47, 20.5), "#1B5DC4", 2.2, 'stroke-dasharray="3.2,2.6"')
+    s += arrow_poly([(49.5, 19.2), (42.0, 19.6), (45.6, 26.6)])
+    s += sketch_point((8, 40), 3.6) + sketch_point((28, 30), 3.6)
+    return s
+
+
+def sketch_fillet():
+    """A corner of two lines rounded by a tangent arc, the sharp corner dashed."""
+    s = line((12, 52), (12, 30), ACCENT, 3.4) + line((34, 10), (54, 10), ACCENT, 3.4)
+    s += path("M12,30 A20,20 0 0 1 32,10", "none", ACCENT, 3.4)
+    s += line((12, 30), (12, 10), "#7F93AD", 1.3, 'stroke-dasharray="3,2.4"')
+    s += line((12, 10), (32, 10), "#7F93AD", 1.3, 'stroke-dasharray="3,2.4"')
+    s += line((32, 30), (17.9, 15.9), "#7F93AD", 1.3, 'stroke-dasharray="3,2.4"')
+    s += sketch_point((12, 30), 3.4) + sketch_point((32, 10), 3.4) + sketch_point((32, 30), 2.8, ACCENT, INK)
+    return s
+
+
+def slot_tool():
+    """A slot: two half circles joined by two lines around a dashed centre line."""
+    d = "M20,22 L44,22 A10,10 0 0 1 44,42 L20,42 A10,10 0 0 1 20,22 Z"
+    s = path(d, ACCENT, ACCENT, 3.2, 'fill-opacity="0.12"')
+    s += line((20, 32), (44, 32), "#7F93AD", 1.3, 'stroke-dasharray="3,2.4"')
+    s += sketch_point((20, 32), 3.4, ACCENT, INK) + sketch_point((44, 32), 3.4, ACCENT, INK)
+    return s
+
+
+def polygon_tool():
+    """A hexagon in its dashed construction circle."""
+    import math as _m
+    c, r = (32, 32), 21
+    corners = [(c[0] + r * _m.cos(_m.radians(60 * i)), c[1] + r * _m.sin(_m.radians(60 * i))) for i in range(6)]
+    s = circle(c, r, "none", "#7F93AD", 1.3, 'stroke-dasharray="3,2.4"')
+    s += poly(corners, ACCENT, ACCENT, 3.2, 'fill-opacity="0.12"')
+    for p in corners:
+        s += sketch_point(p, 3.0)
+    s += sketch_point(c, 2.8, ACCENT, INK)
+    return s
+
+
 ICONS = {
     "home": home, "orbit": orbit, "pan": pan, "zoom": zoom, "fit": fit, "display": display, "grid": grid,
     "camera": camera, "render": render,
@@ -1168,6 +1222,8 @@ ICONS = {
     "folder": folder, "warning": warning, "error": error,
     "timeline-first": t_first, "timeline-back": t_back, "timeline-forward": t_forward, "timeline-last": t_last,
     "origin": origin, "flip": flip,
+    "trim": trim_tool, "extend": extend_tool, "sketch-fillet": sketch_fillet, "slot": slot_tool,
+    "polygon": polygon_tool,
     "settings": settings, "mcp-server": mcp_server, "delete": delete, "repeat": repeat,
 }
 

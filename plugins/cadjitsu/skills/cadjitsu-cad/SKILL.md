@@ -158,6 +158,11 @@ text, extrude the plate, then the letters). For FDM: letters 5 mm or taller with
   brings lines of an earlier sketch (usually on another plane) onto this one, linked so they follow;
   `set_construction` turns geometry into construction lines (references that make no profile). Entity ids
   are in each sketch's `curves` (get_design, create_sketch, add_to_sketch).
+- `sketch_trim` removes the piece of a curve near a point (between the curves crossing it), `sketch_extend`
+  lengthens a line or arc up to the next curve, `sketch_fillet` rounds a corner of two lines (radius becomes a
+  parameter). Entity types `slot` (centre to centre, width) and `regular_polygon` (sides, diameter;
+  `inscribed: false` sizes it across flats, e.g. 5.5 mm for an M3 nut trap, 7 mm for M4) save drawing them
+  line by line.
 - `add_to_sketch` adds geometry to an existing sketch. Bodies already made from it keep their shape; the new
   regions can be extruded as new bodies.
 

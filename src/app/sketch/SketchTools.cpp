@@ -4,6 +4,7 @@
 #include "model/ModelView.h"
 #include "sketch/HeadsUpInput.h"
 #include "sketch/SketchMode.h"
+#include "sketch/SketchEdit.h"
 #include "sketch/SketchOffset.h"
 #include "sketch/SketchPalette.h"
 #include "sketch/SketchText.h"
@@ -90,6 +91,11 @@ QString sketchToolName(SketchToolKind k) {
     case SketchToolKind::Mirror: return SketchTool::tr("Mirror");
     case SketchToolKind::CircularPattern: return SketchTool::tr("Circular Pattern");
     case SketchToolKind::Project: return SketchTool::tr("Project");
+    case SketchToolKind::Trim: return SketchTool::tr("Trim");
+    case SketchToolKind::Extend: return SketchTool::tr("Extend");
+    case SketchToolKind::SketchFillet: return SketchTool::tr("Fillet");
+    case SketchToolKind::Slot: return SketchTool::tr("Center to Center Slot");
+    case SketchToolKind::Polygon: return SketchTool::tr("Polygon");
     }
     return {};
 }
@@ -1922,6 +1928,572 @@ private:
 
 
 // ---------------------------------------------------------------------------
+// Trim: click a curve (or drag across curves) to remove the piece under the
+// cursor, between its nearest crossings. The piece shows red first.
+
+std::vector<std::pair<Vec2, Vec2>> segmentsOf(const std::vector<Vec2> &poly) {
+    std::vector<std::pair<Vec2, Vec2>> out;
+    for(size_t i = 1; i < poly.size(); ++i) out.push_back({poly[i - 1], poly[i]});
+    return out;
+}
+
+// Applies a sketch edit made by `op` on a copy, as one undo step, or says why
+// not in the status bar.
+bool applyEdit(SketchMode &mode, SketchEditor &ed, const QString &label,
+               const std::function<bool(cad::Sketch &, std::string &)> &op) {
+    cad::Sketch work = ed.sketch();
+    std::string why;
+    if(!op(work, why)) {
+        mode.showStatus(QString::fromStdString(why));
+        return false;
+    }
+    return ed.edit(label, [&](cad::Sketch &s) { s = work; }, false);
+}
+
+class TrimTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Trim; }
+    QString prompt() const override {
+        return tr("Click the piece of a curve to remove (or drag across several). A curve nothing crosses is deleted.");
+    }
+    void activate() override { hud().hide(); }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        m_dragging = true;
+        trimAt(e->position());
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        if(m_dragging) trimAt(e->position());
+        hover(e->position());
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *e) override {
+        if(e->button() == Qt::LeftButton) m_dragging = false;
+        return true;
+    }
+    bool keyPress(QKeyEvent *e) override { return commonKey(e); }
+
+    // Tests: trims the curve at a sketch point.
+    bool trimAtPoint(int curve, Vec2 p) {
+        return applyEdit(m_mode, editor(), tr("Trim"), [&](cad::Sketch &s, std::string &why) {
+            std::vector<int> made;
+            return cad::trimCurve(s, curve, p, made, why);
+        });
+    }
+
+private:
+    void trimAt(QPointF px) {
+        const SketchHit hit = editor().hitTest(px, HitCurves);
+        if(hit.kind != HitKind::Curve) return;
+        const SkEntity *e = editor().sketch().find(hit.id);
+        if(!e || !e->isCurve()) return;
+        trimAtPoint(hit.id, editor().toSketch(px).value_or(Vec2()));
+        editor().clearPreview();
+    }
+    void hover(QPointF px) {
+        SketchEditor &ed = editor();
+        setHover(px, HitCurves);
+        ed.previewRemove.clear();
+        const SketchHit hit = ed.hitTest(px, HitCurves);
+        if(hit.kind == HitKind::Curve) {
+            bool whole = false;
+            ed.previewRemove = segmentsOf(cad::trimPreview(ed.sketch(), hit.id, ed.toSketch(px).value_or(Vec2()), whole));
+        }
+        ed.refreshView();
+    }
+
+    bool m_dragging = false;
+};
+
+// ---------------------------------------------------------------------------
+// Extend: click near the free end of a line or arc to lengthen it up to the
+// next curve; the extension shows dashed first.
+
+class ExtendTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Extend; }
+    QString prompt() const override { return tr("Click a line or arc near the end to extend up to the next curve."); }
+    void activate() override { hud().hide(); }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        const SketchHit hit = editor().hitTest(e->position(), HitCurves);
+        if(hit.kind == HitKind::Curve) extendAtPoint(hit.id, editor().toSketch(e->position()).value_or(Vec2()));
+        editor().clearPreview();
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        SketchEditor &ed = editor();
+        setHover(e->position(), HitCurves);
+        ed.previewConstruction.clear();
+        const SketchHit hit = ed.hitTest(e->position(), HitCurves);
+        if(hit.kind == HitKind::Curve)
+            ed.previewConstruction = segmentsOf(cad::extendPreview(ed.sketch(), hit.id, ed.toSketch(e->position()).value_or(Vec2())));
+        ed.refreshView();
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override { return commonKey(e); }
+
+    bool extendAtPoint(int curve, Vec2 p) {
+        return applyEdit(m_mode, editor(), tr("Extend"),
+                         [&](cad::Sketch &s, std::string &why) { return cad::extendCurve(s, curve, p, why); });
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Fillet: rounds the corner where two lines meet. Hover a corner to see the
+// arc; type the radius; click to round it. The radius is remembered.
+
+class SketchFilletTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::SketchFillet; }
+    QString prompt() const override {
+        return tr("Click a corner where two lines meet to round it; type the radius first to change it.");
+    }
+    void activate() override {
+        hud().setFields({{tr("Radius"), cad::ValueKind::Length}});
+        hud().hide();
+    }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        update(e->position());
+        commit();
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        update(e->position());
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override {
+        if((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && m_corner) {
+            commit();
+            return true;
+        }
+        return commonKey(e);
+    }
+    void hudCommit() override { commit(); }
+    void hudChanged() override { update(m_cursor); }
+
+    // Tests: rounds the corner nearest `p`.
+    bool filletAt(Vec2 p, double radius) {
+        s_radius = radius;
+        m_corner = cad::filletCornerNear(editor().sketch(), p, 1e9);
+        m_expr = QString::fromStdString(SketchEditor::formatExpression(radius, cad::ValueKind::Length));
+        return commit();
+    }
+
+private:
+    double radius() const { return hud().value(0).value_or(s_radius); }
+
+    void update(QPointF px) {
+        m_cursor = px;
+        SketchEditor &ed = editor();
+        ed.previewLines.clear();
+        ed.previewPoints.clear();
+        const Vec2 at = ed.toSketch(px).value_or(Vec2());
+        m_corner = cad::filletCornerNear(ed.sketch(), at, 14.0 * ed.sketchUnitsPerPixel(at));
+        if(!m_corner) {
+            if(!hud().hasFocus()) hud().hide();
+            ed.refreshView();
+            return;
+        }
+        const Vec2 q = ed.sketch().pointPos(m_corner);
+        const auto arc = cad::filletPreview(ed.sketch(), m_corner, radius());
+        if(arc.size() == 3) {
+            const Vec2 c = arc[0];
+            const double r = distance(arc[1], c);
+            double a0 = (arc[1] - c).angle(), sweep = cad::normAngle((arc[2] - c).angle() - a0);
+            if(sweep > cad::kPi) {
+                a0 = (arc[2] - c).angle();
+                sweep = 2 * cad::kPi - sweep;
+            }
+            const int n = 32;
+            for(int i = 0; i < n; ++i) {
+                const double t0 = a0 + sweep * i / n, t1 = a0 + sweep * (i + 1) / n;
+                ed.previewLines.push_back(
+                    {c + Vec2(std::cos(t0), std::sin(t0)) * r, c + Vec2(std::cos(t1), std::sin(t1)) * r});
+            }
+        }
+        ed.previewPoints = {q};
+        hud().setLive(0, radius());
+        hud().place(0, ed.toScreen(q) + QPointF(30, -30));
+        ed.refreshView();
+    }
+
+    bool commit() {
+        if(!m_corner) return false;
+        SketchEditor &ed = editor();
+        cad::Sketch work = ed.sketch();
+        const double r = radius();
+        int arc = 0;
+        std::vector<int> made;
+        std::string why;
+        if(!cad::filletCorner(work, m_corner, r, arc, made, why)) {
+            m_mode.showStatus(QString::fromStdString(why));
+            return false;
+        }
+        const QString typed = hud().value(0) ? hud().expression(0) : m_expr;
+        PendingConstraint pc{SkCon::Radius, arc};
+        pc.expr = typed.isEmpty() ? SketchEditor::formatExpression(r, cad::ValueKind::Length) : typed.toStdString();
+        const cad::SkEntity *a = work.find(arc);
+        const Vec2 c = work.pointPos(a->a);
+        const Vec2 mid = (work.pointPos(a->b) + work.pointPos(a->c)) * 0.5;
+        pc.label = (mid - c).normalized() * (r + ed.sketchUnitsPerPixel(c) * 30.0);
+        const bool ok = ed.commit(tr("Fillet"), std::move(work), {pc});
+        if(ok) s_radius = r;
+        m_corner = 0;
+        m_expr.clear();
+        ed.clearPreview();
+        hud().hide();
+        hud().unlockAll();
+        return ok;
+    }
+
+    static inline double s_radius = 2.0;
+    int m_corner = 0;
+    QPointF m_cursor;
+    QString m_expr;
+};
+
+// ---------------------------------------------------------------------------
+// Slot (centre to centre): click the two centres, then the width.
+
+class SlotTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Slot; }
+    QString prompt() const override {
+        switch(m_state) {
+        case 0: return tr("Click the first centre of the slot.");
+        case 1: return tr("Click the second centre, or type the length.");
+        default: return tr("Click to set the width, or type it and press Enter.");
+        }
+    }
+    void activate() override { reset(); }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        update(e->position());
+        advance();
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        update(e->position());
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override {
+        if((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && m_state > 0) {
+            advance();
+            return true;
+        }
+        return commonKey(e);
+    }
+    bool cancel() override {
+        if(m_state == 0) return false;
+        reset();
+        return true;
+    }
+    void hudCommit() override { advance(); }
+    void hudChanged() override { update(m_cursor); }
+
+    // Tests: a slot from c1 to c2, `width` wide (with its dimensions).
+    bool slotAt(Vec2 c1, Vec2 c2, double width) {
+        m_c1 = SketchSnap{SketchSnap::Kind::None, c1, 0};
+        m_c2 = SketchSnap{SketchSnap::Kind::None, c2, 0};
+        m_width = width;
+        m_lengthExpr = QString::fromStdString(SketchEditor::formatExpression(distance(c1, c2), cad::ValueKind::Length));
+        m_widthExpr = QString::fromStdString(SketchEditor::formatExpression(width, cad::ValueKind::Length));
+        m_state = 2;
+        return commit();
+    }
+
+protected:
+    void paintToolOverlay(QPainter &p) override {
+        if(auto id = snapHint(m_snap); id && m_state < 2) paintHint(p, m_cursor, *id);
+    }
+
+private:
+    void reset() {
+        m_state = 0;
+        m_lengthExpr.clear();
+        m_widthExpr.clear();
+        hud().setFields({{tr("Length"), cad::ValueKind::Length}});
+        hud().hide();
+        hud().unlockAll();
+        editor().clearPreview();
+        m_mode.showStatus(prompt());
+    }
+
+    void advance() {
+        if(m_state == 0) {
+            m_c1 = m_snap;
+            m_state = 1;
+            hud().setFields({{tr("Length"), cad::ValueKind::Length}});
+            hud().unlockAll();
+        } else if(m_state == 1) {
+            if(distance(m_c2.pos, m_c1.pos) < 1e-6) return;
+            m_lengthExpr = hud().value(0) ? hud().expression(0) : QString();
+            m_state = 2;
+            hud().setFields({{tr("Width"), cad::ValueKind::Length}});
+            hud().unlockAll();
+        } else {
+            m_widthExpr = hud().value(0) ? hud().expression(0) : QString();
+            commit();
+            reset();
+            return;
+        }
+        update(m_cursor);
+        m_mode.showStatus(prompt());
+    }
+
+    void update(QPointF px) {
+        m_cursor = px;
+        SketchEditor &ed = editor();
+        m_snap = ed.snap(px);
+        ed.previewLines.clear();
+        ed.previewConstruction.clear();
+        ed.previewSnap = m_state < 2 ? std::optional<SketchSnap>(m_snap) : std::nullopt;
+        if(m_state == 0) {
+            ed.refreshView();
+            return;
+        }
+        if(m_state == 1) {
+            Vec2 d = m_snap.pos - m_c1.pos;
+            const double len = d.length();
+            d = len > 1e-12 ? d / len : Vec2(1, 0);
+            const double use = hud().value(0).value_or(len);
+            m_c2 = m_snap;
+            if(hud().value(0)) m_c2 = SketchSnap{SketchSnap::Kind::None, m_c1.pos + d * use, 0};
+            ed.previewConstruction.push_back({m_c1.pos, m_c2.pos});
+            hud().setLive(0, use);
+            hud().place(0, ed.toScreen((m_c1.pos + m_c2.pos) * 0.5) + QPointF(0, -30));
+        } else {
+            const Vec2 u = (m_c2.pos - m_c1.pos).normalized();
+            const double off = std::abs((ed.toSketch(px).value_or(Vec2()) - m_c1.pos).cross(u));
+            m_width = hud().value(0).value_or(2.0 * off);
+            ed.previewConstruction.push_back({m_c1.pos, m_c2.pos});
+            outline(ed.previewLines);
+            hud().setLive(0, m_width);
+            hud().place(0, ed.toScreen(m_c2.pos + u.perp() * (m_width / 2)) + QPointF(30, -20));
+        }
+        ed.refreshView();
+    }
+
+    void outline(std::vector<std::pair<Vec2, Vec2>> &out) const {
+        const Vec2 a = m_c1.pos, b = m_c2.pos;
+        const Vec2 u = (b - a).normalized(), n = u.perp();
+        const double r = m_width / 2;
+        out.push_back({a + n * r, b + n * r});
+        out.push_back({a - n * r, b - n * r});
+        const double base = u.angle();
+        const int k = 24;
+        for(int end = 0; end < 2; ++end) {
+            const Vec2 c = end ? b : a;
+            const double start = base + (end ? -cad::kPi / 2 : cad::kPi / 2);
+            for(int i = 0; i < k; ++i) {
+                const double t0 = start + cad::kPi * i / k, t1 = start + cad::kPi * (i + 1) / k;
+                out.push_back({c + Vec2(std::cos(t0), std::sin(t0)) * r, c + Vec2(std::cos(t1), std::sin(t1)) * r});
+            }
+        }
+    }
+
+    bool commit() {
+        if(m_width < 1e-6) return false;
+        SketchEditor &ed = editor();
+        cad::Sketch work = ed.sketch();
+        std::vector<PendingConstraint> pending;
+        const int c1 = ed.pointForSnap(work, m_c1, pending);
+        const int c2 = ed.pointForSnap(work, m_c2, pending);
+        cad::SlotIds ids;
+        std::string why;
+        if(!cad::addSlot(work, c1, c2, m_width, ids, why)) {
+            m_mode.showStatus(QString::fromStdString(why));
+            return false;
+        }
+        const double gap = ed.sketchUnitsPerPixel(m_c1.pos) * 30.0;
+        const Vec2 n = (m_c2.pos - m_c1.pos).normalized().perp();
+        if(!m_lengthExpr.isEmpty()) {
+            PendingConstraint pc{SkCon::Distance, ids.centreLine};
+            pc.expr = m_lengthExpr.toStdString();
+            pc.label = n * (m_width / 2 + gap);
+            pending.push_back(pc);
+        }
+        if(!m_widthExpr.isEmpty()) {
+            PendingConstraint pc{SkCon::Diameter, ids.arc2};
+            pc.expr = m_widthExpr.toStdString();
+            pc.label = (m_c2.pos - m_c1.pos).normalized() * (m_width / 2 + gap);
+            pending.push_back(pc);
+        }
+        return ed.commit(tr("Slot"), std::move(work), pending);
+    }
+
+    int m_state = 0;
+    SketchSnap m_snap, m_c1, m_c2;
+    QPointF m_cursor;
+    double m_width = 0.0;
+    QString m_lengthExpr, m_widthExpr;
+};
+
+// ---------------------------------------------------------------------------
+// Polygon: a regular polygon. Click the centre, then a corner (inscribed) or
+// the middle of a side (circumscribed: the size is then across flats, as for
+// a nut). Type the number of sides and the diameter; Space switches the kind.
+
+class PolygonTool final : public SketchTool {
+public:
+    using SketchTool::SketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Polygon; }
+    QString prompt() const override {
+        const QString kindText = s_inscribed ? tr("inscribed: click a corner") : tr("circumscribed: click the middle of a side");
+        return m_hasCentre ? tr("Polygon, %1 (Space switches; type sides and diameter).").arg(kindText)
+                           : tr("Click the centre of the polygon (Space switches inscribed / circumscribed).");
+    }
+    void activate() override {
+        hud().setFields({{tr("Sides"), cad::ValueKind::Scalar}, {tr("Diameter"), cad::ValueKind::Length}});
+        hud().hide();
+    }
+    bool mousePress(QMouseEvent *e) override {
+        if(e->button() != Qt::LeftButton) return false;
+        update(e->position());
+        if(!m_hasCentre) {
+            m_centre = m_snap;
+            m_hasCentre = true;
+            hud().unlockAll();
+            update(m_cursor);
+            m_mode.showStatus(prompt());
+        } else {
+            commit();
+        }
+        return true;
+    }
+    bool mouseMove(QMouseEvent *e) override {
+        update(e->position());
+        return true;
+    }
+    bool mouseRelease(QMouseEvent *) override { return true; }
+    bool keyPress(QKeyEvent *e) override {
+        if(e->key() == Qt::Key_Space) {
+            s_inscribed = !s_inscribed;
+            update(m_cursor);
+            m_mode.showStatus(prompt());
+            return true;
+        }
+        if((e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) && m_hasCentre) {
+            commit();
+            return true;
+        }
+        return commonKey(e);
+    }
+    bool cancel() override {
+        if(!m_hasCentre) return false;
+        reset();
+        return true;
+    }
+    void hudCommit() override { commit(); }
+    void hudChanged() override { update(m_cursor); }
+
+    // Tests: a polygon around `centre` toward `vertex`.
+    bool polygonAt(Vec2 centre, Vec2 vertex, int sides, bool inscribed, const QString &diameterExpr = {}) {
+        m_centre = SketchSnap{SketchSnap::Kind::None, centre, 0};
+        m_hasCentre = true;
+        m_vertex = vertex;
+        m_sides = sides;
+        s_inscribed = inscribed;
+        m_diameterExpr = diameterExpr;
+        return commit();
+    }
+
+protected:
+    void paintToolOverlay(QPainter &p) override {
+        if(auto id = snapHint(m_snap); id && !m_hasCentre) paintHint(p, m_cursor, *id);
+    }
+
+private:
+    void reset() {
+        m_hasCentre = false;
+        m_diameterExpr.clear();
+        hud().hide();
+        hud().unlockAll();
+        editor().clearPreview();
+        m_mode.showStatus(prompt());
+    }
+
+    void update(QPointF px) {
+        m_cursor = px;
+        SketchEditor &ed = editor();
+        m_snap = ed.snap(px);
+        ed.previewLines.clear();
+        ed.previewConstruction.clear();
+        if(!m_hasCentre) {
+            ed.previewSnap = m_snap;
+            ed.refreshView();
+            return;
+        }
+        ed.previewSnap.reset();
+        const Vec2 c = m_centre.pos;
+        Vec2 d = ed.toSketch(px).value_or(Vec2()) - c;
+        double size = d.length();
+        d = size > 1e-12 ? d / size : Vec2(1, 0);
+        if(const auto dia = hud().value(1)) size = *dia / 2;
+        m_sides = int(std::lround(hud().value(0).value_or(m_sides)));
+        m_sides = std::clamp(m_sides, 3, 64);
+        m_vertex = c + d * size;
+        const auto corners = cad::regularPolygonCorners(c, m_vertex, m_sides, s_inscribed);
+        for(size_t i = 0; i < corners.size(); ++i) ed.previewLines.push_back({corners[i], corners[(i + 1) % corners.size()]});
+        const int n = 72;
+        for(int i = 0; i < n; ++i) {
+            const double t0 = 2 * cad::kPi * i / n, t1 = 2 * cad::kPi * (i + 1) / n;
+            ed.previewConstruction.push_back(
+                {c + Vec2(std::cos(t0), std::sin(t0)) * size, c + Vec2(std::cos(t1), std::sin(t1)) * size});
+        }
+        hud().setLive(0, m_sides);
+        hud().setLive(1, 2 * size);
+        const QPointF at = ed.toScreen(m_vertex);
+        hud().place(0, at + QPointF(30, -40));
+        hud().place(1, at + QPointF(30, 0));
+        ed.refreshView();
+    }
+
+    bool commit() {
+        if(!m_hasCentre || distance(m_vertex, m_centre.pos) < 1e-6) return false;
+        SketchEditor &ed = editor();
+        cad::Sketch work = ed.sketch();
+        std::vector<PendingConstraint> pending;
+        const int centre = ed.pointForSnap(work, m_centre, pending);
+        cad::PolygonIds ids;
+        std::string why;
+        if(!cad::addRegularPolygon(work, centre, m_vertex, m_sides, s_inscribed, ids, why)) {
+            m_mode.showStatus(QString::fromStdString(why));
+            return false;
+        }
+        const QString expr = hud().value(1) ? hud().expression(1) : m_diameterExpr;
+        if(!expr.isEmpty()) {
+            PendingConstraint pc{SkCon::Diameter, ids.circle};
+            pc.expr = expr.toStdString();
+            const double r = distance(m_vertex, m_centre.pos);
+            pc.label = (m_vertex - m_centre.pos).normalized() * (r + ed.sketchUnitsPerPixel(m_centre.pos) * 30.0);
+            pending.push_back(pc);
+        }
+        const bool ok = ed.commit(tr("Polygon"), std::move(work), pending);
+        reset();
+        return ok;
+    }
+
+    static inline bool s_inscribed = true;
+    bool m_hasCentre = false;
+    SketchSnap m_centre, m_snap;
+    QPointF m_cursor;
+    Vec2 m_vertex;
+    int m_sides = 6;
+    QString m_diameterExpr;
+};
+
+// ---------------------------------------------------------------------------
 // Mirror and Circular Pattern: Fusion 360-style dialogs, open from the start.
 // The Objects field shows the geometry picked (the sketch selection); the
 // second field the mirror line or the centre point. Clicking a field makes it
@@ -2491,6 +3063,11 @@ std::unique_ptr<SketchTool> createSketchTool(SketchMode &mode, SketchToolKind ki
     case SketchToolKind::Move: return std::make_unique<MoveTool>(mode);
     case SketchToolKind::Offset: return std::make_unique<OffsetTool>(mode);
     case SketchToolKind::Text: return std::make_unique<TextTool>(mode);
+    case SketchToolKind::Trim: return std::make_unique<TrimTool>(mode);
+    case SketchToolKind::Extend: return std::make_unique<ExtendTool>(mode);
+    case SketchToolKind::SketchFillet: return std::make_unique<SketchFilletTool>(mode);
+    case SketchToolKind::Slot: return std::make_unique<SlotTool>(mode);
+    case SketchToolKind::Polygon: return std::make_unique<PolygonTool>(mode);
     case SketchToolKind::Mirror: return std::make_unique<MirrorTool>(mode);
     case SketchToolKind::CircularPattern: return std::make_unique<PatternTool>(mode);
     case SketchToolKind::Project: return std::make_unique<ProjectTool>(mode);

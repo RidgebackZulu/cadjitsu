@@ -95,6 +95,37 @@ Projects lines, curves and points of another sketch (usually on another plane) o
 | `from_sketch` **(required)** | integer | the sketch to project from |
 | `sketch` **(required)** | integer | the sketch to project onto |
 
+## `sketch_trim`
+
+Trims a sketch curve like the sketch Trim tool: removes the piece of curve `curve` around the point `near` (sketch coordinates), between the nearest curves crossing it. A line or arc is shortened or split; a circle becomes an arc; a curve nothing crosses is deleted. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `curve` **(required)** | integer | the curve's entity id |
+| `near` **(required)** | [x, y] | a point on the piece to remove |
+| `sketch` **(required)** | integer | sketch feature id |
+
+## `sketch_extend`
+
+Extends a line or arc like the sketch Extend tool: its end nearer `near` is lengthened up to the next curve in that direction and held on it. The end must be free. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `curve` **(required)** | integer | the line or arc's entity id |
+| `near` **(required)** | [x, y] | a point near the end to extend |
+| `sketch` **(required)** | integer | sketch feature id |
+
+## `sketch_fillet`
+
+Rounds a sketch corner where two lines meet with a tangent arc of `radius`, like the sketch Fillet tool. Give the corner point's id (`corner`) or a point `near` it. The corner stays as a construction point, so the lines' dimensions still measure to it; the radius becomes a parameter. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `corner` | integer | the corner point's entity id |
+| `near` | [x, y] | or: a point near the corner |
+| `radius` **(required)** | number | mm |
+| `sketch` **(required)** | integer | sketch feature id |
+
 ## `set_construction`
 
 Makes sketch geometry construction geometry (dotted, a reference for drawing: it bounds no profile and is never extruded) or normal again. One undo step.

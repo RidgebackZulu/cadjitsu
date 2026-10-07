@@ -243,6 +243,8 @@ public:
     // Temporary geometry drawn by the active tool (sketch coordinates).
     std::vector<std::pair<cad::Vec2, cad::Vec2>> previewLines;
     std::vector<std::pair<cad::Vec2, cad::Vec2>> previewConstruction;
+    // What the tool would remove (Trim), drawn red.
+    std::vector<std::pair<cad::Vec2, cad::Vec2>> previewRemove;
     std::vector<cad::Vec2> previewPoints;
     std::optional<SketchSnap> previewSnap;
     // Entities not drawn while a tool shows them changed (the text being edited).

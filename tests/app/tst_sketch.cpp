@@ -543,7 +543,7 @@ private slots:
     // Text: click and type; the panel sets its style and place; double-click edits it.
     void textToolPlacesAndEditsText() {
         startSketchOnXY();
-        QCOMPARE(m_window->action(QStringLiteral("sketchText"))->shortcut(), QKeySequence(Qt::Key_T));
+        QCOMPARE(m_window->action(QStringLiteral("sketchText"))->shortcut(), QKeySequence(Qt::SHIFT | Qt::Key_T));
         trigger("sketchText");
         QCOMPARE(mode()->tool(), SketchToolKind::Text);
         CommandPanel *panel = m_window->commandPanel();

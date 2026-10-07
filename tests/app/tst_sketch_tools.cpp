@@ -247,6 +247,118 @@ private slots:
         QVERIFY(!panel->isOpen());
     }
 
+    void trimRemovesThePieceUnderTheCursorAndDragTrimsSeveral() {
+        startSketch(cad::PlaneRef::Kind::XY);
+        ed()->edit(QStringLiteral("cross"), [](cad::Sketch &s) {
+            s.addLine(Vec2(0, 0), Vec2(30, 0));
+            s.addLine(Vec2(10, -6), Vec2(10, 6));
+            s.addLine(Vec2(20, -6), Vec2(20, 6));
+        }, false);
+        trigger("sketchTrim");
+        QCOMPARE(mode()->tool(), SketchToolKind::Trim);
+        QCOMPARE(m_window->action(QStringLiteral("sketchTrim"))->shortcut(), QKeySequence(Qt::Key_T));
+        move(at(15, 0));
+        QVERIFY(!ed()->previewRemove.empty()); // the middle piece shows red
+        click(at(15, 0));
+        QCOMPARE(countType(sk(), SkType::Line), 4);
+        QCOMPARE(QString(ed()->undoLabel()), QStringLiteral("Trim"));
+        QVERIFY(mode()->undo());
+        QCOMPARE(countType(sk(), SkType::Line), 3);
+
+        // Dragging across three lines trims each where the cursor crosses it.
+        ed()->edit(QStringLiteral("comb"), [](cad::Sketch &s) {
+            s.entities.clear();
+            s.constraints.clear();
+            s.addLine(Vec2(0, -10), Vec2(0, 10));
+            for(double y : {-5.0, 0.0, 5.0}) s.addLine(Vec2(-10, y), Vec2(10, y));
+        }, false);
+        const QPointF from = at(5, -8), to = at(5, 8);
+        move(from);
+        send(vp(), QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+        for(int i = 1; i <= 60; ++i) send(vp(), QEvent::MouseMove, from + (to - from) * (i / 60.0), Qt::NoButton, Qt::LeftButton);
+        send(vp(), QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+        double maxX = -1e9;
+        for(const auto &e : sk().entities)
+            if(e.type == SkType::Point) maxX = std::max(maxX, e.x);
+        QVERIFY2(maxX < 1e-6, "the right-hand pieces are gone");
+        QCOMPARE(countType(sk(), SkType::Line), 4);
+    }
+
+    void extendReachesTheNextLine() {
+        startSketch(cad::PlaneRef::Kind::XY);
+        int l = 0;
+        ed()->edit(QStringLiteral("gap"), [&](cad::Sketch &s) {
+            l = s.addLine(Vec2(0, 10), Vec2(10, 10));
+            s.addLine(Vec2(25, 0), Vec2(25, 20));
+        }, false);
+        trigger("sketchExtend");
+        move(at(9, 10));
+        QVERIFY(!ed()->previewConstruction.empty()); // dashed extension
+        click(at(9, 10));
+        const cad::SkEntity *e = sk().find(l);
+        QCOMPARE(distance(sk().pointPos(e->a), sk().pointPos(e->b)), 25.0);
+        QCOMPARE(QString(ed()->undoLabel()), QStringLiteral("Extend"));
+    }
+
+    void filletRoundsAHoveredCornerWithATypedRadius() {
+        startSketch(cad::PlaneRef::Kind::XY);
+        ed()->edit(QStringLiteral("box"), [](cad::Sketch &s) { s.addRectangle({0, 0}, {40, 20}); }, false);
+        trigger("sketchFillet");
+        QCOMPARE(mode()->tool(), SketchToolKind::SketchFillet);
+        move(at(39.5, 19.5));
+        QVERIFY(!ed()->previewLines.empty()); // the arc shows
+        key(Qt::Key_5);
+        key(Qt::Key_Return);
+        QCOMPARE(countType(sk(), SkType::Arc), 1);
+        int arc = 0;
+        for(const auto &e : sk().entities)
+            if(e.type == SkType::Arc) arc = e.id;
+        QVERIFY(std::abs(sk().arcRadius(*sk().find(arc)) - 5.0) < 1e-6);
+        int radiusDims = 0;
+        for(const auto &c : sk().constraints) radiusDims += c.type == cad::SkCon::Radius && c.e1 == arc;
+        QCOMPARE(radiusDims, 1);
+        QCOMPARE(int(ed()->profiles().size()), 1);
+        // The next corner by a click uses the remembered radius.
+        move(at(0.5, 0.5));
+        click(at(0.5, 0.5));
+        QCOMPARE(countType(sk(), SkType::Arc), 2);
+    }
+
+    void slotFromTwoCentresAndAWidth() {
+        startSketch(cad::PlaneRef::Kind::XY);
+        trigger("sketchSlot");
+        click(at(5, 5));
+        click(at(35, 5));
+        move(at(20, 9));
+        QVERIFY(!ed()->previewLines.empty());
+        click(at(20, 9));
+        QCOMPARE(countType(sk(), SkType::Arc), 2);
+        QCOMPARE(countType(sk(), SkType::Line), 3); // two sides and the construction centre line
+        QCOMPARE(int(ed()->profiles().size()), 1);
+        const double area = std::abs(ed()->profiles()[0].area);
+        QVERIFY2(std::abs(area - (30 * 8 + cad::kPi * 16)) < 6.0, qPrintable(QString::number(area)));
+    }
+
+    void polygonInscribedThenAcrossFlats() {
+        startSketch(cad::PlaneRef::Kind::XY);
+        trigger("sketchPolygon");
+        click(at(20, 20));
+        click(at(30, 20));
+        QCOMPARE(countType(sk(), SkType::Line), 6);
+        QCOMPARE(int(ed()->profiles().size()), 1);
+        QVERIFY(std::abs(std::abs(ed()->profiles()[0].area) - 1.5 * std::sqrt(3.0) * 100) < 1.0);
+        // Space: circumscribed (the click is the middle of a side).
+        key(Qt::Key_Space);
+        click(at(-20, -20));
+        click(at(-20, -15));
+        QCOMPARE(countType(sk(), SkType::Line), 12);
+        double flat = 0;
+        for(const auto &p : ed()->profiles())
+            if(p.sample.y < 0) flat = std::abs(p.area);
+        QVERIFY2(std::abs(flat - 2 * std::sqrt(3.0) * 25) < 1.0, qPrintable(QString::number(flat)));
+        key(Qt::Key_Space); // back to inscribed for the next tests
+    }
+
     void constructionFromTheRightClickMenuIsDottedAndMakesNoProfile() {
         startSketch(cad::PlaneRef::Kind::XY);
         ed()->edit(QStringLiteral("box"), [](cad::Sketch &s) { s.addRectangle({0, 0}, {20, 10}); }, false);

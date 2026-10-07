@@ -116,7 +116,12 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 | 3-point arc | | |
 | Point | | |
 | Sketch dimension | D | the value box opens when the dimension is placed |
-| Text | T | a panel: text, font, size, X / Y, angle, Reverse |
+| Text | Shift+T | a panel: text, font, size, X / Y, angle, Reverse |
+| Center to center slot | | length, width |
+| Polygon (Space: inscribed / circumscribed) | | sides, diameter |
+| Fillet (corner) | | radius |
+| Trim | T | |
+| Extend | | |
 | Mirror | | a dialog: Objects, then the Mirror Line (a line or axis) |
 | Circular Pattern | | a dialog: Objects, Centre Point, Quantity, Angle |
 | Project | P | click lines, curves and points of another sketch |
@@ -125,7 +130,7 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - Lines within 3° of level or plumb become horizontal or vertical.
 - While drawing, type a number to fill the active value box. Tab moves to the next box. Enter commits the shape, and each typed value becomes a dimension.
 
-**Text (T)**
+**Text (Shift+T)**
 - Click where the text goes and start typing: the panel opens with the text box ready, and the letters show on the canvas as you type. Shift+Enter starts a new line; Enter or OK places it (one undo step), Esc drops it. A click elsewhere on the canvas moves it there.
 - The panel sets the **font** (the bundled DejaVu Sans, Serif and Sans Mono first, then the fonts installed on the computer), **Bold** and **Italic**, the **size** (letter height), where its origin is (**X / Y**, the start of the first line's baseline), its **angle**, and **Reverse**, which mirrors the letters so they read the right way from the other side (stamps, moulds, text printed face down).
 - Every letter is a region: extrude it to raise the text, or cut it into a plate. Clicking one letter in Extrude picks the whole text (Shift+click for one letter). Text inside another region cuts its letters out of it, and the insides of letters (an O's middle) are regions of their own.
@@ -136,6 +141,13 @@ third_party/  vendored libslvs, doctest, nlohmann/json
 - **Mirror:** pick the geometry, then (Enter, or click **Mirror Line**) a line or one of the sketch axes; the field names it ("Y axis"). Hovering a line shows the mirror image. The copies are held symmetric to the originals, so they follow when the originals change. Points on the mirror line are shared, so half an outline drawn up to the line becomes one closed profile.
 - **Circular Pattern:** pick the geometry, then the **Centre Point** (a point, the origin or anywhere), and type **Quantity** (how many in all, the original included) and the **Angle** they spread over (360 by default). The copies show as you type; OK places them. Their dimensions follow the original's.
 - **Project (P):** the other sketches' geometry shows faintly in purple. Click a line, circle, arc or point of another sketch (usually on another plane) to bring it onto this one. Projected geometry is purple and fixed. It stays linked: change the original and it follows. It can bound profiles like any other line, and can be made construction geometry and back. Lines and points project onto any plane; circles and arcs only onto a parallel one. You can only project from sketches earlier in the timeline. If the original is deleted, the projection stays where it was, with a warning on the sketch.
+
+**Trim, Extend, Fillet, Slot and Polygon**
+- **Trim (T):** hover a curve and the piece between the curves crossing it turns red; click to remove it, or drag across several curves to trim each. A line or arc is shortened or split in two, a circle becomes an arc, and a curve nothing crosses is deleted. The new ends stay on the curves that cut them.
+- **Extend:** click a line or arc near its free end to lengthen it up to the next curve (the extension shows dashed first).
+- **Fillet:** hover a corner where two lines meet to see the rounding arc, type the radius (or keep the last one) and click. The arc is tangent to both lines and gets a radius dimension. The sharp corner stays as a construction point, so the lines' dimensions still measure to it: a 40 x 20 rectangle stays 40 x 20 after rounding its corners.
+- **Center to center slot:** click the two end centres, then the width; or type the length and width. The ends stay tangent and equal.
+- **Polygon:** click the centre, then a corner. Type the number of sides (6 by default) and the diameter. **Space** switches to circumscribed, where the click is the middle of a side and the diameter is the width across flats: a 5.5 mm hexagon is an M3 nut trap.
 
 **Construction geometry**
 - Press **X**, or right-click a line and choose **Make Construction**, to turn selected geometry into construction geometry; do the same again to make it normal. Construction lines are dotted orange.

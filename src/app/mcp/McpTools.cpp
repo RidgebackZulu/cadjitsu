@@ -28,6 +28,7 @@
 #include "measure/MeasureBetween.h"
 #include "measure/Overhang.h"
 #include "sketch/SketchOffset.h"
+#include "sketch/SketchEdit.h"
 #include "sketch/SketchOps.h"
 #include "sketch/SketchProject.h"
 #include "sketch/SketchSolver.h"
@@ -487,8 +488,39 @@ void McpTools::define() {
                 json made = {{"type", "text"}, {"id", id}, {"origin_point", t.a}, {"letter_regions", letters.pieces.size()}};
                 if(!letters.warning.empty()) made["warning"] = letters.warning;
                 created.push_back(made);
+            } else if(type == "slot") {
+                const cad::Vec2 a = vec2Arg(e.at("start"), "start"), b = vec2Arg(e.at("end"), "end");
+                const double width = e.at("width").get<double>();
+                const int c1 = sk.addPoint(a.x, a.y), c2 = sk.addPoint(b.x, b.y);
+                cad::SlotIds ids;
+                std::string why;
+                if(!cad::addSlot(sk, c1, c2, width, ids, why)) fail(why);
+                created.push_back({{"type", "slot"}, {"lines", {ids.line1, ids.line2}}, {"arcs", {ids.arc1, ids.arc2}},
+                                   {"centre_line", ids.centreLine}});
+                if(e.value("dimension", true)) {
+                    const cad::Vec2 n = (b - a).normalized().perp();
+                    dimension(cad::SkCon::Distance, ids.centreLine, (b - a).length(), n * (width / 2 + 3), "slot length");
+                    dimension(cad::SkCon::Diameter, ids.arc2, width, (b - a).normalized() * (width / 2 + 3), "slot width");
+                }
+            } else if(type == "regular_polygon") {
+                const cad::Vec2 c = vec2Arg(e.at("center"), "center");
+                const int sides = e.value("sides", 6);
+                const double dia = e.at("diameter").get<double>();
+                const bool inscribed = e.value("inscribed", true);
+                const double ang = e.value("angle", 0.0) * cad::kPi / 180.0;
+                if(dia <= 0) fail("a polygon needs a positive diameter");
+                const int centre = sk.addPoint(c.x, c.y);
+                cad::PolygonIds ids;
+                std::string why;
+                const cad::Vec2 toward = c + cad::Vec2(std::cos(ang), std::sin(ang)) * (dia / 2);
+                if(!cad::addRegularPolygon(sk, centre, toward, sides, inscribed, ids, why)) fail(why);
+                created.push_back({{"type", "regular_polygon"}, {"lines", ids.lines}, {"circle", ids.circle},
+                                   {"center_point", centre}});
+                if(e.value("dimension", true))
+                    dimension(cad::SkCon::Diameter, ids.circle, dia, cad::Vec2(0.7071, 0.7071) * (dia / 2 + 3),
+                              inscribed ? "polygon diameter (corners)" : "polygon width across flats");
             } else {
-                fail("unknown entity type \"" + type + "\" (rectangle, center_rectangle, circle, line, polygon, polyline, arc, point, text)");
+                fail("unknown entity type \"" + type + "\" (rectangle, center_rectangle, circle, line, polygon, polyline, arc, point, text, slot, regular_polygon)");
             }
         }
     };
@@ -502,8 +534,12 @@ void McpTools::define() {
           "(counter-clockwise from start), {type:\"point\", at:[x,y]}, {type:\"text\", at:[x,y] (start of the first "
           "line's baseline), text (\\n for more lines), size (letter height, mm, default 5), font (default \"DejaVu "
           "Sans\"; also \"DejaVu Serif\", \"DejaVu Sans Mono\" or an installed font), bold, italic, angle (degrees), "
-          "mirror (bool: letters reversed, to read from the other side)}: every letter becomes a region to extrude. Optional: construction (bool), dimension (bool: "
-          "add driving dimensions that become editable parameters; default true for rectangles and circles)."}},
+          "mirror (bool: letters reversed, to read from the other side)}: every letter becomes a region to extrude; "
+          "{type:\"slot\", start:[x,y], end:[x,y] (the end centres), width}; {type:\"regular_polygon\", center:[x,y], "
+          "sides (default 6), diameter, inscribed (default true: corners on the diameter; false: diameter is the width "
+          "across flats, as for a nut trap), angle (degrees, of the first corner or side middle)}. Optional: "
+          "construction (bool), dimension (bool: "
+          "add driving dimensions that become editable parameters; default true for rectangles, circles, slots and polygons)."}},
         "Sketch geometry in the sketch's own 2D coordinates (mm). On XY these are world X, Y; on XZ, world X and Z; on "
         "YZ, world Y and Z; on a face or construction plane, see the frame this tool returns.");
 
@@ -892,6 +928,70 @@ void McpTools::define() {
                         fail("entity " + std::to_string(id) + ": " + why);
                     for(int c : created) made.push_back(c);
                 }
+            });
+            r["created"] = made;
+            return r;
+        });
+
+    add("sketch_trim",
+        "Trims a sketch curve like the sketch Trim tool: removes the piece of curve `curve` around the point `near` "
+        "(sketch coordinates), between the nearest curves crossing it. A line or arc is shortened or split; a circle "
+        "becomes an arc; a curve nothing crosses is deleted. One undo step.",
+        {{"sketch", integer("sketch feature id")}, {"curve", integer("the curve's entity id")},
+         {"near", xy("a point on the piece to remove")}},
+        {"sketch", "curve", "near"}, [editSketch, solvedOrFail](const json &a) {
+            const int curve = a.at("curve").get<int>();
+            const cad::Vec2 near = vec2Arg(a.at("near"), "near");
+            json made;
+            json r = editSketch(a, "Trim", [&](cad::Sketch &s, const cad::SketchResult &, const cad::StatePtr &) {
+                std::vector<int> created;
+                std::string why;
+                if(!cad::trimCurve(s, curve, near, created, why)) fail(why);
+                solvedOrFail(s, "the trimmed sketch cannot be solved");
+                made = created;
+            });
+            r["created"] = made;
+            return r;
+        });
+
+    add("sketch_extend",
+        "Extends a line or arc like the sketch Extend tool: its end nearer `near` is lengthened up to the next curve "
+        "in that direction and held on it. The end must be free. One undo step.",
+        {{"sketch", integer("sketch feature id")}, {"curve", integer("the line or arc's entity id")},
+         {"near", xy("a point near the end to extend")}},
+        {"sketch", "curve", "near"}, [editSketch, solvedOrFail](const json &a) {
+            const int curve = a.at("curve").get<int>();
+            const cad::Vec2 near = vec2Arg(a.at("near"), "near");
+            return editSketch(a, "Extend", [&](cad::Sketch &s, const cad::SketchResult &, const cad::StatePtr &) {
+                std::string why;
+                if(!cad::extendCurve(s, curve, near, why)) fail(why);
+                solvedOrFail(s, "the extended sketch cannot be solved");
+            });
+        });
+
+    add("sketch_fillet",
+        "Rounds a sketch corner where two lines meet with a tangent arc of `radius`, like the sketch Fillet tool. "
+        "Give the corner point's id (`corner`) or a point `near` it. The corner stays as a construction point, so "
+        "the lines' dimensions still measure to it; the radius becomes a parameter. One undo step.",
+        {{"sketch", integer("sketch feature id")}, {"corner", integer("the corner point's entity id")},
+         {"near", xy("or: a point near the corner")}, {"radius", number("mm")}},
+        {"sketch", "radius"}, [&doc, editSketch, solvedOrFail](const json &a) {
+            const double radius = a.at("radius").get<double>();
+            json made;
+            json r = editSketch(a, "Fillet", [&](cad::Sketch &s, const cad::SketchResult &, const cad::StatePtr &) {
+                int corner = a.value("corner", 0);
+                if(!corner && a.contains("near")) corner = cad::filletCornerNear(s, vec2Arg(a["near"], "near"), 1e9);
+                if(!corner) fail("give the corner (a point where two lines meet) or a point near it");
+                int arc = 0;
+                std::vector<int> created;
+                std::string why;
+                if(!cad::filletCorner(s, corner, radius, arc, created, why)) fail(why);
+                const int cid = s.addConstraint(cad::SkCon::Radius, arc);
+                cad::SkConstraint *c = s.findConstraint(cid);
+                c->param = doc.allocateParamName();
+                c->expr = num(radius) + " mm";
+                solvedOrFail(s, "the filleted sketch cannot be solved");
+                made = {{"arc", arc}, {"radius_parameter", c->param}};
             });
             r["created"] = made;
             return r;

@@ -2233,6 +2233,51 @@ bool sketchToolsScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     w.waitForModel();
     const cad::FeaturePtr f = w.document().feature(base);
     check(f != nullptr, QStringLiteral("the bracket sketch is there"));
+
+    // A mounting plate: a rectangle with filleted corners, a slot, a nut-trap
+    // hexagon, and a tab line trimmed back to the plate.
+    if(!mode->beginNewSketch(cad::PlaneRef::origin(cad::PlaneRef::Kind::XY), false)) return false;
+    ed = mode->editor();
+    ed->edit(QStringLiteral("plate"), [](cad::Sketch &s) {
+        s.addRectangle({-40, -25}, {40, 25});
+        s.addLine(cad::Vec2(-55, 0), cad::Vec2(-20, 0)); // sticks out of the plate
+    }, false);
+    vp->fitAll(false);
+    waitForFrames(vp, 2);
+    w.action(QStringLiteral("sketchFillet"))->trigger();
+    for(const cad::Vec2 c : {cad::Vec2(40, 25), cad::Vec2(-40, 25), cad::Vec2(40, -25), cad::Vec2(-40, -25)}) {
+        sendMouse(vp, QEvent::MouseMove, ed->toScreen(c), Qt::NoButton, Qt::NoButton);
+        if(c.x > 0 && c.y > 0) {
+            sendKey(w, Qt::Key_6, QStringLiteral("6"));
+            sendKey(w, Qt::Key_Return);
+        } else {
+            clickAt(vp, ed->toScreen(c));
+        }
+    }
+    auto arcs = [&] { return count(cad::SkType::Arc); };
+    check(arcs() == 4, QStringLiteral("four corners filleted (%1 arcs)").arg(arcs()));
+    w.action(QStringLiteral("sketchSlot"))->trigger();
+    clickAt(vp, ed->toScreen({-12, -12}));
+    clickAt(vp, ed->toScreen({18, -12}));
+    clickAt(vp, ed->toScreen({3, -8}));
+    check(arcs() == 6, QStringLiteral("a slot: two more arcs"));
+    w.action(QStringLiteral("sketchPolygon"))->trigger();
+    sendKey(w, Qt::Key_Space);
+    clickAt(vp, ed->toScreen({20, 10}));
+    sendMouse(vp, QEvent::MouseMove, ed->toScreen({20, 15}), Qt::NoButton, Qt::NoButton);
+    shot("sketchtools_6_polygon_preview.png");
+    clickAt(vp, ed->toScreen({20, 15}));
+    sendKey(w, Qt::Key_Space);
+    w.action(QStringLiteral("sketchTrim"))->trigger();
+    sendMouse(vp, QEvent::MouseMove, ed->toScreen({-48, 0}), Qt::NoButton, Qt::NoButton);
+    shot("sketchtools_7_trim_preview.png");
+    clickAt(vp, ed->toScreen({-48, 0}));
+    check(ed->profiles().size() == 3, QStringLiteral("the plate (with two holes), the slot and the hexagon: %1 profiles").arg(ed->profiles().size()));
+    w.action(QStringLiteral("sketchSelect"))->trigger();
+    vp->fitAll(false);
+    shot("sketchtools_8_plate.png");
+    mode->finish();
+    w.waitForModel();
     return ok;
 }
 

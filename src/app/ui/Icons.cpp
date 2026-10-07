@@ -98,6 +98,11 @@ constexpr std::array kIcons = {
     Entry{IconId::Settings, "settings"},
     Entry{IconId::McpServer, "mcp-server"},
     Entry{IconId::Delete, "delete"},
+    Entry{IconId::Trim, "trim"},
+    Entry{IconId::Extend, "extend"},
+    Entry{IconId::SketchFillet, "sketch-fillet"},
+    Entry{IconId::Slot, "slot"},
+    Entry{IconId::Polygon, "polygon"},
     Entry{IconId::Repeat, "repeat"},
 };
 

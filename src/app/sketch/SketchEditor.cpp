@@ -835,6 +835,7 @@ void SketchEditor::emitChanged() {
 void SketchEditor::clearPreview() {
     previewLines.clear();
     previewConstruction.clear();
+    previewRemove.clear();
     previewPoints.clear();
     previewSnap.reset();
     previewHidden.clear();
@@ -1650,6 +1651,12 @@ void SketchEditor::contribute(RenderScene &scene) const {
         for(const auto &[a, b] : previewConstruction) addPolyline(dashed, {a, b}, true);
         for(LineBatch *b : {&dashed, &solid})
             if(!b->segments.empty()) scene.lines.push_back(*b);
+    }
+    if(!previewRemove.empty()) {
+        LineBatch red = batch(QColor(222, 50, 40), 3.0f);
+        red.depthTest = false;
+        for(const auto &[a, b] : previewRemove) red.segments.insert(red.segments.end(), {toWorld(a), toWorld(b)});
+        scene.lines.push_back(red);
     }
     if(!previewPoints.empty()) {
         PointBatch pb = points(Qt::white, kFreeColor, 7.0f);

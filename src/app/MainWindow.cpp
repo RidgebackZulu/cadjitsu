@@ -582,7 +582,8 @@ void MainWindow::showMarkingMenu(QPoint canvasPos) {
         m_marking->setRing({a("finishSketch"), a("sketchLine"), a("sketchRectangle"), a("sketchCircle"),
                             a("sketchDelete"), a("redo"), a("undo"), a("sketchDimension")});
         m_marking->setList({a("sketchLookAt"), a("sketchConstruction"), a("sketchArc"), a("sketchPoint"),
-                            a("sketchCenterRectangle"), a("sketchMirror"), a("sketchCircularPattern"), a("sketchProject")});
+                            a("sketchCenterRectangle"), a("sketchTrim"), a("sketchFillet"), a("sketchMirror"),
+                            a("sketchCircularPattern"), a("sketchProject")});
     } else {
         QAction *repeat = a("repeatCommand");
         QAction *last = action(m_lastCommand);
@@ -752,7 +753,12 @@ void MainWindow::buildActions() {
         {"sketchDimension", SketchToolKind::Dimension, IconId::Dimension, QKeySequence(Qt::Key_D)},
         {"sketchMove", SketchToolKind::Move, IconId::Move, QKeySequence(Qt::Key_M)},
         {"sketchOffset", SketchToolKind::Offset, IconId::Offset, QKeySequence(Qt::Key_O)},
-        {"sketchText", SketchToolKind::Text, IconId::Text, QKeySequence(Qt::Key_T)},
+        {"sketchText", SketchToolKind::Text, IconId::Text, QKeySequence(Qt::SHIFT | Qt::Key_T)},
+        {"sketchTrim", SketchToolKind::Trim, IconId::Trim, QKeySequence(Qt::Key_T)},
+        {"sketchExtend", SketchToolKind::Extend, IconId::Extend, {}},
+        {"sketchFillet", SketchToolKind::SketchFillet, IconId::SketchFillet, {}},
+        {"sketchSlot", SketchToolKind::Slot, IconId::Slot, {}},
+        {"sketchPolygon", SketchToolKind::Polygon, IconId::Polygon, {}},
         {"sketchMirror", SketchToolKind::Mirror, IconId::Mirror, {}},
         {"sketchCircularPattern", SketchToolKind::CircularPattern, IconId::PatternCircular, {}},
         {"sketchProject", SketchToolKind::Project, IconId::Project, QKeySequence(Qt::Key_P)},
@@ -783,22 +789,40 @@ void MainWindow::buildActions() {
            "text goes and type; drag the knob to move it, the ring to turn it and the arrow for its depth.</p>"
            "<p>On a curved face the letters follow the surface.</p>"));
     m_actions[QStringLiteral("sketchText")]->setToolTip(
-        tr("<b>Text (T)</b><p>Click where the text goes and type. Set the font, size, angle and where it sits in "
+        tr("<b>Text (Shift+T)</b><p>Click where the text goes and type. Set the font, size, angle and where it sits in "
            "the panel; Reverse mirrors the letters.</p><p>Each letter is a region you can extrude.</p>"));
     m_actions[QStringLiteral("sketchOffset")]->setToolTip(
         tr("<b>Offset (O)</b><p>Copies the selected sketch curves a specified distance from the original curves.</p>"
            "<p>Select the curves to offset then specify the offset distance.</p>"));
     m_actions[QStringLiteral("sketchMirror")]->setToolTip(
-        tr("<b>Mirror</b><p>Mirrors sketch geometry about a line.</p><p>Select the geometry to mirror (Enter), then "
-           "click the line or axis to mirror it about. The mirror image stays symmetric to the original.</p>"));
+        tr("<b>Mirror</b><p>Mirrors sketch geometry about a line.</p><p>In the dialog, pick the geometry (click or "
+           "drag a box), then the line or axis to mirror it about. The mirror image stays symmetric to the "
+           "original.</p>"));
     m_actions[QStringLiteral("sketchCircularPattern")]->setToolTip(
-        tr("<b>Circular Pattern</b><p>Copies sketch geometry around a centre point.</p><p>Select the geometry "
-           "(Enter), click the centre, then type how many in all and the angle they spread over; the copies show "
+        tr("<b>Circular Pattern</b><p>Copies sketch geometry around a centre point.</p><p>In the dialog, pick the "
+           "geometry and the centre, then type how many in all and the angle they spread over; the copies show "
            "as you type.</p>"));
     m_actions[QStringLiteral("sketchProject")]->setToolTip(
         tr("<b>Project (P)</b><p>Projects lines, curves and points of another sketch (on another plane) onto this "
            "one. Projected geometry is purple and follows the original when it changes; it can be used like any "
            "other line, and made construction geometry (X).</p>"));
+    m_actions[QStringLiteral("sketchTrim")]->setToolTip(
+        tr("<b>Trim (T)</b><p>Removes the piece of a curve between the curves that cross it.</p><p>Hover to see the "
+           "piece (red) and click, or drag across several. A curve nothing crosses is deleted; a circle becomes an "
+           "arc.</p>"));
+    m_actions[QStringLiteral("sketchExtend")]->setToolTip(
+        tr("<b>Extend</b><p>Lengthens a line or arc up to the next curve.</p><p>Click near the end to extend; the "
+           "extension shows dashed first.</p>"));
+    m_actions[QStringLiteral("sketchFillet")]->setToolTip(
+        tr("<b>Fillet</b><p>Rounds the corner where two lines meet with a tangent arc.</p><p>Hover a corner, type "
+           "the radius, and click. The lines' dimensions still measure to the sharp corner.</p>"));
+    m_actions[QStringLiteral("sketchSlot")]->setToolTip(
+        tr("<b>Center to Center Slot</b><p>A slot with round ends.</p><p>Click the two end centres, then the width "
+           "(or type the length and width).</p>"));
+    m_actions[QStringLiteral("sketchPolygon")]->setToolTip(
+        tr("<b>Polygon</b><p>A regular polygon: click the centre, then a corner (inscribed) or the middle of a side "
+           "(circumscribed, sized across flats like a nut). Type the number of sides and the diameter; press Space "
+           "to switch between inscribed and circumscribed.</p>"));
     m_sketchOnly.push_back(makeAction("sketchConstruction", tr("Normal / Construction"), IconId::Construction,
                                       QKeySequence(Qt::Key_X), [this] { m_sketch->toggleConstruction(); }));
     QAction *del = makeAction("sketchDelete", tr("Delete"), IconId::Delete, QKeySequence::Delete,
@@ -871,9 +895,14 @@ void MainWindow::buildRibbon() {
     draw->addAction(action(QStringLiteral("sketchCenterRectangle")), false);
     draw->addAction(action(QStringLiteral("sketchPoint")), false);
     draw->addAction(action(QStringLiteral("sketchText")), false);
+    draw->addAction(action(QStringLiteral("sketchSlot")), false);
+    draw->addAction(action(QStringLiteral("sketchPolygon")), false);
+    draw->addAction(action(QStringLiteral("sketchFillet")));
     draw->addSeparator();
     draw->addAction(action(QStringLiteral("sketchConstruction")), false);
     RibbonGroup *modifySketch = m_sketchTab->addGroup(tr("MODIFY"));
+    modifySketch->addAction(action(QStringLiteral("sketchTrim")));
+    modifySketch->addAction(action(QStringLiteral("sketchExtend")));
     modifySketch->addAction(action(QStringLiteral("sketchMove")));
     modifySketch->addAction(action(QStringLiteral("sketchOffset")));
     modifySketch->addAction(action(QStringLiteral("sketchMirror")));

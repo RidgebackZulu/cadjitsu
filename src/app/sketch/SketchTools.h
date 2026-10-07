@@ -43,6 +43,11 @@ enum class SketchToolKind {
     Mirror,
     CircularPattern,
     Project,
+    Trim,
+    Extend,
+    SketchFillet,
+    Slot,
+    Polygon,
 };
 
 QString sketchToolName(SketchToolKind kind);
