@@ -24,6 +24,7 @@
 #include "command/ThreadCommand.h"
 #include "model/ModelView.h"
 #include "selftest/DemoModels.h"
+#include "selftest/Showcase.h"
 #include "selftest/TestUtil.h"
 #include "sketch/HeadsUpInput.h"
 #include "sketch/SketchEditor.h"
@@ -2616,6 +2617,7 @@ const std::map<QString, Scenario> &scenarios() {
         {QStringLiteral("mcp"), mcpScenario},
         {QStringLiteral("icons"), iconsScenario},
         {QStringLiteral("render"), renderScenario},
+        {QStringLiteral("showcase"), showcaseScenario},
     };
     return s;
 }

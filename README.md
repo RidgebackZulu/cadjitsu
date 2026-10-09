@@ -1,42 +1,116 @@
-# Cadjitsu
+<p align="center">
+  <img src="docs/images/hero.jpg" width="100%" alt="Parts modelled in Cadjitsu, path traced on a 3D printer's build plate: an electronics case with a see-through lid, a silk gold vase, a knurled knob and a threaded bolt">
+</p>
 
-*(Formerly Cadly. Designs saved as `.cadly` open as they are, and Cadjitsu takes over Cadly's settings on first run.)*
+<h1 align="center">Cadjitsu</h1>
 
-Parametric CAD for designing 3D-printable parts. Cadjitsu is a native app compiled for
-Apple Silicon. It copies the parts of Autodesk Fusion 360 that matter for printed parts:
-- sketch mode
-- solid modeling
-- mouse and keyboard handling
-- the history timeline
-- section analysis
+<p align="center">
+  <b>Free, open-source parametric CAD for 3D printing.</b><br>
+  The Fusion&nbsp;360-style workflow (sketches, solids and a history timeline) with no subscription, no account and no cloud.
+</p>
 
-It leaves out mesh, sheet metal, plastics and rendering workspaces.
+<p align="center">
+  <a href="https://github.com/RidgebackZulu/cadjitsu/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/RidgebackZulu/cadjitsu?label=release&color=2f8fd4"></a>
+  <img alt="Platforms: macOS (Apple Silicon) and Linux" src="https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)%20%7C%20Linux-555">
+  <a href="LICENSE"><img alt="Licence: GPLv3" src="https://img.shields.io/badge/licence-GPLv3-3d9b47"></a>
+  <img alt="Price: free" src="https://img.shields.io/badge/price-free-3d9b47">
+</p>
 
-> Status: every planned milestone (M0 to M7) is done; see *Roadmap*.
+<p align="center">
+  <a href="https://github.com/RidgebackZulu/cadjitsu/releases/latest"><b>Download for macOS (Apple Silicon) or Linux&nbsp;&rarr;</b></a>
+</p>
 
-## Stack
+## Why Cadjitsu?
 
-| Piece | What |
-|---|---|
-| Language | C++20 |
-| UI | Qt 6 Widgets; 3D viewport on `QRhiWidget` (Metal on macOS, OpenGL on Linux) |
-| Geometry kernel | [OpenCASCADE](https://dev.opencascade.org) (OCCT 7.9+) |
-| Sketch solver | SolveSpace `libslvs` (vendored, GPLv3) |
-| Export | STEP (AP242) and watertight, validated STL |
-| Rendering | Physically based live preview (QRhi shaders); path tracer on [Embree](https://www.embree.org) with [Open Image Denoise](https://www.openimagedenoise.org) |
+Good CAD usually comes with strings attached: a monthly subscription, a sign-in, your designs in someone else's cloud,
+the best features held back for paying customers. Cadjitsu has none of that, and it is built for one job: designing
+parts you are going to 3D print.
 
-Cadjitsu is licensed under the GPLv3 (see `LICENSE`) because it links SolveSpace's solver.
+- **Free, with no catch.** Open source under the GPLv3. No subscription, no sign-in, no licence server, no "personal
+  use only": use it at work and sell what you make.
+- **Your designs stay yours.** Plain files on your own disk (readable JSON inside), with STEP and STL out whenever you
+  like. It works offline, always.
+- **Your Fusion 360 habits work.** The same mouse buttons and shortcuts, ribbon, timeline, marking menu, ViewCube and
+  live command dialogs. There is a SolidWorks mouse preset too.
+- **Made for printing.** Watertight, validated STL; overhang analysis; modelled threads with print clearance; nut
+  traps; thin-wall warnings; previews in your actual filament on a build plate.
+- **From a photo to a part.** Photograph a part on a sheet of paper: Cadjitsu straightens the lens and the perspective,
+  then traces the outline into a sketch at true size.
+- **Design with AI agents.** A built-in MCP server lets agents such as Claude Code build parts with you, each step an
+  ordinary, undoable feature in your timeline.
+- **Native and fast.** C++ and Qt, Metal on Apple Silicon, the OpenCASCADE geometry kernel and SolveSpace's constraint
+  solver.
 
-## Building on macOS (Apple Silicon)
+## A quick tour
 
-```sh
-brew install qtbase qtsvg qtshadertools opencascade eigen embree open-image-denoise ninja cmake
-cmake --preset macos-brew
-cmake --build --preset macos-brew
-open build/macos/src/app/Cadjitsu.app
-```
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/modeling.png" alt="The Cadjitsu window: a case, its lid, a vase, a knob and a bolt, with the browser and a timeline of features">
+      <p><b>Parametric modelling.</b> Extrude, revolve, shell, fillet, holes, threads, patterns, text. Every step sits in the timeline and stays editable: change a dimension and everything after it follows.</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/sketch.png" alt="A dimensioned sketch of a mounting plate with the Circular Pattern dialog previewing six holes round a bore">
+      <p><b>Fusion-style sketching.</b> Constraints and driving dimensions; trim, extend, fillet, slots, polygons, mirror and patterns, in live dialogs like this Circular Pattern.</p>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <img src="docs/images/photo_to_sketch.jpg" alt="Left: a photo of a dark bracket on an A4 sheet on a wooden table, taken at an angle. Right: the bracket traced into a sketch at true size">
+      <p><b>From a photo to a sketch.</b> Lay a part on a sheet of paper and photograph it. Cadjitsu takes out the lens bend and the perspective, then <b>Trace Canvas</b> turns the outline, holes included, into lines and arcs at true size, ready to dimension and extrude. <i>(The photo here is generated for the demo.)</i></p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/views_to_3d.png" alt="An angle bracket modelled from front, side and top pictures, which stand around it like a drawing's views">
+      <p><b>Three views, one part.</b> Drop in front, side and top pictures and type one measurement: they line up at one scale. Trace each view, extrude, intersect: done.</p>
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/ai_agent.png" alt="A case built by an AI agent over MCP, with the event log listing its tool calls">
+      <p><b>An AI agent at the controls.</b> Agents connect over MCP and build with 58 tools: sketches, features, photos, renders. The event log shows every call.</p>
+    </td>
+  </tr>
+  <tr>
+    <td colspan="2">
+      <img src="docs/images/print_checks.png" alt="Left: overhang analysis colouring a vase's belly and an arch red where they need support. Right: a section through a printed M8 nut on its bolt">
+      <p><b>Check before you slice.</b> Overhang analysis shows what needs support; Section Analysis cuts through a part, here to check that printed M8 threads mesh.</p>
+    </td>
+  </tr>
+</table>
 
-Tests: `ctest --preset macos-brew`.
+## What's inside
+
+- **Sketch:** lines, rectangles, circles, arcs, slots, polygons and text; trim, extend, fillet, offset, move, mirror,
+  circular pattern and projection; ten constraint types and driving dimensions, solved live (SolveSpace).
+- **Solids:** extrude (a distance, through all, up to an object, tapered), revolve, shell, fillet, chamfer, draft;
+  holes (counterbored, countersunk, tapped); modelled threads (ISO metric, UNC, UNF); mirror and patterns; split and
+  combine; embossed and engraved text, even around curved faces; construction planes.
+- **History:** a parametric timeline: edit any feature, suppress, roll back, rename; named parameters and
+  expressions.
+- **3D printing:** STL checked to be watertight and printable, STEP AP242; overhang analysis; section analysis;
+  measure; print clearance on threads; thin-wall warnings.
+- **Reverse engineering:** photos on any plane, calibrated with two marks; lens and perspective correction; Trace
+  Canvas; front, side and top views set up at one scale.
+- **Rendering:** a live preview in your filament (PLA, PETG, TPU; matte, silk, translucent) on a build plate, and a
+  path tracer (Embree with Open Image Denoise) for final pictures.
+- **AI agents:** an MCP server with 58 tools, and a plugin and skill for Claude Code and Hermes.
+- **Files:** `.cadjitsu` designs; STEP and STL export.
+
+Not in Cadjitsu (yet): assemblies with joints, sheet metal, CAM and simulation.
+
+## Cadjitsu vs. subscription CAD
+
+| | Cadjitsu | Typical commercial CAD |
+|---|---|---|
+| Price | Free | A subscription, or a limited free tier |
+| Account | None | Usually a sign-in |
+| Offline | Always works | Often limited |
+| Your designs | Files on your own disk | Often in the vendor's cloud |
+| Commercial use | Yes | Usually a paid licence |
+| Source code | Open (GPLv3) | Closed |
+| Built for 3D printing | Overhangs, printable threads, filament previews, photo tracing | General purpose |
+
+<sub>Fusion 360 is a trademark of Autodesk, Inc. Cadjitsu is an independent project, not affiliated with or endorsed by Autodesk.</sub>
 
 ## Downloads
 
@@ -51,35 +125,7 @@ Releases are on the [Releases page](https://github.com/RidgebackZulu/cadjitsu/re
 
 **Linux:** unpack the tarball and run `cadjitsu` in its folder. It brings its own Qt and OpenCASCADE; the system provides X11 and OpenGL (on Debian / Ubuntu: `sudo apt install libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0`).
 
-Every CI run also uploads both as artifacts, named for the next version and the run: `Cadjitsu-1.0.1-dev.52-macOS` holds `Cadjitsu-1.0.1-dev.52-macOS.dmg` (GitHub delivers artifacts zipped). The app reports the same version (the MCP server's info and `--selftest` logs).
-
-The version is `project(VERSION)` in `CMakeLists.txt`; `scripts/version_label.sh` makes the labels. **To release:** set the version, add `docs/releases/<version>.md`, then push the tag `v<version>` (or run the CI workflow by hand with "release" ticked). CI builds and tests both packages and publishes the GitHub release.
-
-The macOS bundle is built for Apple Silicon, draws with Metal and needs macOS 15 (Sequoia) or later. It is self-contained: after `macdeployqt`, `scripts/macos_bundle_fix.py` points every library reference into the bundle and fails the build if anything still leads outside it. Before the disk image is uploaded, CI hides Homebrew, runs the `acceptance` self test on the packaged app, and runs the app copied out of the finished disk image. The Linux package (`scripts/package_linux.py`) is tested the same way, with the build's conda environment hidden. On an older macOS, build locally (see above).
-
-## Building on Linux
-
-The Linux build uses a conda-forge environment: Qt 6.9, OCCT 7.9, Eigen, Embree, Open Image Denoise, GCC, CMake and Ninja. Headless runs use Xvfb and Mesa.
-
-```sh
-scripts/bootstrap_env.sh          # one-time: micromamba env in /opt/cadjitsu-tools/env
-source scripts/env.sh
-cmake --preset linux-conda
-cmake --build --preset linux-conda
-ctest --preset linux-conda        # core tests + app tests under Xvfb
-scripts/run_xvfb.sh build/linux/src/app/Cadjitsu --selftest=smoke --out out/
-```
-
-## Layout
-
-```
-src/core/     cadcore: UI-free kernel (document, timeline, features, sketch, naming, export)
-src/app/      Cadjitsu Qt application (viewport, sketch UI, panels, timeline, browser)
-tests/core/   doctest unit tests for cadcore
-tests/app/    QtTest tests driving the real UI
-resources/icons/  the icon set (SVG), generated by scripts/icons/gen_icons.py
-third_party/  vendored libslvs, doctest, nlohmann/json
-```
+*(Cadjitsu was called Cadly before. Designs saved as `.cadly` open as they are, and Cadjitsu takes over Cadly's settings on first run.)*
 
 ## Mouse and keyboard (Fusion 360 bindings)
 
@@ -423,7 +469,65 @@ Everything an agent does is ordinary history: one undo step per tool call, visib
 - **Tools:** see [the tool reference](plugins/cadjitsu/skills/cadjitsu-cad/references/tools.md) (generated from the app
   with `Cadjitsu --mcp-tools`).
 
-## Self tests
+## For developers
+
+Cadjitsu is licensed under the GPLv3 (see `LICENSE`) because it links SolveSpace's solver.
+
+### Stack
+
+| Piece | What |
+|---|---|
+| Language | C++20 |
+| UI | Qt 6 Widgets; 3D viewport on `QRhiWidget` (Metal on macOS, OpenGL on Linux) |
+| Geometry kernel | [OpenCASCADE](https://dev.opencascade.org) (OCCT 7.9+) |
+| Sketch solver | SolveSpace `libslvs` (vendored, GPLv3) |
+| Export | STEP (AP242) and watertight, validated STL |
+| Rendering | Physically based live preview (QRhi shaders); path tracer on [Embree](https://www.embree.org) with [Open Image Denoise](https://www.openimagedenoise.org) |
+
+### Building on macOS (Apple Silicon)
+
+```sh
+brew install qtbase qtsvg qtshadertools opencascade eigen embree open-image-denoise ninja cmake
+cmake --preset macos-brew
+cmake --build --preset macos-brew
+open build/macos/src/app/Cadjitsu.app
+```
+
+Tests: `ctest --preset macos-brew`.
+
+### Building on Linux
+
+The Linux build uses a conda-forge environment: Qt 6.9, OCCT 7.9, Eigen, Embree, Open Image Denoise, GCC, CMake and Ninja. Headless runs use Xvfb and Mesa.
+
+```sh
+scripts/bootstrap_env.sh          # one-time: micromamba env in /opt/cadjitsu-tools/env
+source scripts/env.sh
+cmake --preset linux-conda
+cmake --build --preset linux-conda
+ctest --preset linux-conda        # core tests + app tests under Xvfb
+scripts/run_xvfb.sh build/linux/src/app/Cadjitsu --selftest=smoke --out out/
+```
+
+### Layout
+
+```
+src/core/     cadcore: UI-free kernel (document, timeline, features, sketch, naming, export)
+src/app/      Cadjitsu Qt application (viewport, sketch UI, panels, timeline, browser)
+tests/core/   doctest unit tests for cadcore
+tests/app/    QtTest tests driving the real UI
+resources/icons/  the icon set (SVG), generated by scripts/icons/gen_icons.py
+third_party/  vendored libslvs, doctest, nlohmann/json
+```
+
+### Releases and packaging
+
+Every CI run also uploads both packages as artifacts, named for the next version and the run: `Cadjitsu-1.0.1-dev.52-macOS` holds `Cadjitsu-1.0.1-dev.52-macOS.dmg` (GitHub delivers artifacts zipped). The app reports the same version (the MCP server's info and `--selftest` logs).
+
+The version is `project(VERSION)` in `CMakeLists.txt`; `scripts/version_label.sh` makes the labels. **To release:** set the version, add `docs/releases/<version>.md`, then push the tag `v<version>` (or run the CI workflow by hand with "release" ticked). CI builds and tests both packages and publishes the GitHub release.
+
+The macOS bundle is built for Apple Silicon, draws with Metal and needs macOS 15 (Sequoia) or later. It is self-contained: after `macdeployqt`, `scripts/macos_bundle_fix.py` points every library reference into the bundle and fails the build if anything still leads outside it. Before the disk image is uploaded, CI hides Homebrew, runs the `acceptance` self test on the packaged app, and runs the app copied out of the finished disk image. The Linux package (`scripts/package_linux.py`) is tested the same way, with the build's conda environment hidden. On an older macOS, build locally (see above).
+
+### Self tests
 
 `Cadjitsu --selftest=<name> --out <dir>` runs a scripted scenario through the real UI and
 command layer. It saves screenshots and exits with status 0 on success.
@@ -440,8 +544,13 @@ command layer. It saves screenshots and exits with status 0 on success.
 | `features` | Fillet, Chamfer, Hole, Offset Plane and Combine through their dialogs, with a screenshot of each live preview; Edit Feature; the design checked against a from-scratch evaluation. |
 | `section` | The M6 acceptance run: a section through both holes of the demo bracket from the dialog, hatched caps, the depth arrow dragged afterwards, a fillet on an edge picked in the section view (the cut-away edge cannot be picked), the browser eye off and on, the cap seen head-on. |
 | `plate` | The M4 acceptance run, all through the UI: a 60 x 40 rectangle extruded 20 mm; a circle sketched on its top face and cut through all by dragging the arrow; the volume at every history-marker position; suppress / unsuppress from the cache; Edit Feature reopening both extrudes with their values and previewing live; 16 more holes and a fillet so recomputing takes a while; the first dimension edited to 80 (checked against a from-scratch evaluation); undo back to an empty design. Throughout, the UI thread must never be kept from running for 50 ms while the model recomputes (canvas repaints excluded: they are timed separately). |
+| `sketchtools` | The Mirror and Circular Pattern dialogs with box selection, construction lines, Project, and the Trim, Extend, Fillet, Slot and Polygon tools. |
+| `solids` | Revolve (a vase about a sketch line) and Shell (a box hollowed through its top) through their dialogs. |
+| `canvas` | A photo taken at an angle through a barrel lens: lens and perspective corrected, the part traced into a sketch; front, side and top pictures set up at one scale. |
+| `render` | Filament materials and build plates in the live preview, the path tracer refining and denoising, the Render dialog. |
+| `showcase` | The README's pictures: models built through the MCP tools and photographed in the app. Renders take `CADJITSU_SHOWCASE_SAMPLES` samples per pixel (16 by default); `scripts/readme_images.sh` renders them at 256 into `docs/images`. |
 
-## Roadmap
+### Roadmap
 
 - [x] **M0** Build infrastructure, vendored solver, app skeleton, CI (Linux + macOS arm64)
 - [x] **M1** Headless kernel:
