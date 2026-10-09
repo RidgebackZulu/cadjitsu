@@ -215,8 +215,8 @@ private:
     }
     void save(QImage img, const QString &name) {
         if(img.width() > 1800) img = img.scaledToWidth(1800, Qt::SmoothTransformation);
-        const bool ok = !img.isNull() && (name.endsWith(QStringLiteral(".jpg")) ? img.save(m_out.filePath(name), "JPG", 92)
-                                                                                : img.save(m_out.filePath(name)));
+        const bool ok = !img.isNull() && (name.endsWith(QStringLiteral(".jpg")) ? img.save(m_out.absoluteFilePath(name), "JPG", 92)
+                                                                                : img.save(m_out.absoluteFilePath(name)));
         check(ok, QStringLiteral("saved %1 (%2 x %3)").arg(name).arg(img.width()).arg(img.height()));
     }
 
@@ -253,7 +253,7 @@ private:
     QImage render(int width, int height) {
         QElapsedTimer clock;
         clock.start();
-        const QString png = m_out.filePath(QStringLiteral("showcase_render.tmp.png"));
+        const QString png = m_out.absoluteFilePath(QStringLiteral("showcase_render.tmp.png"));
         const json r = call("render_image", {{"path", png.toStdString()}, {"width", width}, {"height", height}, {"samples", samples()}});
         const QImage img(png);
         QFile::remove(png);
@@ -594,7 +594,7 @@ private:
         const cad::LensDistortion barrel{-0.10, 0.0};
         QPolygonF sheet;
         const QImage photo = tablePhoto(barrel, sheet);
-        const QString path = m_out.filePath(QStringLiteral("showcase_photo.tmp.png"));
+        const QString path = m_out.absoluteFilePath(QStringLiteral("showcase_photo.tmp.png"));
         photo.save(path);
         auto seen = [&](QPointF p) {
             const cad::Vec2 d = cad::distortPixel(barrel, {p.x(), p.y()}, photo.width(), photo.height());
@@ -729,7 +729,7 @@ private:
             p.setPen(QPen(QColor(40, 48, 62), 0.25));
             p.drawPath(solid);
             p.end();
-            const QString file = m_out.filePath(QStringLiteral("showcase_%1.tmp.png").arg(QString::fromLatin1(v.file)));
+            const QString file = m_out.absoluteFilePath(QStringLiteral("showcase_%1.tmp.png").arg(QString::fromLatin1(v.file)));
             img.save(file);
             files[v.file] = file.toStdString();
         }
@@ -827,9 +827,9 @@ private:
         };
         const std::string box = enclosure();
         call("set_material", {{"bodies", {box}}, {"material", "PLA"}, {"finish", "matte"}, {"color", "Grass Green"}});
-        call("export_stl", {{"path", m_out.filePath(QStringLiteral("showcase_case.tmp.stl")).toStdString()}});
+        call("export_stl", {{"path", m_out.absoluteFilePath(QStringLiteral("showcase_case.tmp.stl")).toStdString()}});
         m_remote = nullptr;
-        QFile::remove(m_out.filePath(QStringLiteral("showcase_case.tmp.stl")));
+        QFile::remove(m_out.absoluteFilePath(QStringLiteral("showcase_case.tmp.stl")));
         call("set_display_style", {{"style", "shaded_edges"}});
         look(QVector3D(-0.62f, 0.68f, -0.40f), 1.05f, QVector2D(-0.22f, 0.04f));
         processEventsFor(900); // the button's glow pulses
