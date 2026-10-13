@@ -74,6 +74,23 @@ TEST_CASE("the thread table: sizes, tap drills and matching a hole") {
     CHECK(nearestThread(6.35, false)->name == "1/4-20 UNC"); // an inch boss is not near any metric size
     CHECK(nearestThread(5.1, true, "UNC")->name == "1/4-20 UNC");
     CHECK(nearestThread(60.0, true) == nullptr);
+    // Extra fine (UNEF) and the in-between sizes, by name with or without the series.
+    const ThreadSpec *ef = findThread("1/2-28");
+    REQUIRE(ef);
+    CHECK(ef->name == "1/2-28 UNEF");
+    CHECK(ef->major == doctest::Approx(12.7));
+    CHECK(ef->pitch == doctest::Approx(25.4 / 28));
+    CHECK(ef->tapDrill < ef->major);
+    CHECK(ef->tapDrill > ef->minor() - 0.25); // 29/64": a full thread
+    for(const char *n : {"9/16-12 UNC", "9/16-18 UNF", "7/8-9 UNC", "#12-24 UNC", "3/4-20 UNEF", "11/16-24 UNEF"})
+        CHECK_MESSAGE(findThread(n), n);
+    CHECK(nearestThread(25.4 * 0.4531, true, "UNEF")->name == "1/2-28 UNEF");
+    // Every size: the tap drill sits between the minor and the major diameter.
+    for(const ThreadSpec &s : threadTable()) {
+        INFO(s.name);
+        CHECK(s.tapDrill > s.minor() - 0.25);
+        CHECK(s.tapDrill < s.major);
+    }
 }
 
 TEST_CASE("a modelled M6 thread through a 5 mm hole, and it prints") {
@@ -122,6 +139,16 @@ TEST_CASE("an imperial thread and a thread only part of the way down") {
     const double v = volumeOf(b.shape.shape());
     CHECK(v < 4000 - M_PI * 2.55 * 2.55 * 10);
     CHECK(v > 4000 - M_PI * 2.55 * 2.55 * 4 - M_PI * 3.4 * 3.4 * 6);
+    requirePrintable(b.shape.shape());
+}
+
+TEST_CASE("a 1/2-28 UNEF thread modelled in a hole, and it prints") {
+    Plate p(25.4 * 0.4531);
+    auto t = p.thread("1/2-28 UNEF");
+    p.doc.addFeature(t);
+    INFO(p.doc.statusOf(t->id).message);
+    REQUIRE(p.doc.statusOf(t->id).isOk());
+    const Body &b = *onlyBody(p.doc.displayedState());
     requirePrintable(b.shape.shape());
 }
 

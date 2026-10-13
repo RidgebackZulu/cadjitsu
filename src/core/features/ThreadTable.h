@@ -8,7 +8,7 @@ namespace cad {
 // A standard thread size (all in mm).
 struct ThreadSpec {
     std::string name;     // "M6", "M8x1", "1/4-20 UNC"
-    std::string standard; // "ISO", "ISO fine", "UNC", "UNF"
+    std::string standard; // "ISO", "ISO fine", "UNC", "UNF", "UNEF"
     double major = 0.0;   // nominal (major) diameter
     double pitch = 0.0;
     double tapDrill = 0.0;

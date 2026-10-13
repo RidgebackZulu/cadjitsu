@@ -281,7 +281,7 @@ Repeats bodies, or holes / extrudes, in rows (rectangular: count and spacing alo
 
 ## `thread`
 
-Threads round faces: a hole's wall (internal thread, to take a screw) or a boss (external, a bolt). The size comes from the diameter (a hole drilled at a tap drill or minor diameter, a boss at the major diameter) unless given. Small threads print poorly, so by default M4 / #8 and smaller are only opened to the tap drill (tap them after printing, or use self-tapping screws or heat-set inserts); mode "modeled" forces real threads. clearance (radial) makes printed threads fit. Sizes: ISO M2-M24 coarse, M8x1..M24x2 fine, UNC and UNF #4 to 1".
+Threads round faces: a hole's wall (internal thread, to take a screw) or a boss (external, a bolt). The size comes from the diameter (a hole drilled at a tap drill or minor diameter, a boss at the major diameter) unless given. Small threads print poorly, so by default M4 / #8 and smaller are only opened to the tap drill (tap them after printing, or use self-tapping screws or heat-set inserts); mode "modeled" forces real threads. clearance (radial) makes printed threads fit. Sizes: ISO M2-M24 coarse, M8x1..M24x2 fine, UNC and UNF #2 to 1", UNEF (extra fine, e.g. 1/2-28) #12 to 7/8".
 
 | Argument | Type | Description |
 |---|---|---|
@@ -290,7 +290,7 @@ Threads round faces: a hole's wall (internal thread, to take a screw) or a boss 
 | `left_hand` | boolean | left-handed thread |
 | `length` | number or string | thread length from the open end, mm (default the whole face) |
 | `mode` | `auto` / `modeled` / `tap_drill` | default auto |
-| `size` | string | e.g. "M6", "M8x1", "1/4-20 UNC"; default: from the diameter |
+| `size` | string | e.g. "M6", "M8x1", "1/4-20 UNC", "1/2-28 UNEF"; default: from the diameter |
 
 ## `draft`
 

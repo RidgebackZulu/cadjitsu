@@ -1550,10 +1550,10 @@ void McpTools::define() {
         "comes from the diameter (a hole drilled at a tap drill or minor diameter, a boss at the major diameter) unless "
         "given. Small threads print poorly, so by default M4 / #8 and smaller are only opened to the tap drill (tap "
         "them after printing, or use self-tapping screws or heat-set inserts); mode \"modeled\" forces real threads. "
-        "clearance (radial) makes printed threads fit. Sizes: ISO M2-M24 coarse, M8x1..M24x2 fine, UNC and UNF #4 to "
-        "1\".",
+        "clearance (radial) makes printed threads fit. Sizes: ISO M2-M24 coarse, M8x1..M24x2 fine, UNC and UNF #2 to "
+        "1\", UNEF (extra fine, e.g. 1/2-28) #12 to 7/8\".",
         {{"faces", arrayOf(topoItem("face"), "round faces (list_faces with type cylinder)")},
-         {"size", str("e.g. \"M6\", \"M8x1\", \"1/4-20 UNC\"; default: from the diameter")},
+         {"size", str("e.g. \"M6\", \"M8x1\", \"1/4-20 UNC\", \"1/2-28 UNEF\"; default: from the diameter")},
          {"mode", enumOf({"auto", "modeled", "tap_drill"}, "default auto")},
          {"clearance", numberOrExpr("radial print clearance, mm (default 0.15)")},
          {"length", numberOrExpr("thread length from the open end, mm (default the whole face)")},
