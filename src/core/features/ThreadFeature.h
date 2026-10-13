@@ -39,9 +39,14 @@ public:
 // Threads `body` along `frame`'s Z axis from z = 0 to `length`: a hole's wall
 // (internal) or a boss (external, `outer` its radius). Internal threads open by
 // `clearance`, external ones shrink by it. False with `why` on failure.
+// An end the thread leaves the part through (`openStart` at z = 0, `openEnd`
+// at `length`) has the full thread running out through it, with a 45 degree
+// lead-in chamfer (a countersink, or a bolt's chamfered tip) for a screw or
+// nut to start on; a closed end (a blind hole's bottom, a shoulder, the inner
+// end of a part-length thread) has the thread fading out over two turns.
 bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &frame, double length, bool internal,
                 double clearance, bool leftHand, double outer, const std::string &prefix, NamedShape &result,
-                std::string &why);
+                std::string &why, bool openStart = true, bool openEnd = true);
 
 const char *toString(ThreadMode m);
 ThreadMode threadModeFromString(const std::string &s);

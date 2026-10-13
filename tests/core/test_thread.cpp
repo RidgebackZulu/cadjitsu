@@ -6,6 +6,7 @@
 #include "io/StlWriter.h"
 
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
 
 #include <cmath>
 
@@ -53,6 +54,18 @@ void requirePrintable(const TopoDS_Shape &s) {
     INFO(ex.report.summary());
     CHECK(ex.report.ok);
     CHECK(ex.report.shells == 1);
+}
+
+// How many of 72 points round a circle of radius `r` about the vertical line
+// through (cx, cy), at height `z`, are inside the solid.
+int solidAround(const TopoDS_Shape &s, double cx, double cy, double r, double z) {
+    int n = 0;
+    for(int i = 0; i < 72; ++i) {
+        const double a = i * 2 * M_PI / 72;
+        BRepClass3d_SolidClassifier c(s, gp_Pnt(cx + r * std::cos(a), cy + r * std::sin(a), z), 1e-7);
+        n += c.State() == TopAbs_IN;
+    }
+    return n;
 }
 
 } // namespace
@@ -108,6 +121,18 @@ TEST_CASE("a modelled M6 thread through a 5 mm hole, and it prints") {
     CHECK(v > 4000 - M_PI * rMaj * rMaj * 10);
     CHECK(v < before);
     requirePrintable(b.shape.shape());
+    // Both faces are open: a 45 degree lead-in a little over the major
+    // diameter at the face, and the thread running right up to it.
+    for(const double face : {0.0, 10.0}) {
+        const double in = face == 0 ? 1 : -1;
+        INFO("face at z = " << face);
+        CHECK(solidAround(b.shape.shape(), 10, 10, rMaj + 0.05, face + 0.05 * in) == 0);
+        CHECK(solidAround(b.shape.shape(), 10, 10, rMaj + 0.3, face + 0.05 * in) == 72);
+        // Just under the lead-in, the flanks of the first full turn.
+        const int part = solidAround(b.shape.shape(), 10, 10, (rMin + rMaj) / 2, face + 1.2 * in);
+        CHECK(part > 5);
+        CHECK(part < 67);
+    }
 }
 
 TEST_CASE("a small thread is left as a tap drill bore by default") {
@@ -177,6 +202,12 @@ TEST_CASE("an external M8 thread on a boss") {
     CHECK(v < before);
     CHECK(v > before - M_PI * (16 - rMin * rMin) * 12);
     requirePrintable(b.shape.shape());
+    // The tip (z = 16) is chamfered down to the root at 45 degrees, so a nut
+    // starts true; the thread runs on to where the chamfer meets the crests.
+    CHECK(solidAround(b.shape.shape(), 0, 0, rMin + 0.3, 15.95) == 0);
+    const int part = solidAround(b.shape.shape(), 0, 0, (rMin + 3.85) / 2, 14.5);
+    CHECK(part > 5);
+    CHECK(part < 67);
 }
 
 

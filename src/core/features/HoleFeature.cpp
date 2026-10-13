@@ -302,8 +302,10 @@ FeatureResult HoleFeature::compute(const StatePtr &input, const ComputeContext &
                         const gp_Ax3 frame(centres[k].Translated(-gp_Vec(up) * len), up, radial);
                         NamedShape threaded;
                         std::string why;
+                        // Open at the top (the face drilled into); at the bottom only if it goes through.
                         if(!threadBody(result, *spec, frame, len, true, clear, false, dia / 2,
-                                       prefix + "/h" + std::to_string(k + 1) + "/thread", threaded, why))
+                                       prefix + "/h" + std::to_string(k + 1) + "/thread", threaded, why,
+                                       dep >= reach - 1e-6, true))
                             return {input, Status::error(why), shown};
                         result = threaded;
                     }

@@ -266,6 +266,7 @@ Right-click a sketch in the browser for **Edit Sketch** or **Delete**. Deleting 
 **Thread** (Create) and tapped holes
 - Click the round faces of holes (internal threads) or bosses (external, a bolt). The size is found from the diameter (a hole drilled at a tap drill or minor diameter, a boss at the major diameter), or chosen: ISO metric M2–M24 coarse and fine, UNC and UNF #2 to 1", and UNEF extra fine (such as 1/2-28) #12 to 7/8".
 - Real helical threads are modelled for M5 / #10 and up; smaller ones print poorly, so by default the hole is only opened to the tap drill (tap it, or use a self-tapping screw or a heat-set insert). **Thread Type** forces either. **Clearance** (0.15 mm radial by default) opens internal threads and slims external ones so printed parts fit. Full length, or a length from the open end; left-handed on request.
+- The thread runs right out through every open face, which gets a 45° lead-in (a countersink on a hole, a chamfered tip on a bolt) so a screw or nut starts true; at a blind bottom or a shoulder the thread fades out to the root.
 - **Hole > Hole Type > Tapped** drills the thread's tap drill and threads it in one feature.
 
 **Emboss Text** (Create)
