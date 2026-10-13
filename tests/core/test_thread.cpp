@@ -177,6 +177,31 @@ TEST_CASE("a 1/2-28 UNEF thread modelled in a hole, and it prints") {
     requirePrintable(b.shape.shape());
 }
 
+TEST_CASE("1/2-28 in a hole drilled wider than the tap drill: shallow, or too wide to thread") {
+    for(const double dia : {12.4, 12.7}) { // between the 11.51 mm tap drill and the 12.7 mm major, and at it
+        INFO("a " << dia << " mm hole");
+        Plate p(dia);
+        const double before = totalVolume(p.doc.displayedState());
+        auto t = p.thread("1/2-28 UNEF");
+        p.doc.addFeature(t);
+        const Status &st = p.doc.statusOf(t->id);
+        INFO(st.message);
+        REQUIRE(st.severity == Severity::Warning);
+        CHECK(st.message.find("shallow") != std::string::npos);
+        CHECK(totalVolume(p.doc.displayedState()) < before);
+        requirePrintable(onlyBody(p.doc.displayedState())->shape.shape());
+    }
+    {
+        Plate p(13.2); // past the crests
+        auto t = p.thread("1/2-28 UNEF");
+        p.doc.addFeature(t);
+        const Status &st = p.doc.statusOf(t->id);
+        CHECK(st.isError());
+        CHECK(st.message.find("too wide") != std::string::npos);
+        CHECK(st.message.find("11.51 mm tap drill") != std::string::npos);
+    }
+}
+
 TEST_CASE("an external M8 thread on a boss") {
     Document doc;
     const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {-10, -10}, {10, 10}));

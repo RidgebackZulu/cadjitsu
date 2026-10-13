@@ -268,6 +268,7 @@ Right-click a sketch in the browser for **Edit Sketch** or **Delete**. Deleting 
 - Real helical threads are modelled for M5 / #10 and up; smaller ones print poorly, so by default the hole is only opened to the tap drill (tap it, or use a self-tapping screw or a heat-set insert). **Thread Type** forces either. **Clearance** (0.15 mm radial by default) opens internal threads and slims external ones so printed parts fit. Full length, or a length from the open end; left-handed on request.
 - The thread runs right out through every open face, which gets a 45° lead-in (a countersink on a hole, a chamfered tip on a bolt) so a screw or nut starts true; at a blind bottom or a shoulder the thread fades out to the root.
 - **Hole > Hole Type > Tapped** drills the thread's tap drill and threads it in one feature.
+- To thread a hole you drew yourself, draw it at the tap drill (shown in the panel, e.g. 11.51 mm for 1/2-28), not at the nominal size. A hole drilled wider still gets a thread, a shallow one (the panel and the timeline warn); one past the thread's major diameter has nothing left to cut, and the panel says which drill to use.
 
 **Emboss Text** (Create)
 - Click the face the text goes on (any face, flat or curved) where it goes, and type. The letters show on the face at once, and the cut or raised solid follows.

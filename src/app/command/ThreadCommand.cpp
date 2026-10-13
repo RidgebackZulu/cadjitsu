@@ -58,6 +58,7 @@ void ThreadCommand::setup() {
                 if(auto r = inputRefOf(*m_ctx.view, it)) m_faces.push_back(*r);
     }
     for(ValueField *v : {m_clearanceField, m_lengthField}) connect(v, &ValueField::edited, this, &Command::inputsChanged);
+    connect(m_clearanceField, &ValueField::edited, this, &ThreadCommand::updateDetected);
     for(QComboBox *c : {m_size, m_mode})
         connect(c, &QComboBox::currentIndexChanged, this, [this] {
             updateRows();
@@ -107,7 +108,13 @@ void ThreadCommand::updateDetected() {
                                 .arg(QString::fromStdString(spec->name))
                                 .arg(spec->pitch, 0, 'g', 3)
                                 .arg(spec->tapDrill, 0, 'f', 2);
-                else
+                // As the feature judges it: past the crests (grown by the clearance) nothing is left to cut.
+                const double clear = m_clearanceField->value().value_or(0.15);
+                if(spec && internal && d >= spec->major + 2 * clear - 0.1 * spec->pitch)
+                    text += tr(" - too wide to thread: drill it at %1 mm").arg(spec->tapDrill, 0, 'f', 2);
+                else if(spec && internal && d > spec->tapDrill + 0.1)
+                    text += tr(" - wider than the tap drill: a shallow thread");
+                if(!spec)
                     text += tr(": no standard size fits; choose one");
             } else {
                 text = tr("Not a round face");
