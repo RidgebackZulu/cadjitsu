@@ -67,6 +67,8 @@ public:
     virtual void apply() {}
     // The command closes (OK or Cancel): take back what it showed.
     virtual void end() {}
+    // Its feature was committed with OK (added, or the edit applied).
+    virtual void accepted(const cad::Feature &) {}
 
     // The value that numbers typed on the canvas go to, shown in a box on the
     // canvas at canvasAnchor(): by default the panel's first visible value

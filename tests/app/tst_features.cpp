@@ -19,6 +19,7 @@
 #include "command/SplitCommand.h"
 #include "command/TextCommand.h"
 #include "command/ThreadCommand.h"
+#include "command/ThreadOptions.h"
 #include "ui/AngleDial.h"
 #include "model/ModelView.h"
 #include "selftest/TestUtil.h"
@@ -46,6 +47,7 @@
 #include <GProp_GProps.hxx>
 #include <gp_Pln.hxx>
 
+#include <QSettings>
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
@@ -963,6 +965,7 @@ private slots:
     }
 
     void threadAHoleAndTapAnother() {
+        QSettings().remove(QStringLiteral("threads/recent"));
         box(0, 0, 20, 20, 10);
         const cad::Body &plate = *doc().displayedState()->bodies.begin()->second;
         auto h = std::make_shared<cad::HoleFeature>();
@@ -989,19 +992,34 @@ private slots:
         QVERIFY2(t->detectedLabel()->text().contains(QStringLiteral("M6")), qPrintable(t->detectedLabel()->text()));
         settle();
         QVERIFY(shown() < drilled - 5.0); // the M6 thread cut into the wall
-        // Plain: a 5 mm hole is already the M6 tap drill; nothing changes.
-        t->modeBox()->setCurrentIndex(2);
+        // No thread type to choose: always modelled. Any size fits any hole:
+        // M8 opens the 5 mm hole to it.
+        QVERIFY(!panel()->findChild<QComboBox *>(QStringLiteral("threadMode")));
+        t->sizeBox()->setCurrentText(QStringLiteral("M8"));
         settle();
-        QVERIFY(std::fabs(shown() - drilled) < 1e-6);
-        t->modeBox()->setCurrentIndex(0);
+        QVERIFY2(t->detectedLabel()->text().contains(QStringLiteral("opened to M8")), qPrintable(t->detectedLabel()->text()));
+        const double withCountersink = shown();
+        QVERIFY(withCountersink < drilled - M_PI * (3.4 * 3.4 - 2.5 * 2.5) * 10);
+        // The countersink rows (a hole's), and a square entry without it.
+        QVERIFY(field<QWidget>("threadCountersinkAngle")->isVisibleTo(panel()));
+        t->countersink().onBox()->setChecked(false);
+        settle();
+        QVERIFY(shown() > withCountersink + 0.5);
+        t->countersink().onBox()->setChecked(true);
+        t->countersink().angleBox()->setCurrentIndex(0); // 82 degrees
         panel()->okButton()->click();
         settle();
         const auto f = std::dynamic_pointer_cast<const cad::ThreadFeature>(doc().features().back());
-        QVERIFY(f && f->faces.size() == 1 && f->mode == cad::ThreadMode::Auto);
+        QVERIFY(f && f->faces.size() == 1 && f->size == "M8" && f->countersink && f->countersinkAngle == 82);
         QVERIFY(doc().statusOf(f->id).isOk());
+        // M8 is now the most recent size, listed first (after "From the diameter").
+        QCOMPARE(recentThreadSizes().value(0), QStringLiteral("M8"));
         m_window->editFeature(f->id);
         t = command<ThreadCommand>();
         QVERIFY(t && t->faceCount() == 1);
+        QCOMPARE(t->sizeBox()->itemText(1), QStringLiteral("M8"));
+        QCOMPARE(t->sizeBox()->currentText(), QStringLiteral("M8"));
+        QCOMPARE(t->countersink().angleBox()->currentIndex(), 0);
         panel()->cancelButton()->click();
         settle();
 
@@ -1022,7 +1040,8 @@ private slots:
         panel()->okButton()->click();
         settle();
         const auto th = std::dynamic_pointer_cast<const cad::HoleFeature>(doc().features().back());
-        QVERIFY(th && th->holeType == cad::HoleType::Tapped && th->thread == "M5");
+        QVERIFY(th && th->holeType == cad::HoleType::Tapped && th->thread == "M5" && th->threadCountersink);
+        QCOMPARE(recentThreadSizes().mid(0, 2), (QStringList{QStringLiteral("M5"), QStringLiteral("M8")}));
     }
 
     void markingMenuAndShortcutsReachTheNewCommands() {

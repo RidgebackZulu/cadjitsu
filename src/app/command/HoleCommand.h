@@ -2,6 +2,7 @@
 
 #include "command/Command.h"
 #include "command/InputRef.h"
+#include "command/ThreadOptions.h"
 
 #include "features/HoleFeature.h"
 
@@ -30,6 +31,7 @@ public:
     IconId iconId() const override;
     void setup() override;
     std::shared_ptr<cad::Feature> build(QString &why) override;
+    void accepted(const cad::Feature &f) override;
     void picked(const std::optional<SelectionItem> &item, const PickHit &hit, Qt::KeyboardModifiers mods) override;
     void markClicked(int tag) override;
     void previewed(const cad::StatePtr &) override { updateMarks(); }
@@ -46,7 +48,7 @@ public:
     ValueField *diameterField() const { return m_diameterField; }
     ValueField *canvasValue() const override;
     QComboBox *threadSizeBox() const { return m_threadSize; }
-    QComboBox *threadModeBox() const { return m_threadMode; }
+    const CountersinkRows &threadCountersink() const { return m_threadCsk; }
     QLabel *threadInfo() const { return m_threadInfo; }
     ValueField *depthField() const { return m_depthField; }
     ValueField *xField() const { return m_x; }
@@ -65,10 +67,10 @@ private:
     std::vector<cad::Vec2> m_points;      // on it
     std::vector<InputRef> m_sketchPoints; // or sketch points (of one sketch)
     cad::ParamSlot m_diameter, m_depth, m_cboreDiameter, m_cboreDepth, m_csinkDiameter, m_csinkAngle, m_tipAngle,
-        m_threadClearance;
+        m_threadClearance, m_threadCskDiameter;
 
-    QComboBox *m_placement = nullptr, *m_type = nullptr, *m_extent = nullptr, *m_tip = nullptr, *m_threadSize = nullptr,
-              *m_threadMode = nullptr;
+    QComboBox *m_placement = nullptr, *m_type = nullptr, *m_extent = nullptr, *m_tip = nullptr, *m_threadSize = nullptr;
+    CountersinkRows m_threadCsk;
     ValueField *m_threadClearanceField = nullptr;
     QLabel *m_threadInfo = nullptr;
     SelectionField *m_position = nullptr;

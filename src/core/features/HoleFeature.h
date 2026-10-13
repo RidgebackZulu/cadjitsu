@@ -30,10 +30,13 @@ public:
     ParamSlot tipAngle;             // drill point angle (e.g. 118 deg)
     bool flatTip = false;
     // Tapped: the drill is the thread's tap drill (the diameter is not used),
-    // and the thread is modelled into the bore (see ThreadFeature).
+    // and the thread is modelled into the bore (see ThreadFeature), with a
+    // countersink at its open ends.
     std::string thread;             // e.g. "M5", "1/4-20 UNC"
-    ThreadMode threadMode = ThreadMode::Auto;
     ParamSlot threadClearance;      // radial, mm (default 0.15)
+    bool threadCountersink = true;
+    double threadCountersinkAngle = 90;   // included, degrees
+    ParamSlot threadCountersinkDiameter;  // empty: a little over the major diameter
 
     FeatureType type() const override { return FeatureType::Hole; }
     std::shared_ptr<Feature> clone() const override { return std::make_shared<HoleFeature>(*this); }

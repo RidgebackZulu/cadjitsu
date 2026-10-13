@@ -101,9 +101,11 @@ stand-alone point entities of a sketch. Printed holes shrink: add ~0.2 mm, or us
 
 Keep at least 2 wall thicknesses (~2.5 mm) between a hole and an outside face.
 
-Threads: `hole` with `type: "tapped"` and `thread: "M5"` (modelled from M5 / #10 up; smaller ones are left at the
-tap drill to tap after printing), or `thread` on an existing hole's or boss's round face (size from its diameter).
-Printed threads need clearance (default 0.15 mm); for M2-M4 prefer heat-set inserts or self-tapping screws.
+Threads: `hole` with `type: "tapped"` and `thread: "M5"`, or `thread` on an existing hole's or post's round face
+(size from its diameter, or given). Threads are always modelled, and any hole or post is fitted to the size on its
+own axis (filled and bored again, or grown, as needed). Holes get a countersink at their open ends
+(`countersink_angle`, `countersink_diameter`; `countersink: false` for a square entry). Printed threads need
+clearance (default 0.15 mm); M2-M4 print poorly, so prefer heat-set inserts or self-tapping screws there.
 
 Text: `emboss_text` engraves text into a face (`direction: "engrave"`, the default) or raises it
 (`"emboss"`), on flat or curved faces (it wraps round cylinders); `at` puts the text's middle at a world point.

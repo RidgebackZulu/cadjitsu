@@ -10,6 +10,7 @@
 #include <TopoDS.hxx>
 #include <gp_Pln.hxx>
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QLabel>
 
@@ -22,7 +23,6 @@ namespace {
 const QColor kInput(20, 100, 225);
 const cad::HoleType kTypes[] = {cad::HoleType::Simple, cad::HoleType::Counterbore, cad::HoleType::Countersink,
                                 cad::HoleType::Tapped};
-const cad::ThreadMode kThreadModes[] = {cad::ThreadMode::Auto, cad::ThreadMode::Modeled, cad::ThreadMode::TapDrill};
 
 double round2(double v) { return std::round(v * 100.0) / 100.0; }
 
@@ -43,17 +43,15 @@ void HoleCommand::setup() {
     m_x = panel.addValue(tr("X"), cad::ValueKind::Length, evaluator(), "holeX");
     m_y = panel.addValue(tr("Y"), cad::ValueKind::Length, evaluator(), "holeY");
     m_type = panel.addChoice(tr("Hole Type"), {tr("Simple"), tr("Counterbore"), tr("Countersink"), tr("Tapped")}, "holeType");
-    QStringList sizes;
-    for(const cad::ThreadSpec &t : cad::threadTable()) sizes << QString::fromStdString(t.name);
-    m_threadSize = panel.addChoice(tr("Thread"), sizes, "holeThread");
-    m_threadSize->setCurrentText(QStringLiteral("M3"));
-    m_threadMode = panel.addChoice(tr("Thread Type"), {tr("By size (M5 up modelled)"), tr("Modelled"), tr("Tap drill only")},
-                                   "holeThreadMode");
-    m_threadMode->setToolTip(tr("Small threads print poorly: by default M4 / #8 and smaller are left as a tap drill "
-                                "bore, to tap, or for a self-tapping screw or a heat-set insert."));
+    m_threadSize = panel.addChoice(tr("Thread"), {}, "holeThread");
+    fillThreadSizes(m_threadSize);
+    // The size used last, or M3.
+    const QStringList recent = recentThreadSizes();
+    m_threadSize->setCurrentText(recent.isEmpty() ? QStringLiteral("M3") : recent.front());
     m_threadClearanceField = panel.addValue(tr("Thread Clearance"), cad::ValueKind::Length, evaluator(), "holeThreadClearance");
     m_threadInfo = panel.addInfo(QString(), "holeThreadInfo");
     m_threadInfo->setStyleSheet(QStringLiteral("color: #3c4450; font-weight: normal;"));
+    m_threadCsk.add(panel, evaluator(), "holeThread");
     m_extent = panel.addChoice(tr("Extents"), {tr("Distance"), tr("All")}, "holeExtent");
     m_diameterField = panel.addValue(tr("Diameter"), cad::ValueKind::Length, evaluator(), "holeDiameter");
     m_depthField = panel.addValue(tr("Depth"), cad::ValueKind::Length, evaluator(), "holeDepth");
@@ -76,12 +74,12 @@ void HoleCommand::setup() {
     m_csinkAngle = slot(o ? &o->csinkAngle : nullptr, "90 deg");
     m_tipAngle = slot(o ? &o->tipAngle : nullptr, "118 deg");
     m_threadClearance = slot(o ? &o->threadClearance : nullptr, "0.15 mm");
+    m_threadCskDiameter = o && !o->threadCountersinkDiameter.empty() ? o->threadCountersinkDiameter : doc.makeSlot("");
     m_threadClearanceField->setExpression(QString::fromStdString(m_threadClearance.expr));
     connect(m_threadClearanceField, &ValueField::edited, this, &Command::inputsChanged);
     if(o && o->holeType == cad::HoleType::Tapped) {
         m_threadSize->setCurrentText(QString::fromStdString(o->thread));
-        for(int i = 0; i < 3; ++i)
-            if(kThreadModes[i] == o->threadMode) m_threadMode->setCurrentIndex(i);
+        m_threadCsk.load(o->threadCountersink, o->threadCountersinkAngle, o->threadCountersinkDiameter);
     }
     const std::pair<ValueField *, const cad::ParamSlot *> values[] = {
         {m_diameterField, &m_diameter},           {m_depthField, &m_depth},
@@ -117,7 +115,9 @@ void HoleCommand::setup() {
         updateMarks();
         emit inputsChanged();
     });
-    for(QComboBox *c : {m_type, m_extent, m_tip, m_threadSize, m_threadMode})
+    connect(m_threadCsk.diameterField(), &ValueField::edited, this, &Command::inputsChanged);
+    connect(m_threadCsk.onBox(), &QCheckBox::toggled, this, &Command::inputsChanged);
+    for(QComboBox *c : {m_type, m_extent, m_tip, m_threadSize, m_threadCsk.angleBox()})
         connect(c, &QComboBox::currentIndexChanged, this, [this] {
             updateRows();
             emit inputsChanged();
@@ -174,18 +174,17 @@ void HoleCommand::updateRows() {
     const bool tapped = t == cad::HoleType::Tapped;
     panel.setRowVisible(m_diameterField, !tapped);
     panel.setRowVisible(m_threadSize, tapped);
-    panel.setRowVisible(m_threadMode, tapped);
     const cad::ThreadSpec *spec = cad::findThread(m_threadSize->currentText().toStdString());
-    const bool modeled = tapped && spec &&
-                         (m_threadMode->currentIndex() == 1 || (m_threadMode->currentIndex() == 0 && spec->modelByDefault()));
-    panel.setRowVisible(m_threadClearanceField, modeled);
+    panel.setRowVisible(m_threadClearanceField, tapped);
+    m_threadCsk.setVisible(panel, tapped);
     panel.setRowVisible(m_threadInfo, tapped && spec);
-    if(tapped && spec)
-        m_threadInfo->setText(modeled ? tr("%1: %2 mm tap drill, thread modelled").arg(QString::fromStdString(spec->name))
-                                            .arg(spec->tapDrill, 0, 'f', 2)
-                                      : tr("%1: %2 mm tap drill, to tap after printing (small threads print poorly)")
-                                            .arg(QString::fromStdString(spec->name))
-                                            .arg(spec->tapDrill, 0, 'f', 2));
+    if(tapped && spec) {
+        m_threadInfo->setText(tr("%1: %2 mm tap drill, thread modelled")
+                                  .arg(QString::fromStdString(spec->name))
+                                  .arg(spec->tapDrill, 0, 'f', 2));
+        const double clear = m_threadClearanceField->value().value_or(0.15);
+        m_threadCsk.setAutoDiameter(spec->major + 2 * clear + 0.3 * spec->pitch);
+    }
 }
 
 std::optional<gp_Ax3> HoleCommand::faceFrame(const cad::ModelState &st) const {
@@ -293,6 +292,10 @@ std::shared_ptr<cad::Feature> HoleCommand::build(QString &why) {
     if((t != cad::HoleType::Tapped && bad(m_diameterField, tr("Diameter"))) || (!all && bad(m_depthField, tr("Depth"))))
         return nullptr;
     if(t == cad::HoleType::Tapped && bad(m_threadClearanceField, tr("Thread clearance"))) return nullptr;
+    if(t == cad::HoleType::Tapped && !m_threadCsk.valid()) {
+        why = tr("Enter the countersink diameter, or leave it blank.");
+        return nullptr;
+    }
     if(t == cad::HoleType::Counterbore &&
        (bad(m_cboreDiameterField, tr("Counterbore diameter")) || bad(m_cboreDepthField, tr("Counterbore depth"))))
         return nullptr;
@@ -328,10 +331,17 @@ std::shared_ptr<cad::Feature> HoleCommand::build(QString &why) {
     f->tipAngle = take(m_tipAngle, m_tipAngleField);
     if(t == cad::HoleType::Tapped) {
         f->thread = m_threadSize->currentText().toStdString();
-        f->threadMode = kThreadModes[std::clamp(m_threadMode->currentIndex(), 0, 2)];
         f->threadClearance = take(m_threadClearance, m_threadClearanceField);
+        f->threadCountersink = m_threadCsk.on();
+        f->threadCountersinkAngle = m_threadCsk.angle();
+        f->threadCountersinkDiameter = m_threadCsk.diameter(m_threadCskDiameter);
     }
     return f;
+}
+
+void HoleCommand::accepted(const cad::Feature &f) {
+    const auto &h = static_cast<const cad::HoleFeature &>(f);
+    if(h.holeType == cad::HoleType::Tapped) noteThreadSize(QString::fromStdString(h.thread));
 }
 
 } // namespace cadjitsu

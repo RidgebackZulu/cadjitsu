@@ -88,7 +88,10 @@ std::vector<ParamDef> HoleFeature::params() const {
     add(csinkDiameter, ValueKind::Length, "Countersink Diameter");
     add(csinkAngle, ValueKind::Angle, "Countersink Angle");
     add(tipAngle, ValueKind::Angle, "Drill Point Angle");
-    if(holeType == HoleType::Tapped) add(threadClearance, ValueKind::Length, "Thread Clearance");
+    if(holeType == HoleType::Tapped) {
+        add(threadClearance, ValueKind::Length, "Thread Clearance");
+        add(threadCountersinkDiameter, ValueKind::Length, "Thread Countersink Diameter");
+    }
     return out;
 }
 
@@ -111,8 +114,10 @@ json HoleFeature::dataToJson() const {
     if(!face.empty()) j["face"] = face.toJson();
     if(holeType == HoleType::Tapped) {
         j["thread"] = thread;
-        j["threadMode"] = toString(threadMode);
         j["threadClearance"] = threadClearance.toJson();
+        j["threadCountersink"] = threadCountersink;
+        j["threadCountersinkAngle"] = threadCountersinkAngle;
+        if(!threadCountersinkDiameter.empty()) j["threadCountersinkDiameter"] = threadCountersinkDiameter.toJson();
     }
     return j;
 }
@@ -125,7 +130,9 @@ void HoleFeature::dataFromJson(const json &j) {
     sketchPoints = jget<std::vector<int>>(j, "sketchPoints", {});
     holeType = holeTypeFromName(jget<std::string>(j, "holeType", ""));
     thread = jget<std::string>(j, "thread", "");
-    threadMode = threadModeFromString(jget<std::string>(j, "threadMode", "auto"));
+    threadCountersink = jget<bool>(j, "threadCountersink", true);
+    threadCountersinkAngle = jget<double>(j, "threadCountersinkAngle", 90.0);
+    threadCountersinkDiameter = ParamSlot::fromJson(j.value("threadCountersinkDiameter", json()));
     threadClearance = ParamSlot::fromJson(j.value("threadClearance", json()));
     extent = jget<std::string>(j, "extent", "") == "throughAll" ? ExtentType::ThroughAll : ExtentType::Distance;
     diameter = ParamSlot::fromJson(j.value("diameter", json()));
@@ -273,11 +280,17 @@ FeatureResult HoleFeature::compute(const StatePtr &input, const ComputeContext &
 
         auto out = std::make_shared<ModelState>(*input);
         const std::string prefix = "f" + std::to_string(id);
-        // Tapped: the thread down each bore (unless left for a tap).
-        const bool model = spec && (threadMode == ThreadMode::Modeled ||
-                                    (threadMode == ThreadMode::Auto && spec->modelByDefault()));
+        // Tapped: the thread down each bore.
+        const bool model = spec != nullptr;
         double clear = 0.15;
         if(model && !threadClearance.empty() && !ctx.value(threadClearance, clear, st)) return {input, st, shown};
+        Countersink csk;
+        csk.on = threadCountersink;
+        csk.angle = threadCountersinkAngle;
+        if(model && threadCountersink && !threadCountersinkDiameter.empty()) {
+            if(!ctx.value(threadCountersinkDiameter, csk.diameter, st)) return {input, st, shown};
+            if(csk.diameter <= 0) return {input, Status::error("the countersink diameter must be positive"), shown};
+        }
         for(const auto &b : targets) {
             BooleanResult br = runBoolean(BoolOp::Cut, {&input->body(b)->shape}, toolPtrs, prefix);
             if(!br.ok) return {input, Status::error(br.error), shown};
@@ -305,7 +318,7 @@ FeatureResult HoleFeature::compute(const StatePtr &input, const ComputeContext &
                         // Open at the top (the face drilled into); at the bottom only if it goes through.
                         if(!threadBody(result, *spec, frame, len, true, clear, false, dia / 2,
                                        prefix + "/h" + std::to_string(k + 1) + "/thread", threaded, why,
-                                       dep >= reach - 1e-6, true))
+                                       dep >= reach - 1e-6, true, csk))
                             return {input, Status::error(why), shown};
                         result = threaded;
                     }

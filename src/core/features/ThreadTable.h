@@ -15,7 +15,6 @@ struct ThreadSpec {
     double minor() const { return major - 1.0825318 * pitch; } // basic minor diameter (internal, D1)
     // Small threads print poorly: by default they are left for a tap (or a
     // self-tapping screw, or a heat-set insert) instead of being modelled.
-    bool modelByDefault() const { return major >= 4.8; }
 };
 
 const std::vector<ThreadSpec> &threadTable();

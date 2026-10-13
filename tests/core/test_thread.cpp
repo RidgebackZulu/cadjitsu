@@ -75,8 +75,6 @@ TEST_CASE("the thread table: sizes, tap drills and matching a hole") {
     REQUIRE(m6);
     CHECK(m6->pitch == doctest::Approx(1.0));
     CHECK(m6->tapDrill == doctest::Approx(5.0));
-    CHECK(m6->modelByDefault());
-    CHECK(!findThread("M3")->modelByDefault());
     const ThreadSpec *q = findThread("1/4-20");
     REQUIRE(q);
     CHECK(q->standard == "UNC");
@@ -135,19 +133,21 @@ TEST_CASE("a modelled M6 thread through a 5 mm hole, and it prints") {
     }
 }
 
-TEST_CASE("a small thread is left as a tap drill bore by default") {
+TEST_CASE("a small thread is modelled too") {
     Plate p(2.2);
     auto t = p.thread("M3");
     p.doc.addFeature(t);
+    INFO(p.doc.statusOf(t->id).message);
     REQUIRE(p.doc.statusOf(t->id).isOk());
-    // The bore opened to the 2.5 mm tap drill.
-    CHECK(totalVolume(p.doc.displayedState()) == doctest::Approx(4000 - M_PI * 1.25 * 1.25 * 10).epsilon(1e-6));
-    // Asked for, it is modelled.
-    auto m = std::static_pointer_cast<ThreadFeature>(t->clone());
-    m->mode = ThreadMode::Modeled;
-    p.doc.replaceFeature(m);
-    REQUIRE(p.doc.statusOf(t->id).isOk());
-    CHECK(totalVolume(p.doc.displayedState()) < 4000 - M_PI * 1.25 * 1.25 * 10);
+    const TopoDS_Shape &s = onlyBody(p.doc.displayedState())->shape.shape();
+    // Bored to the (clearance-grown) minor diameter, the thread's grooves past it.
+    const double rMin = (3.0 - 1.0825318 * 0.5) / 2 + 0.15, rMaj = 1.5 + 0.15;
+    CHECK(solidAround(s, 10, 10, rMin - 0.05, 5) == 0);
+    const int part = solidAround(s, 10, 10, (rMin + rMaj) / 2, 5);
+    CHECK(part > 5);
+    CHECK(part < 67);
+    CHECK(solidAround(s, 10, 10, rMaj + 0.05, 5) == 72);
+    requirePrintable(s);
 }
 
 TEST_CASE("an imperial thread and a thread only part of the way down") {
@@ -177,28 +177,63 @@ TEST_CASE("a 1/2-28 UNEF thread modelled in a hole, and it prints") {
     requirePrintable(b.shape.shape());
 }
 
-TEST_CASE("1/2-28 in a hole drilled wider than the tap drill: shallow, or too wide to thread") {
-    for(const double dia : {12.4, 12.7}) { // between the 11.51 mm tap drill and the 12.7 mm major, and at it
+TEST_CASE("any hole takes any thread: fitted on its own axis") {
+    // 1/2-28 in holes from too small to far too big: each is filled where it
+    // is too wide and bored again, so the thread comes out the same.
+    const ThreadSpec &t = *findThread("1/2-28 UNEF");
+    const double rMin = t.minor() / 2 + 0.15, rMaj = t.major / 2 + 0.15;
+    for(const double dia : {8.0, 11.51, 12.7, 13.2, 17.0}) {
         INFO("a " << dia << " mm hole");
         Plate p(dia);
-        const double before = totalVolume(p.doc.displayedState());
-        auto t = p.thread("1/2-28 UNEF");
-        p.doc.addFeature(t);
-        const Status &st = p.doc.statusOf(t->id);
+        auto th = p.thread("1/2-28 UNEF");
+        p.doc.addFeature(th);
+        const Status &st = p.doc.statusOf(th->id);
         INFO(st.message);
-        REQUIRE(st.severity == Severity::Warning);
-        CHECK(st.message.find("shallow") != std::string::npos);
-        CHECK(totalVolume(p.doc.displayedState()) < before);
-        requirePrintable(onlyBody(p.doc.displayedState())->shape.shape());
+        REQUIRE(st.isOk());
+        const TopoDS_Shape &s = onlyBody(p.doc.displayedState())->shape.shape();
+        // Centred on the hole: the bore at the root all round, the grooves out
+        // to the major, solid beyond.
+        CHECK(solidAround(s, 10, 10, rMin - 0.05, 5) == 0);
+        const int part = solidAround(s, 10, 10, (rMin + rMaj) / 2, 5);
+        CHECK(part > 5);
+        CHECK(part < 67);
+        CHECK(solidAround(s, 10, 10, rMaj + 0.05, 5) == 72);
+        requirePrintable(s);
+    }
+}
+
+TEST_CASE("the countersink: its angle and diameter, or none") {
+    const double rMaj = 3.0 + 0.15;
+    {
+        Plate p(5.0);
+        auto th = p.thread("M6");
+        th->countersinkAngle = 120;
+        th->countersinkDiameter = p.doc.makeSlot("9 mm");
+        p.doc.addFeature(th);
+        INFO(p.doc.statusOf(th->id).message);
+        REQUIRE(p.doc.statusOf(th->id).isOk());
+        const TopoDS_Shape &s = onlyBody(p.doc.displayedState())->shape.shape();
+        for(const double z : {0.02, 9.98}) {
+            INFO("z = " << z);
+            CHECK(solidAround(s, 10, 10, 4.4, z) == 0);
+            CHECK(solidAround(s, 10, 10, 4.6, z) == 72);
+        }
+        // 120 degrees included: 0.5 mm in, the cone is 0.5 tan(60) narrower.
+        const double rAt = 4.5 - 0.5 * std::tan(60 * M_PI / 180);
+        CHECK(solidAround(s, 10, 10, rAt - 0.1, 9.5) == 0);
+        CHECK(solidAround(s, 10, 10, rAt + 0.1, 9.5) == 72);
+        requirePrintable(s);
     }
     {
-        Plate p(13.2); // past the crests
-        auto t = p.thread("1/2-28 UNEF");
-        p.doc.addFeature(t);
-        const Status &st = p.doc.statusOf(t->id);
-        CHECK(st.isError());
-        CHECK(st.message.find("too wide") != std::string::npos);
-        CHECK(st.message.find("11.51 mm tap drill") != std::string::npos);
+        Plate p(5.0);
+        auto th = p.thread("M6");
+        th->countersink = false;
+        p.doc.addFeature(th);
+        REQUIRE(p.doc.statusOf(th->id).isOk());
+        const TopoDS_Shape &s = onlyBody(p.doc.displayedState())->shape.shape();
+        // A square entry: solid right up to the face just past the major.
+        CHECK(solidAround(s, 10, 10, rMaj + 0.1, 9.98) == 72);
+        CHECK(solidAround(s, 10, 10, rMaj + 0.1, 0.02) == 72);
     }
 }
 
@@ -236,32 +271,58 @@ TEST_CASE("an external M8 thread on a boss") {
 }
 
 
-TEST_CASE("a tapped hole: the M5 tap drill with a modelled thread, or left for a tap") {
-    for(ThreadMode mode : {ThreadMode::Auto, ThreadMode::TapDrill}) {
-        Document doc;
-        const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {0, 0}, {20, 20}));
-        doc.addFeature(extrudeAll(doc, s, "10"));
-        const Body &b = *onlyBody(doc.displayedState());
-        auto h = std::make_shared<HoleFeature>();
-        h->face = makeTopoRef(b, TopoKind::Face, planarFaceWithNormal(b, gp_Dir(0, 0, 1)));
-        h->points = {{10, 10}};
-        h->holeType = HoleType::Tapped;
-        h->thread = "M5";
-        h->threadMode = mode;
-        h->threadClearance = doc.makeSlot("0.15 mm");
-        h->extent = ExtentType::ThroughAll;
-        h->diameter = doc.makeSlot("9 mm"); // not used: the tap drill is
-        doc.addFeature(h);
-        INFO(doc.statusOf(h->id).message);
-        REQUIRE(doc.statusOf(h->id).isOk());
-        const double v = totalVolume(doc.displayedState());
-        const double drilled = 4000 - M_PI * 2.1 * 2.1 * 10; // the 4.2 mm tap drill
-        if(mode == ThreadMode::TapDrill) {
-            CHECK(v == doctest::Approx(drilled).epsilon(1e-6));
-        } else {
-            CHECK(v < drilled);
-            CHECK(v > 4000 - M_PI * 2.65 * 2.65 * 10);
-            requirePrintable(onlyBody(doc.displayedState())->shape.shape());
-        }
-    }
+TEST_CASE("a post thinner than the thread is grown to it") {
+    Document doc;
+    const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {-10, -10}, {10, 10}));
+    doc.addFeature(extrudeAll(doc, s, "4"));
+    auto pl = std::make_shared<ConstructionPlaneFeature>();
+    pl->base = PlaneRef::origin(PlaneRef::Kind::XY);
+    pl->offset = doc.makeSlot("4 mm");
+    const FeatureId pid = doc.addFeature(pl);
+    const FeatureId cs = doc.addFeature(circleSketch(PlaneRef::construction(pid), {0, 0}, 2.5));
+    doc.addFeature(extrudeAll(doc, cs, "12", BodyOperation::Join));
+    const Body &b0 = *onlyBody(doc.displayedState());
+    const double before = volumeOf(b0.shape.shape());
+    const int post = findFace(b0, [](const TopoDS_Face &f) { return BRepAdaptor_Surface(f).GetType() == GeomAbs_Cylinder; });
+    auto t = std::make_shared<ThreadFeature>();
+    t->faces = {makeTopoRef(b0, TopoKind::Face, post)};
+    t->size = "M8";
+    t->clearance = doc.makeSlot("0.15 mm");
+    doc.addFeature(t);
+    INFO(doc.statusOf(t->id).message);
+    REQUIRE(doc.statusOf(t->id).isOk());
+    const TopoDS_Shape &sh = onlyBody(doc.displayedState())->shape.shape();
+    CHECK(volumeOf(sh) > before);
+    // The M8's root and crests (less the clearance), on the post's axis.
+    const double rMin = (8.0 - 1.0825318 * 1.25) / 2 - 0.15, rMaj = 4.0 - 0.15;
+    CHECK(solidAround(sh, 0, 0, rMin - 0.05, 10) == 72);
+    const int part = solidAround(sh, 0, 0, (rMin + rMaj) / 2, 10);
+    CHECK(part > 5);
+    CHECK(part < 67);
+    CHECK(solidAround(sh, 0, 0, rMaj + 0.05, 10) == 0);
+    requirePrintable(sh);
+}
+
+TEST_CASE("a tapped hole: the M5 tap drill with a modelled thread") {
+    Document doc;
+    const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {0, 0}, {20, 20}));
+    doc.addFeature(extrudeAll(doc, s, "10"));
+    const Body &b = *onlyBody(doc.displayedState());
+    auto h = std::make_shared<HoleFeature>();
+    h->face = makeTopoRef(b, TopoKind::Face, planarFaceWithNormal(b, gp_Dir(0, 0, 1)));
+    h->points = {{10, 10}};
+    h->holeType = HoleType::Tapped;
+    h->thread = "M5";
+    h->threadClearance = doc.makeSlot("0.15 mm");
+    h->extent = ExtentType::ThroughAll;
+    h->diameter = doc.makeSlot("9 mm"); // not used: the tap drill is
+    doc.addFeature(h);
+    INFO(doc.statusOf(h->id).message);
+    REQUIRE(doc.statusOf(h->id).isOk());
+    const double v = totalVolume(doc.displayedState());
+    CHECK(v < 4000 - M_PI * 2.1 * 2.1 * 10); // less than the 4.2 mm tap drill leaves
+    CHECK(v > 4000 - M_PI * 2.65 * 2.65 * 10);
+    requirePrintable(onlyBody(doc.displayedState())->shape.shape());
+    // The default countersink at the top: air just past the major at the face.
+    CHECK(solidAround(onlyBody(doc.displayedState())->shape.shape(), 10, 10, 2.5 + 0.15 + 0.05, 9.98) == 0);
 }

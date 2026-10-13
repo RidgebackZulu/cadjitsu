@@ -374,7 +374,7 @@ private:
         const json shank = call("create_sketch", {{"plane", "XY"}, {"name", "Bolt shank"},
                                                   {"entities", {{{"type", "circle"}, {"center", {bx, by}}, {"radius", 4}}}}});
         call("extrude", {{"sketch", shank.value("sketch", 0)}, {"distance", 34}, {"operation", "join"}});
-        call("thread", {{"faces", {faceOfType(body, "cylinder", {bx + 4, by, 22})}}, {"size", "M8"}, {"mode", "modeled"}, {"length", 24}});
+        call("thread", {{"faces", {faceOfType(body, "cylinder", {bx + 4, by, 22})}}, {"size", "M8"}, {"length", 24}});
         return body;
     }
 
@@ -387,7 +387,7 @@ private:
         call("extrude", {{"sketch", sk2.value("sketch", 0)}, {"distance", 6.5}});
         const std::string body = lastBody();
         call("hole", {{"face", face(body, "+z", {nx, ny, z + 6.5})}, {"points", {{nx, ny, z + 6.5}}}, {"type", "tapped"}, {"thread", "M8"},
-                      {"thread_mode", "modeled"}, {"through_all", true}});
+                      {"through_all", true}});
         return body;
     }
 

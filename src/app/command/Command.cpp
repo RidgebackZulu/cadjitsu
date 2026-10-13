@@ -208,6 +208,7 @@ bool CommandController::commit() {
         f->id = cad::kNoFeature;
         id = doc.addFeature(f);
     }
+    m_cmd->accepted(*f);
     finish();
     emit committed(id);
     return true;

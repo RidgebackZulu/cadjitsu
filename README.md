@@ -32,7 +32,7 @@ parts you are going to 3D print.
   like. It works offline, always.
 - **Your Fusion 360 habits work.** The same mouse buttons and shortcuts, ribbon, timeline, marking menu, ViewCube and
   live command dialogs. There is a SolidWorks mouse preset too.
-- **Made for printing.** Watertight, validated STL; overhang analysis; modelled threads with print clearance; nut
+- **Made for printing.** Watertight, validated STL; overhang analysis; modelled threads that fit any hole or post, with print clearance and countersinks; nut
   traps; thin-wall warnings; previews in your actual filament on a build plate.
 - **From a photo to a part.** Photograph a part on a sheet of paper: Cadjitsu straightens the lens and the perspective,
   then traces the outline into a sketch at true size.
@@ -264,11 +264,11 @@ Right-click a sketch in the browser for **Edit Sketch** or **Delete**. Deleting 
 - Click the target body, then the tool bodies; Join, Cut or Intersect; **Keep Tools** leaves the tools in the model.
 
 **Thread** (Create) and tapped holes
-- Click the round faces of holes (internal threads) or bosses (external, a bolt). The size is found from the diameter (a hole drilled at a tap drill or minor diameter, a boss at the major diameter), or chosen: ISO metric M2–M24 coarse and fine, UNC and UNF #2 to 1", and UNEF extra fine (such as 1/2-28) #12 to 7/8".
-- Real helical threads are modelled for M5 / #10 and up; smaller ones print poorly, so by default the hole is only opened to the tap drill (tap it, or use a self-tapping screw or a heat-set insert). **Thread Type** forces either. **Clearance** (0.15 mm radial by default) opens internal threads and slims external ones so printed parts fit. Full length, or a length from the open end; left-handed on request.
-- The thread runs right out through every open face, which gets a 45° lead-in (a countersink on a hole, a chamfered tip on a bolt) so a screw or nut starts true; at a blind bottom or a shoulder the thread fades out to the root.
-- **Hole > Hole Type > Tapped** drills the thread's tap drill and threads it in one feature.
-- To thread a hole you drew yourself, draw it at the tap drill (shown in the panel, e.g. 11.51 mm for 1/2-28), not at the nominal size. A hole drilled wider still gets a thread, a shallow one (the panel and the timeline warn); one past the thread's major diameter has nothing left to cut, and the panel says which drill to use.
+- Click the round faces of holes (internal threads) or posts (external, a bolt), and pick a **Size**: ISO metric M2–M24 coarse and fine, UNC and UNF #2 to 1", and UNEF extra fine (such as 1/2-28) #12 to 7/8". The five sizes you used last are at the top of the list; **From the diameter** picks the nearest size.
+- Any hole or post takes any size: it is fitted to the thread on its own axis first. A hole too big is filled and bored again, one too small opened up; a post too thin is grown out, one too fat turned down. The panel says what will happen ("A 12.70 mm hole, filled and bored to 1/2-28 UNEF").
+- The thread is always modelled: a real helical ISO profile. **Clearance** (0.15 mm radial by default) opens internal threads and slims external ones so printed parts fit. Full length, or a length from the open end; left-handed on request.
+- The thread runs right out through every open face. A hole gets a **Countersink** there, so a screw starts true: choose the included **Angle** (90° for metric screws, 82° for inch screws, 100° or 120°) and the **Diameter** at the face (blank: a little over the thread), or turn it off for a square entry. A post's tip gets a 45° chamfer. At a blind bottom or a shoulder the thread fades out to the root.
+- **Hole > Hole Type > Tapped** drills the thread's tap drill and threads it in one feature, with the same countersink options.
 
 **Emboss Text** (Create)
 - Click the face the text goes on (any face, flat or curved) where it goes, and type. The letters show on the face at once, and the cut or raised solid follows.

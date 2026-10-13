@@ -13,11 +13,12 @@
 #include <QComboBox>
 #include <QLabel>
 
+#include <cmath>
+
 namespace cadjitsu {
 
 namespace {
 const QColor kFace(230, 140, 40);
-const cad::ThreadMode kModes[] = {cad::ThreadMode::Auto, cad::ThreadMode::Modeled, cad::ThreadMode::TapDrill};
 } // namespace
 
 IconId ThreadCommand::iconId() const { return IconId::Thread; }
@@ -28,30 +29,26 @@ void ThreadCommand::setup() {
     if(isEditing()) m_original = std::dynamic_pointer_cast<const cad::ThreadFeature>(doc.feature(m_editing));
     const cad::ThreadFeature *o = m_original.get();
     m_facesField = panel.addSelection(tr("Faces"), tr("Select round faces"), "threadFaces");
-    QStringList sizes{tr("From the diameter")};
-    for(const cad::ThreadSpec &t : cad::threadTable()) sizes << QString::fromStdString(t.name);
-    m_size = panel.addChoice(tr("Size"), sizes, "threadSize");
+    m_size = panel.addChoice(tr("Size"), {}, "threadSize");
+    fillThreadSizes(m_size, tr("From the diameter"));
     m_detected = panel.addInfo(QString(), "threadDetected");
     m_detected->setStyleSheet(QStringLiteral("color: #3c4450; font-weight: normal;"));
-    m_mode = panel.addChoice(tr("Thread Type"), {tr("By size (M5 up modelled)"), tr("Modelled"), tr("Tap drill / plain")},
-                             "threadMode");
-    m_mode->setToolTip(tr("Small threads print poorly: by default M4 / #8 and smaller holes are only opened to the tap "
-                          "drill (tap them, or use a self-tapping screw or a heat-set insert)."));
     m_clearanceField = panel.addValue(tr("Clearance"), cad::ValueKind::Length, evaluator(), "threadClearance");
     m_full = panel.addCheck(tr("Full Length"), "threadFull");
     m_lengthField = panel.addValue(tr("Length"), cad::ValueKind::Length, evaluator(), "threadLength");
     m_left = panel.addCheck(tr("Left-Handed"), "threadLeft");
+    m_csk.add(panel, evaluator(), "thread");
     m_clearance = o && !o->clearance.empty() ? o->clearance : doc.makeSlot("0.15 mm");
     m_length = o && !o->length.empty() ? o->length : doc.makeSlot("8 mm");
+    m_cskDiameter = o && !o->countersinkDiameter.empty() ? o->countersinkDiameter : doc.makeSlot("");
     m_clearanceField->setExpression(QString::fromStdString(m_clearance.expr));
     m_lengthField->setExpression(QString::fromStdString(m_length.expr));
     m_full->setChecked(!o || o->length.empty());
     if(o) {
         for(const auto &f : o->faces) m_faces.push_back(InputRef::ofTopo(f));
         if(!o->size.empty()) m_size->setCurrentText(QString::fromStdString(o->size));
-        for(int i = 0; i < 3; ++i)
-            if(kModes[i] == o->mode) m_mode->setCurrentIndex(i);
         m_left->setChecked(o->leftHand);
+        m_csk.load(o->countersink, o->countersinkAngle, o->countersinkDiameter);
     } else {
         for(const auto &it : m_ctx.view->selection().items())
             if(it.kind == SelectionItem::Kind::Face)
@@ -59,12 +56,13 @@ void ThreadCommand::setup() {
     }
     for(ValueField *v : {m_clearanceField, m_lengthField}) connect(v, &ValueField::edited, this, &Command::inputsChanged);
     connect(m_clearanceField, &ValueField::edited, this, &ThreadCommand::updateDetected);
-    for(QComboBox *c : {m_size, m_mode})
+    for(QComboBox *c : {m_size, m_csk.angleBox()})
         connect(c, &QComboBox::currentIndexChanged, this, [this] {
             updateRows();
             emit inputsChanged();
         });
-    for(QCheckBox *c : {m_full, m_left})
+    connect(m_csk.diameterField(), &ValueField::edited, this, &Command::inputsChanged);
+    for(QCheckBox *c : {m_full, m_left, m_csk.onBox()})
         connect(c, &QCheckBox::toggled, this, [this] {
             updateRows();
             emit inputsChanged();
@@ -85,6 +83,7 @@ void ThreadCommand::setup() {
 void ThreadCommand::updateDetected() {
     // What the first face is, and the size that fits it.
     QString text;
+    bool hole = true;
     const cad::StatePtr base = baseState();
     if(base && !m_faces.empty()) {
         const cad::ResolvedRef r = cad::resolveRef(*base, m_faces.front().topo);
@@ -102,20 +101,22 @@ void ThreadCommand::updateDetected() {
                 const cad::ThreadSpec *spec = m_size->currentIndex() > 0
                                                   ? cad::findThread(m_size->currentText().toStdString())
                                                   : cad::nearestThread(d, internal);
-                text = internal ? tr("A %1 mm hole").arg(d, 0, 'f', 2) : tr("A %1 mm boss").arg(d, 0, 'f', 2);
-                if(spec)
-                    text += tr(": %1 (pitch %2 mm, tap drill %3 mm)")
-                                .arg(QString::fromStdString(spec->name))
-                                .arg(spec->pitch, 0, 'g', 3)
-                                .arg(spec->tapDrill, 0, 'f', 2);
-                // As the feature judges it: past the crests (grown by the clearance) nothing is left to cut.
-                const double clear = m_clearanceField->value().value_or(0.15);
-                if(spec && internal && d >= spec->major + 2 * clear - 0.1 * spec->pitch)
-                    text += tr(" - too wide to thread: drill it at %1 mm").arg(spec->tapDrill, 0, 'f', 2);
-                else if(spec && internal && d > spec->tapDrill + 0.1)
-                    text += tr(" - wider than the tap drill: a shallow thread");
-                if(!spec)
-                    text += tr(": no standard size fits; choose one");
+                hole = internal;
+                text = internal ? tr("A %1 mm hole").arg(d, 0, 'f', 2) : tr("A %1 mm post").arg(d, 0, 'f', 2);
+                if(spec) {
+                    // It is fitted to the thread: filled and bored, grown or turned down to it.
+                    const double clear = m_clearanceField->value().value_or(0.15);
+                    const double fit = internal ? spec->minor() + 2 * clear : spec->major - 2 * clear;
+                    const QString name = QString::fromStdString(spec->name);
+                    text += std::fabs(d - fit) < 0.005 ? tr(": %1").arg(name)
+                            : d > fit ? (internal ? tr(", filled and bored to %1").arg(name)
+                                                  : tr(", turned down to %1").arg(name))
+                                      : (internal ? tr(", opened to %1").arg(name) : tr(", grown to %1").arg(name));
+                    text += tr(" (pitch %1 mm)").arg(spec->pitch, 0, 'g', 3);
+                    m_csk.setAutoDiameter(spec->major + 2 * clear + 0.3 * spec->pitch);
+                } else {
+                    text += tr(": no standard size near it; choose one");
+                }
             } else {
                 text = tr("Not a round face");
             }
@@ -123,12 +124,13 @@ void ThreadCommand::updateDetected() {
     }
     m_detected->setText(text);
     m_ctx.panel->setRowVisible(m_detected, !text.isEmpty());
+    // The countersink is a hole's.
+    m_csk.setVisible(*m_ctx.panel, hole);
 }
 
 void ThreadCommand::updateRows() {
     CommandPanel &panel = *m_ctx.panel;
     panel.setRowVisible(m_lengthField, !m_full->isChecked());
-    panel.setRowVisible(m_clearanceField, m_mode->currentIndex() != 2);
     updateDetected();
 }
 
@@ -146,7 +148,7 @@ void ThreadCommand::picked(const std::optional<SelectionItem> &item, const PickH
     const cad::StatePtr st = m_ctx.view->state();
     const cad::Body *b = st ? st->body(item->body) : nullptr;
     if(!b || BRepAdaptor_Surface(b->shape.face(item->index)).GetType() != GeomAbs_Cylinder) {
-        m_ctx.panel->setMessage(tr("Pick a round face (a hole's wall or a boss)."), cad::Severity::Warning);
+        m_ctx.panel->setMessage(tr("Pick a round face (a hole's wall or a post)."), cad::Severity::Warning);
         return;
     }
     const auto r = inputRefOf(*m_ctx.view, *item);
@@ -158,11 +160,15 @@ void ThreadCommand::picked(const std::optional<SelectionItem> &item, const PickH
 
 std::shared_ptr<cad::Feature> ThreadCommand::build(QString &why) {
     if(m_faces.empty()) {
-        why = tr("Click the round faces of holes or bosses to thread.");
+        why = tr("Click the round faces of holes or posts to thread.");
         return nullptr;
     }
     if(!m_clearanceField->valid() || (!m_full->isChecked() && !m_lengthField->valid())) {
         why = tr("Enter the clearance and length.");
+        return nullptr;
+    }
+    if(!m_csk.valid()) {
+        why = tr("Enter the countersink diameter, or leave it blank.");
         return nullptr;
     }
     auto f = m_original ? std::static_pointer_cast<cad::ThreadFeature>(m_original->clone())
@@ -170,11 +176,17 @@ std::shared_ptr<cad::Feature> ThreadCommand::build(QString &why) {
     f->faces.clear();
     for(const auto &r : m_faces) f->faces.push_back(r.topo);
     f->size = m_size->currentIndex() > 0 ? m_size->currentText().toStdString() : std::string();
-    f->mode = kModes[std::clamp(m_mode->currentIndex(), 0, 2)];
     f->clearance = {m_clearance.name, m_clearanceField->expression().toStdString()};
     f->length = m_full->isChecked() ? cad::ParamSlot() : cad::ParamSlot{m_length.name, m_lengthField->expression().toStdString()};
     f->leftHand = m_left->isChecked();
+    f->countersink = m_csk.on();
+    f->countersinkAngle = m_csk.angle();
+    f->countersinkDiameter = m_csk.diameter(m_cskDiameter);
     return f;
+}
+
+void ThreadCommand::accepted(const cad::Feature &f) {
+    noteThreadSize(QString::fromStdString(static_cast<const cad::ThreadFeature &>(f).size));
 }
 
 } // namespace cadjitsu

@@ -118,50 +118,68 @@ TopoDS_Shape placed(const TopoDS_Shape &s, const gp_Ax3 &frame) {
 
 bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &frame, double length, bool internal,
                 double clearance, bool leftHand, double outer, const std::string &prefix, NamedShape &result,
-                std::string &why, bool openStart, bool openEnd) {
+                std::string &why, bool openStart, bool openEnd, const Countersink &csk) {
     const double c = internal ? clearance : -clearance;
     const double rMin = spec.minor() / 2 + c, rMaj = spec.major / 2 + c, p = spec.pitch;
     if(rMin <= 0 || length <= p) {
         why = "the thread is too short or too small";
         return false;
     }
-    // A hole drilled out past the thread's crests has nothing left to cut.
-    if(internal && outer >= rMaj - 0.05 * p) {
-        char buf[200];
-        std::snprintf(buf, sizeof buf, "the %.2f mm hole is too wide for a %s thread: drill it at the %.2f mm tap drill, or pick a larger size",
-                      2 * outer, spec.name.c_str(), spec.tapDrill);
-        why = buf;
-        return false;
-    }
     const double L = length, e = 0.05 * p;
-    // The 45 degree lead-in at an open end of a hole: from a little over the
-    // major diameter at the face down to the root (no thin, sharp first turn).
-    const double rLead = std::min(rMaj + 0.15 * p, rMin + L / 3);
     // Where a closed end lets the thread fade out.
     const double fade = std::min(2 * p, L / 3);
     const double rBig = rMaj + p;
     // How far the ridge runs on past an open face of a hole (not a whole
     // number of turns, so the helix never meets the face plane edge on).
     const double past = 0.37 * p;
-
-    // 1. The plain part: a hole opened to the root diameter (or to `rB`, when
-    // it is already wider), or a boss turned down to it.
-    auto plainPart = [&](double rB) -> TopoDS_Shape {
-        if(internal) {
-            const double z0 = openStart ? -e : 0, z1 = openEnd ? L + e : L;
-            return BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, z0), gp_Dir(0, 0, 1)), rB, z1 - z0).Shape();
-        }
-        const TopoDS_Shape tube = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), std::max(outer, rMaj) + 1.0, L).Shape();
-        const TopoDS_Shape core = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), rMin, L).Shape();
-        return boolean(Op::Cut, tube, core);
+    auto cylinder = [](double r, double z0, double z1) {
+        return BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, z0), gp_Dir(0, 0, 1)), r, z1 - z0).Shape();
     };
-    TopoDS_Shape plain = plainPart(rMin);
+
+    // 0. Fit the cylinder to the thread, on its own axis: a hole wider than
+    // the thread's root is filled over the length (and bored again below), a
+    // post thinner than it is grown out to it.
+    NamedShape fitted = body;
+    if(internal ? outer > rMin + 1e-6 * p : outer < rMin - 1e-6 * p) {
+        const double before = volumeOf(body.shape());
+        bool ok = false;
+        // The fill meets the old wall face to face; should OCCT not take it,
+        // a fill a hair bigger (inside the part anyway) does.
+        for(const double grow : {0.0, 0.002, 0.01}) {
+            const double r = (internal ? outer : rMin) + grow;
+            const NamedShape fill(placed(cylinder(r, 0, L), frame), {});
+            BooleanResult br = runBoolean(BoolOp::Fuse, {&body}, {&fill}, prefix);
+            if(!br.ok) continue;
+            const double added = volumeOf(br.shape.shape()) - before;
+            const double hole = kPiT * (outer * outer) * L, grown = kPiT * (rMin * rMin - outer * outer) * L;
+            const double want = internal ? hole : grown;
+            if(added < 0.9 * want || added > 1.1 * want + kPiT * 2 * r * grow * L + 1e-9) continue;
+            if(!BRepCheck_Analyzer(br.shape.shape()).IsValid()) continue;
+            fitted = br.shape;
+            ok = true;
+            break;
+        }
+        if(!ok) {
+            why = internal ? "the hole could not be fitted to the " + spec.name + " thread"
+                           : "the post could not be fitted to the " + spec.name + " thread";
+            return false;
+        }
+    }
+
+    // 1. The plain part: a hole opened to the root diameter, or a boss turned
+    // down to it.
+    TopoDS_Shape plain;
+    if(internal) {
+        plain = cylinder(rMin, openStart ? -e : 0, openEnd ? L + e : L);
+    } else {
+        plain = boolean(Op::Cut, cylinder(std::max(outer, rMaj) + 1.0, 0, L), cylinder(rMin, 0, L));
+    }
     if(plain.IsNull()) {
         why = internal ? "the hole could not be opened for the thread" : "the boss could not be turned down";
         return false;
     }
     const NamedShape plainNamed(placed(plain, frame), {});
-    BooleanResult first = runBoolean(BoolOp::Cut, {&body}, {&plainNamed}, prefix);
+    BooleanResult first = runBoolean(BoolOp::Cut, {&fitted}, {&plainNamed}, prefix);
     if(!first.ok) {
         why = first.error;
         return false;
@@ -177,51 +195,27 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
     else if(openEnd) env.insert(env.end(), {{rBig, L - (rBig - rMin)}, {rMin, L}, {0, L}});
     else env.insert(env.end(), {{rBig, L - fade}, {rMaj, L - fade}, {rMin, L}, {0, L}});
     const TopoDS_Shape envelope = revolved(env);
-    const TopoDS_Shape slab = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), rBig + p, L).Shape();
     if(envelope.IsNull()) {
         why = "the " + spec.name + " thread could not be built";
         return false;
     }
+    // The part of the ridge that lies in the part: above the root, between the ends.
+    const TopoDS_Shape rootCore = cylinder(rMin, -3 * p, L + 3 * p);
+    const TopoDS_Shape slab = cylinder(rBig + p, 0, L);
 
     // 3. The ridge, swept past both ends and trimmed to the envelope: cut into
     // a hole's wall, or joined onto the turned boss. A boolean that silently
     // leaves the shape as it was is tried again with the ridge started
-    // elsewhere round the axis (and a hole drilled wider than the root bored
-    // out a few hundredths more: a wall cylinder the helical flanks cross is
-    // where OCCT can miss the intersection altogether).
-    const bool wide = internal && outer > rMin - 0.05 * p;
+    // elsewhere round the axis.
+    const double before = volumeOf(first.shape.shape());
     NamedShape threaded;
     bool done = false;
-    constexpr int kAttempts = 10;
-    for(int attempt = 0; attempt < (wide ? kAttempts : 4) && !done; ++attempt) {
-        const double rB = wide ? outer + 0.013 * p * (attempt % 5) : rMin;
-        BooleanResult bored = first;
-        if(wide && attempt > 0) {
-            plain = plainPart(rB);
-            const NamedShape grown(placed(plain, frame), {});
-            bored = runBoolean(BoolOp::Cut, {&body}, {&grown}, prefix);
-            if(!bored.ok) continue;
-        }
-        const double before = volumeOf(bored.shape.shape());
-        const double sink = p * (0.1 + 0.03 * (attempt % 4));
+    for(int attempt = 0; attempt < 4 && !done; ++attempt) {
+        const double sink = p * (0.1 + 0.03 * attempt);
         const TopoDS_Shape swept = ridge(p, rMin, rMaj, -2 * p, L + 2 * p, leftHand, sink, 0.7 + 1.9 * attempt);
         if(swept.IsNull()) continue;
-        TopoDS_Shape r = boolean(Op::Common, swept, envelope);
+        const TopoDS_Shape r = boolean(Op::Common, swept, envelope);
         if(r.IsNull()) continue;
-        // Only the part of the ridge out past the wall goes into the part: cut
-        // with that (from a little inside the wall, by a margin that varies
-        // between attempts), not with the whole ridge.
-        const double rWall = std::max(rMin, rB);
-        static constexpr double kTrim[kAttempts] = {0.03, 0.1, 0.05, 0.15, 0.02, 0.07, 0.03, 0.04, 0.12, 0.03};
-        const double trim = kTrim[attempt];
-        if(wide) {
-            const TopoDS_Shape core = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, -3 * p), gp_Dir(0, 0, 1)), rWall - trim * p, L + 6 * p).Shape();
-            r = boolean(Op::Cut, r, core);
-            if(r.IsNull()) continue;
-        }
-        // The part of the ridge that lies in the part: out past the root (or
-        // the wall), between the ends.
-        const TopoDS_Shape rootCore = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, -3 * p), gp_Dir(0, 0, 1)), rWall, L + 6 * p).Shape();
         const TopoDS_Shape above = boolean(Op::Cut, r, rootCore);
         if(above.IsNull()) continue;
         const TopoDS_Shape inside = boolean(Op::Common, above, slab);
@@ -233,7 +227,7 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
             return change >= 0.8 * expected && change <= 1.05 * expected && BRepCheck_Analyzer(s.shape()).IsValid();
         };
         const NamedShape ridgeNamed(placed(r, frame), {});
-        BooleanResult br = runBoolean(internal ? BoolOp::Cut : BoolOp::Fuse, {&bored.shape}, {&ridgeNamed}, prefix);
+        BooleanResult br = runBoolean(internal ? BoolOp::Cut : BoolOp::Fuse, {&first.shape}, {&ridgeNamed}, prefix);
         if(br.ok && took(br.shape)) {
             threaded = br.shape;
             done = true;
@@ -244,7 +238,7 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
             const TopoDS_Shape both = boolean(Op::Fuse, plain, r);
             if(both.IsNull()) continue;
             const NamedShape bothNamed(placed(both, frame), {});
-            BooleanResult once = runBoolean(BoolOp::Cut, {&body}, {&bothNamed}, prefix);
+            BooleanResult once = runBoolean(BoolOp::Cut, {&fitted}, {&bothNamed}, prefix);
             if(once.ok && took(once.shape)) {
                 threaded = once.shape;
                 done = true;
@@ -255,21 +249,30 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
         why = "the " + spec.name + " thread could not be built";
         return false;
     }
-    if(!internal || (!openStart && !openEnd)) {
+    if(!internal || !csk.on || (!openStart && !openEnd)) {
         result = threaded;
         return true;
     }
 
-    // 4. A hole's lead-in: a 45 degree countersink at each open face, from a
-    // little over the major diameter down past the root, so a screw starts
-    // true. It runs on into the bore's air rather than ending on its wall.
+    // 4. A hole's countersink at each open face: a cone of the included angle
+    // from its diameter at the face (by default a little over the major, so
+    // there is no thin, sharp first turn) on past the root into the bore's
+    // air rather than ending on its wall, so a screw starts true.
+    const double half = std::clamp(csk.angle, 30.0, 150.0) / 2 * kPiT / 180;
     const double rIn = std::max(0.5 * rMin, rMin - 0.2 * p);
+    const double rWant = csk.diameter > 0 ? csk.diameter / 2 : rMaj + 0.15 * p;
+    // No deeper than a third of the thread.
+    const double rFace = std::min(rWant, rIn + std::tan(half) * L / 3);
+    if(rFace <= rMin + 1e-6) {
+        result = threaded;
+        return true;
+    }
     for(const double grow : {0.0, 0.03 * p, -0.03 * p}) {
-        const double rl = rLead + grow, deep = rl - rIn;
+        const double rl = rFace + grow, deep = (rl - rIn) / std::tan(half), over = e * std::tan(half);
         TopoDS_Shape cone;
-        if(openStart) cone = revolved({{0, -e}, {rl + e, -e}, {rIn, deep}, {0, deep}});
+        if(openStart) cone = revolved({{0, -e}, {rl + over, -e}, {rIn, deep}, {0, deep}});
         if(openEnd) {
-            const TopoDS_Shape top = revolved({{0, L - deep}, {rIn, L - deep}, {rl + e, L + e}, {0, L + e}});
+            const TopoDS_Shape top = revolved({{0, L - deep}, {rIn, L - deep}, {rl + over, L + e}, {0, L + e}});
             cone = cone.IsNull() ? top : boolean(Op::Fuse, cone, top);
         }
         if(cone.IsNull()) continue;
@@ -278,37 +281,33 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
         BooleanResult lead = runBoolean(BoolOp::Cut, {&threaded}, {&coneNamed}, prefix);
         if(!lead.ok) continue;
         const double cut = before2 - volumeOf(lead.shape.shape());
-        // The cones take the crests of the first turn: more than nothing, less
-        // than a full ring of the wall around them.
-        const double ring = kPiT * (rl * rl - rMin * rMin) * (rl - rMin) * ((openStart ? 1 : 0) + (openEnd ? 1 : 0));
+        // The cones take the first turn's crests (and more, when wide): more
+        // than nothing, less than the whole ring of wall round them.
+        const double ring = kPiT * (rl * rl - rMin * rMin) * (deep + e) * ((openStart ? 1 : 0) + (openEnd ? 1 : 0));
         if(cut <= 1e-6 * ring || cut > ring || !BRepCheck_Analyzer(lead.shape.shape()).IsValid()) continue;
         result = lead.shape;
         return true;
     }
-    why = "the " + spec.name + " thread could not be built";
+    why = "the countersink for the " + spec.name + " thread could not be cut";
     return false;
-}
-
-const char *toString(ThreadMode m) {
-    return m == ThreadMode::Modeled ? "modeled" : m == ThreadMode::TapDrill ? "tapDrill" : "auto";
-}
-
-ThreadMode threadModeFromString(const std::string &s) {
-    return s == "modeled" ? ThreadMode::Modeled : s == "tapDrill" ? ThreadMode::TapDrill : ThreadMode::Auto;
 }
 
 std::vector<ParamDef> ThreadFeature::params() const {
     std::vector<ParamDef> out;
     if(!clearance.empty()) out.push_back({clearance.name, clearance.expr, ValueKind::Length, id, name + " Clearance"});
     if(!length.empty()) out.push_back({length.name, length.expr, ValueKind::Length, id, name + " Length"});
+    if(!countersinkDiameter.empty())
+        out.push_back({countersinkDiameter.name, countersinkDiameter.expr, ValueKind::Length, id, name + " Countersink Diameter"});
     return out;
 }
 
 json ThreadFeature::dataToJson() const {
     json fs = json::array();
     for(const auto &f : faces) fs.push_back(f.toJson());
-    json j{{"faces", fs}, {"size", size}, {"mode", toString(mode)}, {"clearance", clearance.toJson()}};
+    json j{{"faces", fs}, {"size", size}, {"clearance", clearance.toJson()}, {"countersink", countersink},
+           {"countersinkAngle", countersinkAngle}};
     if(!length.empty()) j["length"] = length.toJson();
+    if(!countersinkDiameter.empty()) j["countersinkDiameter"] = countersinkDiameter.toJson();
     if(leftHand) j["leftHand"] = true;
     return j;
 }
@@ -317,7 +316,9 @@ void ThreadFeature::dataFromJson(const json &j) {
     faces.clear();
     for(const json &f : j.value("faces", json::array())) faces.push_back(TopoRef::fromJson(f));
     size = jget<std::string>(j, "size", "");
-    mode = threadModeFromString(jget<std::string>(j, "mode", "auto"));
+    countersink = jget<bool>(j, "countersink", true);
+    countersinkAngle = jget<double>(j, "countersinkAngle", 90.0);
+    countersinkDiameter = ParamSlot::fromJson(j.value("countersinkDiameter", json()));
     clearance = ParamSlot::fromJson(j.value("clearance", json()));
     length = ParamSlot::fromJson(j.value("length", json()));
     leftHand = jget<bool>(j, "leftHand", false);
@@ -336,6 +337,13 @@ FeatureResult ThreadFeature::compute(const StatePtr &input, const ComputeContext
         if(clear < 0 || clear > 1.0) return {input, Status::error("the clearance must be between 0 and 1 mm")};
         const ThreadSpec *fixed = nullptr;
         if(!size.empty() && !(fixed = findThread(size))) return {input, Status::error("unknown thread size " + size)};
+        Countersink csk;
+        csk.on = countersink;
+        csk.angle = countersinkAngle;
+        if(countersink && !countersinkDiameter.empty()) {
+            if(!ctx.value(countersinkDiameter, csk.diameter, st)) return {input, st};
+            if(csk.diameter <= 0) return {input, Status::error("the countersink diameter must be positive")};
+        }
 
         auto out = std::make_shared<ModelState>(*input);
         const std::string prefix = "f" + std::to_string(id);
@@ -381,43 +389,13 @@ FeatureResult ThreadFeature::compute(const StatePtr &input, const ComputeContext
             // part-length thread's inner end, or a blind end, fades out.
             const bool startOpen = a <= v0 + 1e-9 && bottomOpen, endOpen = b >= v1 - 1e-9 && topOpen;
             gp_Ax3 frame(onAxis(a), dir, cyl.Position().XDirection());
-            const bool model = mode == ThreadMode::Modeled || (mode == ThreadMode::Auto && spec->modelByDefault());
             const std::string tprefix = prefix + "/t" + std::to_string(i + 1);
+            // The hole or post is fitted to the thread, then threaded.
             NamedShape result;
-            if(model) {
-                // Drilled wider than the tap drill: the thread is shallower than it should be.
-                if(internal && 2 * radius > spec->tapDrill + 0.1 && radius < spec->major / 2 + clear) {
-                    char buf[200];
-                    std::snprintf(buf, sizeof buf, "the %.2f mm hole is wider than the %.2f mm %s tap drill: the thread is shallow",
-                                  2 * radius, spec->tapDrill, spec->name.c_str());
-                    st.merge(Status::warning(buf));
-                }
-                std::string why;
-                if(!threadBody(body->shape, *spec, frame, b - a, internal, clear, leftHand, radius, tprefix, result, why,
-                               startOpen, endOpen))
-                    return {input, Status::error(why)};
-            } else {
-                TopoDS_Shape cutter;
-                if(internal) {
-                    // Just the tap drill (to tap, or for a self-tapping screw).
-                    if(spec->tapDrill / 2 <= radius + 1e-6) {
-                        st.merge(Status::warning("the hole is already at least the " + spec->name + " tap drill size"));
-                        continue;
-                    }
-                    cutter = BRepPrimAPI_MakeCylinder(gp_Ax2(frame.Location(), dir), spec->tapDrill / 2, b - a).Shape();
-                } else {
-                    // A boss turned down to the thread's outside, less the clearance.
-                    const double rOut = spec->major / 2 - clear;
-                    if(rOut >= radius - 1e-6) continue;
-                    const TopoDS_Shape big = BRepPrimAPI_MakeCylinder(gp_Ax2(frame.Location(), dir), radius + 1, b - a).Shape();
-                    const TopoDS_Shape keep = BRepPrimAPI_MakeCylinder(gp_Ax2(frame.Location(), dir), rOut, b - a).Shape();
-                    cutter = boolean(Op::Cut, big, keep);
-                }
-                const NamedShape cutterNamed(cutter, {});
-                BooleanResult br = runBoolean(BoolOp::Cut, {&body->shape}, {&cutterNamed}, tprefix);
-                if(!br.ok) return {input, Status::error(br.error)};
-                result = br.shape;
-            }
+            std::string why;
+            if(!threadBody(body->shape, *spec, frame, b - a, internal, clear, leftHand, radius, tprefix, result, why,
+                           startOpen, endOpen, csk))
+                return {input, Status::error(why)};
             if(!validateResult(result, prefix, st)) return {input, st};
             replaceBody(*out, body->id, result);
         }
