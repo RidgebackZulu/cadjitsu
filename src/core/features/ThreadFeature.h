@@ -8,6 +8,8 @@
 #include <TopoDS_Shape.hxx>
 #include <gp_Ax3.hxx>
 
+#include <atomic>
+
 namespace cad {
 
 // A countersink at a threaded hole's open ends, for a screw to start on.
@@ -51,9 +53,11 @@ public:
 // at `length`) has the full thread running out through it, with `csk` (a
 // hole) or a 45 degree chamfered tip (a post) for a screw or nut to start on;
 // a closed end (a blind hole's bottom, a shoulder, the inner end of a
-// part-length thread) has the thread fading out over two turns.
+// part-length thread) has the thread fading out over two turns. `cancel`
+// (optional) stops it early ("cancelled").
 bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &frame, double length, bool internal,
                 double clearance, bool leftHand, double outer, const std::string &prefix, NamedShape &result,
-                std::string &why, bool openStart = true, bool openEnd = true, const Countersink &csk = {});
+                std::string &why, bool openStart = true, bool openEnd = true, const Countersink &csk = {},
+                const std::atomic<bool> *cancel = nullptr);
 
 } // namespace cad

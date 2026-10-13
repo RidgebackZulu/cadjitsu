@@ -47,14 +47,15 @@
 #include <GProp_GProps.hxx>
 #include <gp_Pln.hxx>
 
-#include <QSettings>
 #include <QAction>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QElapsedTimer>
 #include <QLabel>
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSettings>
 #include <QtTest>
 
 #include <cmath>
@@ -1042,6 +1043,48 @@ private slots:
         const auto th = std::dynamic_pointer_cast<const cad::HoleFeature>(doc().features().back());
         QVERIFY(th && th->holeType == cad::HoleType::Tapped && th->thread == "M5" && th->threadCountersink);
         QCOMPARE(recentThreadSizes().mid(0, 2), (QStringList{QStringLiteral("M5"), QStringLiteral("M8")}));
+    }
+
+    void aLongThreadNeverHoldsUpTheNextCommand() {
+        // M3 down a 30 mm hole is seconds of work. Cancelling it and drilling
+        // a plain hole must show the hole straight away: the thread's compute
+        // is abandoned, not waited for.
+        box(0, 0, 20, 20, 30);
+        const cad::Body &block = *doc().displayedState()->bodies.begin()->second;
+        auto h = std::make_shared<cad::HoleFeature>();
+        for(int i = 1; i <= block.shape.faceCount(); ++i) {
+            gp_Pln pl;
+            if(cad::planeOfFace(block.shape.face(i), pl) && pl.Axis().Direction().Z() > 0.9)
+                h->face = cad::makeTopoRef(block, cad::TopoKind::Face, i);
+        }
+        h->points = {{14, 14}};
+        h->extent = cad::ExtentType::ThroughAll;
+        h->diameter = doc().makeSlot("2.5 mm");
+        doc().addFeature(h);
+        showHome();
+        settle();
+        const double drilled = shown();
+        trigger("thread");
+        auto *t = command<ThreadCommand>();
+        QVERIFY(t);
+        t->sizeBox()->setCurrentText(QStringLiteral("M3"));
+        const QPointF c = at(14, 14, 30);
+        for(int r = 0; r <= 6 && t->faceCount() == 0; ++r)
+            for(int k = 0; k < 8 && t->faceCount() == 0; ++k)
+                click(c + QPointF(r * std::cos(k * M_PI / 4), r * std::sin(k * M_PI / 4)));
+        QCOMPARE(t->faceCount(), 1);
+        QTest::qWait(300); // the thread's preview is under way
+        panel()->cancelButton()->click();
+        trigger("hole");
+        QVERIFY(command<HoleCommand>());
+        QElapsedTimer clock;
+        clock.start();
+        click(at(5, 5, 30));
+        settle();
+        QVERIFY2(clock.elapsed() < 4000, qPrintable(QStringLiteral("%1 ms").arg(clock.elapsed())));
+        QVERIFY(shown() < drilled - 10.0); // the plain 5 mm hole
+        panel()->cancelButton()->click();
+        settle();
     }
 
     void markingMenuAndShortcutsReachTheNewCommands() {

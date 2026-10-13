@@ -21,7 +21,8 @@
 namespace cad {
 
 BooleanResult runBoolean(BoolOp op, const std::vector<const NamedShape *> &args,
-                         const std::vector<const NamedShape *> &tools, const std::string &prefix) {
+                         const std::vector<const NamedShape *> &tools, const std::string &prefix,
+                         const std::atomic<bool> *cancel, bool parallel) {
     BooleanResult r;
     TopTools_ListOfShape a, t;
     for(const auto *ns : args) a.Append(ns->shape());
@@ -36,13 +37,22 @@ BooleanResult runBoolean(BoolOp op, const std::vector<const NamedShape *> &args,
     algo->SetArguments(a);
     algo->SetTools(t);
     algo->SetNonDestructive(Standard_True);
-    algo->SetRunParallel(Standard_False);
+    algo->SetRunParallel(parallel ? Standard_True : Standard_False);
     // Sketch-solved coordinates carry solver error (1e-7..1e-5 mm), so a body
     // drawn onto an existing face or edge can miss it by a hair and leave
     // sliver faces and micro-steps that break meshing. Anything closer than
     // 0.1 um - far below what a printer can make - counts as touching.
     algo->SetFuzzyValue(kBooleanFuzz);
-    algo->Build();
+    if(cancel) {
+        Handle(CancelProgress) progress = new CancelProgress(cancel);
+        algo->Build(progress->Start());
+    } else {
+        algo->Build();
+    }
+    if(cancel && cancel->load()) {
+        r.error = "cancelled";
+        return r;
+    }
     if(algo->HasErrors() || !algo->IsDone()) {
         r.error = "the boolean operation failed";
         return r;

@@ -158,6 +158,13 @@ void CommandController::preview() {
     m_ctx.panel->setMessage(why, why.isEmpty() ? cad::Severity::Ok : cad::Severity::Warning);
     m_ctx.view->setForcedSketches(m_cmd->sketchesToShow());
     m_request = m_recompute->request(std::move(features), nullptr, marker, true);
+    // A preview that takes a while (a long thread) says so, rather than
+    // looking as if nothing happened.
+    if(f)
+        QTimer::singleShot(400, this, [this, id = m_request] {
+            if(m_cmd && m_request == id && m_delivered < id && m_ctx.panel->message().isEmpty())
+                m_ctx.panel->setMessage(tr("Computing the preview…"));
+        });
 }
 
 bool CommandController::accepts(const EvaluationPtr &e) const {
@@ -167,6 +174,7 @@ bool CommandController::accepts(const EvaluationPtr &e) const {
 
 void CommandController::onEvaluation(const EvaluationPtr &e) {
     if(!m_cmd || !e->preview || e->id < m_request) return;
+    m_delivered = e->id;
     if(m_candidateIndex >= 0 && m_candidateIndex < int(e->statuses.size())) {
         // A feature that fails to compute cannot be committed; its message says why.
         const cad::Status &st = e->statuses[size_t(m_candidateIndex)];

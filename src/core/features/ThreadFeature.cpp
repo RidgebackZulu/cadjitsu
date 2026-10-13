@@ -43,7 +43,7 @@ enum class Op { Fuse, Cut, Common };
 
 // One boolean, built once (constructing the OCCT operation with its shapes
 // would build it straight away, before the options are set).
-TopoDS_Shape boolean(Op which, const TopoDS_Shape &a, const TopoDS_Shape &b) {
+TopoDS_Shape boolean(Op which, const TopoDS_Shape &a, const TopoDS_Shape &b, const std::atomic<bool> *cancel = nullptr) {
     std::unique_ptr<BRepAlgoAPI_BooleanOperation> op;
     switch(which) {
     case Op::Fuse: op = std::make_unique<BRepAlgoAPI_Fuse>(); break;
@@ -56,43 +56,76 @@ TopoDS_Shape boolean(Op which, const TopoDS_Shape &a, const TopoDS_Shape &b) {
     op->SetArguments(args);
     op->SetTools(tools);
     op->SetFuzzyValue(kBooleanFuzz);
-    op->SetRunParallel(Standard_False);
-    op->Build();
+    op->SetRunParallel(Standard_True); // threads' helical faces make long booleans: use the cores
+    if(cancel) {
+        Handle(CancelProgress) progress = new CancelProgress(cancel);
+        op->Build(progress->Start());
+        if(cancel->load()) return {};
+    } else {
+        op->Build();
+    }
     if(!op->IsDone() || op->HasErrors()) return {};
     return op->Shape();
 }
 
 // The thread's ridge alone: the ISO basic profile (3/4 P wide at the root,
-// P/8 flat at the crest) swept along a helix around Z from z = `from` to `to`,
-// sunk `sink` below the root radius so it overlaps the core. `turn` rotates
-// where it starts (a retry when a boolean trips on the geometry).
-TopoDS_Shape ridge(double pitch, double rRoot, double rCrest, double from, double to, bool leftHand, double sink, double turn) {
+// P/8 flat at the crest) swept along a helix around Z from z = `from` to `to`.
+// Below the root its flanks run on for `sink`, then straight in for another
+// half pitch: it overlaps the core well clear of the root cylinder, so a
+// boolean with that cylinder only meets the flanks, square on (a face just
+// under the root, nearly on the cylinder, makes booleans slow and unsure).
+// It is made of pieces of up to three turns, each overlapping the next a
+// little (to be given to a boolean as separate tools): OCCT's booleans miss
+// the crossings of a single sweep of many turns with a cylinder (wrapping its
+// seam again and again) and leave the part untouched, where short pieces each
+// cross it simply.
+// `turn` rotates where it starts (a retry when a boolean trips on the geometry).
+struct RidgePiece {
+    TopoDS_Shape shape;
+    double zLo, zHi; // the heights it spans
+};
+std::vector<RidgePiece> ridge(double pitch, double rRoot, double rCrest, double from, double to, bool leftHand, double sink,
+                              double turn) {
     const double flank = std::tan(kPiT / 6);
     const double half = 3 * pitch / 8 + sink * flank;
     const double z0 = from + half, z1 = to - half;
     if(z1 <= z0) return {};
     const double turns = (z1 - z0) / pitch;
+    const double rIn = std::max(0.3 * rRoot, rRoot - sink - pitch / 2);
+    std::vector<RidgePiece> out;
     // The spine runs inside the root (not on a surface a boolean would find coincident).
     Handle(Geom_CylindricalSurface) cyl =
         new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, z0), gp_Dir(0, 0, 1), gp_Dir(std::cos(turn), std::sin(turn), 0)),
                                     rRoot * 0.5);
+    const double perTurn = std::hypot(2 * kPiT, pitch); // helix length parameter per turn
     Handle(Geom2d_Line) line = new Geom2d_Line(gp_Pnt2d(0, 0), gp_Dir2d(leftHand ? -2 * kPiT : 2 * kPiT, pitch));
-    TopoDS_Edge helix = BRepBuilderAPI_MakeEdge(line, cyl, 0, turns * std::hypot(2 * kPiT, pitch));
-    BRepLib::BuildCurves3d(helix);
-    const gp_Dir out(std::cos(turn), std::sin(turn), 0);
-    auto at = [&](double r, double z) { return gp_Pnt(out.X() * r, out.Y() * r, z0 + z); };
-    BRepBuilderAPI_MakePolygon poly;
-    poly.Add(at(rRoot - sink, -half));
-    poly.Add(at(rCrest, -pitch / 16));
-    poly.Add(at(rCrest, pitch / 16));
-    poly.Add(at(rRoot - sink, half));
-    poly.Close();
-    BRepOffsetAPI_MakePipeShell pipe(BRepBuilderAPI_MakeWire(helix).Wire());
-    pipe.SetMode(gp_Dir(0, 0, 1)); // the profile stays in planes through the axis
-    pipe.Add(poly.Wire(), Standard_False, Standard_False);
-    pipe.Build();
-    if(!pipe.IsDone() || !pipe.MakeSolid()) return {};
-    return pipe.Shape();
+    const int pieces = std::max(1, int(std::ceil(turns / 3)));
+    const double step = turns / pieces, overlap = 0.01; // turns
+    for(int k = 0; k < pieces; ++k) {
+        const double t0 = std::max(0.0, k * step - overlap), t1 = std::min(turns, (k + 1) * step + overlap);
+        TopoDS_Edge helix = BRepBuilderAPI_MakeEdge(line, cyl, t0 * perTurn, t1 * perTurn);
+        BRepLib::BuildCurves3d(helix);
+        // The profile in the plane through the axis where the piece starts.
+        const double a = turn + (leftHand ? -1 : 1) * 2 * kPiT * t0;
+        const gp_Dir radial(std::cos(a), std::sin(a), 0);
+        const double zs = z0 + pitch * t0;
+        auto at = [&](double r, double z) { return gp_Pnt(radial.X() * r, radial.Y() * r, zs + z); };
+        BRepBuilderAPI_MakePolygon poly;
+        poly.Add(at(rIn, -half));
+        poly.Add(at(rRoot - sink, -half));
+        poly.Add(at(rCrest, -pitch / 16));
+        poly.Add(at(rCrest, pitch / 16));
+        poly.Add(at(rRoot - sink, half));
+        poly.Add(at(rIn, half));
+        poly.Close();
+        BRepOffsetAPI_MakePipeShell pipe(BRepBuilderAPI_MakeWire(helix).Wire());
+        pipe.SetMode(gp_Dir(0, 0, 1)); // the profile stays in planes through the axis
+        pipe.Add(poly.Wire(), Standard_False, Standard_False);
+        pipe.Build();
+        if(!pipe.IsDone() || !pipe.MakeSolid()) return {};
+        out.push_back({pipe.Shape(), zs - half, z0 + pitch * t1 + half});
+    }
+    return out;
 }
 
 // A solid of revolution about Z from an outline in the (r, z) half plane,
@@ -118,13 +151,18 @@ TopoDS_Shape placed(const TopoDS_Shape &s, const gp_Ax3 &frame) {
 
 bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &frame, double length, bool internal,
                 double clearance, bool leftHand, double outer, const std::string &prefix, NamedShape &result,
-                std::string &why, bool openStart, bool openEnd, const Countersink &csk) {
+                std::string &why, bool openStart, bool openEnd, const Countersink &csk, const std::atomic<bool> *cancel) {
     const double c = internal ? clearance : -clearance;
     const double rMin = spec.minor() / 2 + c, rMaj = spec.major / 2 + c, p = spec.pitch;
     if(rMin <= 0 || length <= p) {
         why = "the thread is too short or too small";
         return false;
     }
+    auto stopped = [&] {
+        if(!cancel || !cancel->load()) return false;
+        why = "cancelled";
+        return true;
+    };
     const double L = length, e = 0.05 * p;
     // Where a closed end lets the thread fade out.
     const double fade = std::min(2 * p, L / 3);
@@ -140,53 +178,34 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
     // the thread's root is filled over the length (and bored again below), a
     // post thinner than it is grown out to it.
     NamedShape fitted = body;
+    bool filled = false;
     if(internal ? outer > rMin + 1e-6 * p : outer < rMin - 1e-6 * p) {
         const double before = volumeOf(body.shape());
-        bool ok = false;
         // The fill meets the old wall face to face; should OCCT not take it,
         // a fill a hair bigger (inside the part anyway) does.
         for(const double grow : {0.0, 0.002, 0.01}) {
             const double r = (internal ? outer : rMin) + grow;
             const NamedShape fill(placed(cylinder(r, 0, L), frame), {});
-            BooleanResult br = runBoolean(BoolOp::Fuse, {&body}, {&fill}, prefix);
+            BooleanResult br = runBoolean(BoolOp::Fuse, {&body}, {&fill}, prefix, cancel, true);
+            if(stopped()) return false;
             if(!br.ok) continue;
             const double added = volumeOf(br.shape.shape()) - before;
-            const double hole = kPiT * (outer * outer) * L, grown = kPiT * (rMin * rMin - outer * outer) * L;
-            const double want = internal ? hole : grown;
+            const double want = kPiT * (internal ? outer * outer : rMin * rMin - outer * outer) * L;
             if(added < 0.9 * want || added > 1.1 * want + kPiT * 2 * r * grow * L + 1e-9) continue;
-            if(!BRepCheck_Analyzer(br.shape.shape()).IsValid()) continue;
             fitted = br.shape;
-            ok = true;
+            filled = true;
             break;
         }
-        if(!ok) {
+        if(!filled) {
             why = internal ? "the hole could not be fitted to the " + spec.name + " thread"
                            : "the post could not be fitted to the " + spec.name + " thread";
             return false;
         }
     }
 
-    // 1. The plain part: a hole opened to the root diameter, or a boss turned
-    // down to it.
-    TopoDS_Shape plain;
-    if(internal) {
-        plain = cylinder(rMin, openStart ? -e : 0, openEnd ? L + e : L);
-    } else {
-        plain = boolean(Op::Cut, cylinder(std::max(outer, rMaj) + 1.0, 0, L), cylinder(rMin, 0, L));
-    }
-    if(plain.IsNull()) {
-        why = internal ? "the hole could not be opened for the thread" : "the boss could not be turned down";
-        return false;
-    }
-    const NamedShape plainNamed(placed(plain, frame), {});
-    BooleanResult first = runBoolean(BoolOp::Cut, {&fitted}, {&plainNamed}, prefix);
-    if(!first.ok) {
-        why = first.error;
-        return false;
-    }
-    // 2. What the ridge may fill: the full thread along the length; at an open
+    // 1. What the ridge may fill: the full thread along the length; at an open
     // end out through the face (a hole) or down a 45 degree chamfer to the
-    // root at the tip (a boss); at a closed end fading to the root.
+    // root at the tip (a post); at a closed end fading to the root.
     std::vector<std::pair<double, double>> env;
     if(openStart && internal) env.insert(env.end(), {{0, -past}, {rBig, -past}});
     else if(openStart) env.insert(env.end(), {{0, 0}, {rMin, 0}, {rBig, rBig - rMin}});
@@ -199,96 +218,113 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
         why = "the " + spec.name + " thread could not be built";
         return false;
     }
-    // The part of the ridge that lies in the part: above the root, between the ends.
-    const TopoDS_Shape rootCore = cylinder(rMin, -3 * p, L + 3 * p);
-    const TopoDS_Shape slab = cylinder(rBig + p, 0, L);
 
-    // 3. The ridge, swept past both ends and trimmed to the envelope: cut into
-    // a hole's wall, or joined onto the turned boss. A boolean that silently
-    // leaves the shape as it was is tried again with the ridge started
-    // elsewhere round the axis.
-    const double before = volumeOf(first.shape.shape());
-    NamedShape threaded;
-    bool done = false;
-    for(int attempt = 0; attempt < 4 && !done; ++attempt) {
-        const double sink = p * (0.1 + 0.03 * attempt);
-        const TopoDS_Shape swept = ridge(p, rMin, rMaj, -2 * p, L + 2 * p, leftHand, sink, 0.7 + 1.9 * attempt);
-        if(swept.IsNull()) continue;
-        const TopoDS_Shape r = boolean(Op::Common, swept, envelope);
-        if(r.IsNull()) continue;
-        const TopoDS_Shape above = boolean(Op::Cut, r, rootCore);
-        if(above.IsNull()) continue;
-        const TopoDS_Shape inside = boolean(Op::Common, above, slab);
-        if(inside.IsNull()) continue;
-        const double expected = volumeOf(inside);
-        // The ridge above the root must have gone in or out.
-        auto took = [&](const NamedShape &s) {
-            const double change = std::fabs(volumeOf(s.shape()) - before);
-            return change >= 0.8 * expected && change <= 1.05 * expected && BRepCheck_Analyzer(s.shape()).IsValid();
-        };
-        const NamedShape ridgeNamed(placed(r, frame), {});
-        BooleanResult br = runBoolean(internal ? BoolOp::Cut : BoolOp::Fuse, {&first.shape}, {&ridgeNamed}, prefix);
-        if(br.ok && took(br.shape)) {
-            threaded = br.shape;
-            done = true;
-            break;
-        }
-        // A hole: the ridge and the bore in one cutter, cut from the part at once.
-        if(internal) {
-            const TopoDS_Shape both = boolean(Op::Fuse, plain, r);
-            if(both.IsNull()) continue;
-            const NamedShape bothNamed(placed(both, frame), {});
-            BooleanResult once = runBoolean(BoolOp::Cut, {&fitted}, {&bothNamed}, prefix);
-            if(once.ok && took(once.shape)) {
-                threaded = once.shape;
-                done = true;
+    // 2. A hole's countersink at each open face: a cone of the included angle
+    // from its diameter at the face (by default a little over the major, so
+    // there is no thin, sharp first turn) on past the root into the bore,
+    // for a screw to start true.
+    TopoDS_Shape cones;
+    if(internal && csk.on && (openStart || openEnd)) {
+        const double half = std::clamp(csk.angle, 30.0, 150.0) / 2 * kPiT / 180;
+        const double rIn = std::max(0.5 * rMin, rMin - 0.2 * p);
+        const double rWant = csk.diameter > 0 ? csk.diameter / 2 : rMaj + 0.15 * p;
+        // No deeper than a third of the thread.
+        const double rFace = std::min(rWant, rIn + std::tan(half) * L / 3);
+        if(rFace > rMin + 1e-6) {
+            const double deep = (rFace - rIn) / std::tan(half), over = e * std::tan(half);
+            if(openStart) cones = revolved({{0, -e}, {rFace + over, -e}, {rIn, deep}, {0, deep}});
+            if(openEnd) {
+                const TopoDS_Shape top = revolved({{0, L - deep}, {rIn, L - deep}, {rFace + over, L + e}, {0, L + e}});
+                cones = cones.IsNull() ? top : boolean(Op::Fuse, cones, top, cancel);
             }
+            if(stopped()) return false;
         }
     }
-    if(!done) {
-        why = "the " + spec.name + " thread could not be built";
+
+    // 3. A hole bored to the root, with its countersinks (shapes of
+    // revolution: an easy cut); a post turned down to the root.
+    TopoDS_Shape plain = internal ? cylinder(rMin, openStart ? -e : 0, openEnd ? L + e : L)
+                                  : boolean(Op::Cut, cylinder(std::max(outer, rMaj) + 1.0, 0, L), cylinder(rMin, 0, L), cancel);
+    if(!plain.IsNull() && !cones.IsNull()) plain = boolean(Op::Fuse, plain, cones, cancel);
+    if(stopped()) return false;
+    const NamedShape plainNamed(placed(plain, frame), {});
+    BooleanResult bored = plain.IsNull() ? BooleanResult{} : runBoolean(BoolOp::Cut, {&fitted}, {&plainNamed}, prefix, cancel, true);
+    if(stopped()) return false;
+    if(!bored.ok) {
+        why = internal ? "the hole could not be bored for the " + spec.name + " thread"
+                       : "the post could not be turned down for the " + spec.name + " thread";
         return false;
     }
-    if(!internal || !csk.on || (!openStart && !openEnd)) {
-        result = threaded;
-        return true;
-    }
+    const NamedShape &turned = bored.shape;
 
-    // 4. A hole's countersink at each open face: a cone of the included angle
-    // from its diameter at the face (by default a little over the major, so
-    // there is no thin, sharp first turn) on past the root into the bore's
-    // air rather than ending on its wall, so a screw starts true.
-    const double half = std::clamp(csk.angle, 30.0, 150.0) / 2 * kPiT / 180;
-    const double rIn = std::max(0.5 * rMin, rMin - 0.2 * p);
-    const double rWant = csk.diameter > 0 ? csk.diameter / 2 : rMaj + 0.15 * p;
-    // No deeper than a third of the thread.
-    const double rFace = std::min(rWant, rIn + std::tan(half) * L / 3);
-    if(rFace <= rMin + 1e-6) {
-        result = threaded;
-        return true;
-    }
-    for(const double grow : {0.0, 0.03 * p, -0.03 * p}) {
-        const double rl = rFace + grow, deep = (rl - rIn) / std::tan(half), over = e * std::tan(half);
-        TopoDS_Shape cone;
-        if(openStart) cone = revolved({{0, -e}, {rl + over, -e}, {rIn, deep}, {0, deep}});
-        if(openEnd) {
-            const TopoDS_Shape top = revolved({{0, L - deep}, {rIn, L - deep}, {rl + over, L + e}, {0, L + e}});
-            cone = cone.IsNull() ? top : boolean(Op::Fuse, cone, top);
+    // 4. The ridge, swept past both ends and trimmed to the envelope, cut into
+    // the hole's wall or joined onto the post. A boolean that silently leaves
+    // the shape as it was (or does something else) is tried again with the
+    // ridge started elsewhere round the axis.
+    // A boolean can silently leave the part as it was, or go only partly
+    // right (a stretch of the bore left standing): look at the result. Round
+    // the middle of the thread, clear of its ends: inside the root all air (a
+    // hole) or all part (a post), out past the crests the other way round, and
+    // between them the thread's grooves, both. (Measuring the volume of all
+    // those helical faces would take seconds.)
+    gp_Trsf toPart;
+    toPart.SetDisplacement(gp_Ax3(), frame);
+    auto looksRight = [&](const TopoDS_Shape &shape) {
+        BRepClass3d_SolidClassifier where(shape);
+        const double depth = rMaj - rMin;
+        auto solidRound = [&](double r, double z) {
+            int n = 0;
+            for(int k = 0; k < 8; ++k) {
+                const double a = (k + 0.5) * kPiT / 4;
+                where.Perform(gp_Pnt(r * std::cos(a), r * std::sin(a), z).Transformed(toPart), 1e-6);
+                n += where.State() == TopAbs_IN;
+            }
+            return n;
+        };
+        const double z = L / 2;
+        const int in = solidRound(rMin - depth / 4, z), out = solidRound(rMaj + depth / 4, z), mid = solidRound((rMin + rMaj) / 2, z);
+        return (internal ? in == 0 && out == 8 : in == 8 && out == 0) && mid > 0 && mid < 8;
+    };
+    for(int attempt = 0; attempt < 4; ++attempt) {
+        if(stopped()) return false;
+        // How far the flanks run on under the root (adjacent turns must not
+        // meet: under 0.21 P).
+        static constexpr double kSink[] = {0.18, 0.15, 0.12, 0.16};
+        // Where round the axis the ridge starts (a retry starts it elsewhere).
+        static constexpr double kTurn[] = {2.6, 0.7, 4.5, 1.6};
+        const double sink = p * kSink[attempt];
+        const std::vector<RidgePiece> swept = ridge(p, rMin, rMaj, -2 * p, L + 2 * p, leftHand, sink, kTurn[attempt]);
+        if(stopped()) return false;
+        if(swept.empty()) continue;
+        // Trimmed to the envelope where it ends or fades (the pieces between
+        // need nothing), and dropped past it.
+        const double envLo = internal && openStart ? -past : 0, envHi = internal && openEnd ? L + past : L;
+        const double safeLo = openStart ? (internal ? -past : rBig - rMin) : fade;
+        const double safeHi = openEnd ? (internal ? L + past : L - (rBig - rMin)) : L - fade;
+        std::vector<NamedShape> pieces;
+        bool bad = false;
+        for(const RidgePiece &piece : swept) {
+            if(piece.zHi <= envLo || piece.zLo >= envHi) continue;
+            TopoDS_Shape shape = piece.shape;
+            if(piece.zLo < safeLo || piece.zHi > safeHi) shape = boolean(Op::Common, shape, envelope, cancel);
+            if(stopped()) return false;
+            if(shape.IsNull()) {
+                bad = true;
+                break;
+            }
+            pieces.emplace_back(placed(shape, frame), std::vector<FaceLabel>{});
         }
-        if(cone.IsNull()) continue;
-        const double before2 = volumeOf(threaded.shape());
-        const NamedShape coneNamed(placed(cone, frame), {});
-        BooleanResult lead = runBoolean(BoolOp::Cut, {&threaded}, {&coneNamed}, prefix);
-        if(!lead.ok) continue;
-        const double cut = before2 - volumeOf(lead.shape.shape());
-        // The cones take the first turn's crests (and more, when wide): more
-        // than nothing, less than the whole ring of wall round them.
-        const double ring = kPiT * (rl * rl - rMin * rMin) * (deep + e) * ((openStart ? 1 : 0) + (openEnd ? 1 : 0));
-        if(cut <= 1e-6 * ring || cut > ring || !BRepCheck_Analyzer(lead.shape.shape()).IsValid()) continue;
-        result = lead.shape;
+        if(bad || pieces.empty()) continue;
+        std::vector<const NamedShape *> tools;
+        for(const NamedShape &piece : pieces) tools.push_back(&piece);
+        const BooleanResult done = runBoolean(internal ? BoolOp::Cut : BoolOp::Fuse, {&turned}, tools, prefix, cancel, true);
+        if(stopped()) return false;
+        if(!done.ok) continue;
+        if(!looksRight(done.shape.shape())) continue;
+        result = done.shape;
         return true;
     }
-    why = "the countersink for the " + spec.name + " thread could not be cut";
+    why = "the " + spec.name + " thread could not be built";
     return false;
 }
 
@@ -394,7 +430,7 @@ FeatureResult ThreadFeature::compute(const StatePtr &input, const ComputeContext
             NamedShape result;
             std::string why;
             if(!threadBody(body->shape, *spec, frame, b - a, internal, clear, leftHand, radius, tprefix, result, why,
-                           startOpen, endOpen, csk))
+                           startOpen, endOpen, csk, ctx.cancel))
                 return {input, Status::error(why)};
             if(!validateResult(result, prefix, st)) return {input, st};
             replaceBody(*out, body->id, result);

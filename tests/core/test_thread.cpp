@@ -6,9 +6,14 @@
 #include "io/StlWriter.h"
 
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
 
+#include <chrono>
 #include <cmath>
+#include <thread>
 
 using namespace cadtest;
 
@@ -325,4 +330,28 @@ TEST_CASE("a tapped hole: the M5 tap drill with a modelled thread") {
     requirePrintable(onlyBody(doc.displayedState())->shape.shape());
     // The default countersink at the top: air just past the major at the face.
     CHECK(solidAround(onlyBody(doc.displayedState())->shape.shape(), 10, 10, 2.5 + 0.15 + 0.05, 9.98) == 0);
+}
+
+TEST_CASE("a long thread stops promptly when its compute is cancelled") {
+    // M3 down 30 mm: some 60 turns, seconds of work. A newer request (the
+    // next click) sets the flag; the thread must let go at once, so the next
+    // preview is not kept waiting.
+    const TopoDS_Shape block = BRepPrimAPI_MakeBox(gp_Pnt(-10, -10, 0), 20, 20, 30).Shape();
+    const TopoDS_Shape bore = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, -1), gp_Dir(0, 0, 1)), 1.25, 32).Shape();
+    const NamedShape body(BRepAlgoAPI_Cut(block, bore).Shape(), {});
+    std::atomic<bool> stop{false};
+    std::thread later([&] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        stop = true;
+    });
+    const auto t0 = std::chrono::steady_clock::now();
+    NamedShape result;
+    std::string why;
+    const bool ok = threadBody(body, *findThread("M3"), gp_Ax3(), 30, true, 0.15, false, 1.25, "t", result, why, true, true,
+                               Countersink{}, &stop);
+    const double took = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    later.join();
+    CHECK(!ok);
+    CHECK(why == "cancelled");
+    CHECK(took < 1.5);
 }

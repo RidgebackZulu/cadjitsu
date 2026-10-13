@@ -5,6 +5,10 @@
 #include "doc/ModelState.h"
 #include "topo/NamedShape.h"
 
+#include <Message_ProgressIndicator.hxx>
+#include <Message_ProgressScope.hxx>
+
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -31,8 +35,25 @@ struct BooleanResult {
 // Faces and edges closer than this (mm) are treated as coincident by booleans.
 inline constexpr double kBooleanFuzz = 1e-4;
 
+// Stops OCCT algorithms that take a progress range (booleans, mostly) once
+// `flag` is set: a newer request makes a long one pointless.
+class CancelProgress : public Message_ProgressIndicator {
+public:
+    explicit CancelProgress(const std::atomic<bool> *flag) : m_flag(flag) {}
+    Standard_Boolean UserBreak() override { return m_flag && m_flag->load(std::memory_order_relaxed); }
+
+protected:
+    void Show(const Message_ProgressScope &, const Standard_Boolean) override {}
+
+private:
+    const std::atomic<bool> *m_flag;
+};
+
+// `cancel` (optional) stops it early, failing with "cancelled"; `parallel`
+// spreads a long one over the cores.
 BooleanResult runBoolean(BoolOp op, const std::vector<const NamedShape *> &args,
-                         const std::vector<const NamedShape *> &tools, const std::string &prefix);
+                         const std::vector<const NamedShape *> &tools, const std::string &prefix,
+                         const std::atomic<bool> *cancel = nullptr, bool parallel = false);
 
 // Merges coplanar / cocylindrical faces of a single shape, keeping names.
 NamedShape unifyNamed(const NamedShape &shape, const std::string &prefix);

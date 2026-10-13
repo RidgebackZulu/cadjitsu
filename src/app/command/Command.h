@@ -144,6 +144,7 @@ private:
     std::unique_ptr<Command> m_cmd;
     CanvasValueBox *m_box = nullptr;
     uint64_t m_request = 0;
+    uint64_t m_delivered = 0; // the last preview shown
     int m_candidateIndex = -1;
     bool m_previewPending = false;
 };
