@@ -103,8 +103,9 @@ Keep at least 2 wall thicknesses (~2.5 mm) between a hole and an outside face.
 
 Threads: `hole` with `type: "tapped"` and `thread: "M5"`, or `thread` on an existing hole's or post's round face
 (size from its diameter, or given). Threads are always modelled, and any hole or post is fitted to the size on its
-own axis (filled and bored again, or grown, as needed). Holes get a countersink at their open ends
-(`countersink_angle`, `countersink_diameter`; `countersink: false` for a square entry). Printed threads need
+own axis (filled and bored again, or grown, as needed). Holes get a countersink at their top end
+(`countersink_ends`: top, bottom or both; `countersink_angle`, `countersink_diameter`; `countersink: false` for a
+square entry). Printed threads need
 clearance (default 0.15 mm); M2-M4 print poorly, so prefer heat-set inserts or self-tapping screws there.
 
 Text: `emboss_text` engraves text into a face (`direction: "engrave"`, the default) or raises it

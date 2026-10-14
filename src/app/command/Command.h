@@ -67,6 +67,9 @@ public:
     virtual void apply() {}
     // The command closes (OK or Cancel): take back what it showed.
     virtual void end() {}
+    // Its preview is taking a while (busy), or has arrived: a command may
+    // light up what it is working on.
+    virtual void previewBusy(bool) {}
     // Its feature was committed with OK (added, or the edit applied).
     virtual void accepted(const cad::Feature &) {}
 

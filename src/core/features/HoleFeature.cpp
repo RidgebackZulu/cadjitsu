@@ -116,6 +116,7 @@ json HoleFeature::dataToJson() const {
         j["thread"] = thread;
         j["threadClearance"] = threadClearance.toJson();
         j["threadCountersink"] = threadCountersink;
+        j["threadCountersinkEnds"] = toString(threadCountersinkEnds);
         j["threadCountersinkAngle"] = threadCountersinkAngle;
         if(!threadCountersinkDiameter.empty()) j["threadCountersinkDiameter"] = threadCountersinkDiameter.toJson();
     }
@@ -131,6 +132,7 @@ void HoleFeature::dataFromJson(const json &j) {
     holeType = holeTypeFromName(jget<std::string>(j, "holeType", ""));
     thread = jget<std::string>(j, "thread", "");
     threadCountersink = jget<bool>(j, "threadCountersink", true);
+    threadCountersinkEnds = countersinkEndsFromString(jget<std::string>(j, "threadCountersinkEnds", "top"));
     threadCountersinkAngle = jget<double>(j, "threadCountersinkAngle", 90.0);
     threadCountersinkDiameter = ParamSlot::fromJson(j.value("threadCountersinkDiameter", json()));
     threadClearance = ParamSlot::fromJson(j.value("threadClearance", json()));
@@ -287,6 +289,9 @@ FeatureResult HoleFeature::compute(const StatePtr &input, const ComputeContext &
         Countersink csk;
         csk.on = threadCountersink;
         csk.angle = threadCountersinkAngle;
+        // The thread runs up from the bottom: its end is the face drilled into.
+        csk.atEnd = threadCountersinkEnds != CountersinkEnds::Bottom;
+        csk.atStart = threadCountersinkEnds != CountersinkEnds::Top;
         if(model && threadCountersink && !threadCountersinkDiameter.empty()) {
             if(!ctx.value(threadCountersinkDiameter, csk.diameter, st)) return {input, st, shown};
             if(csk.diameter <= 0) return {input, Status::error("the countersink diameter must be positive"), shown};

@@ -204,7 +204,7 @@ Bevels edges (from list_edges): equal distance, two distances, or distance and a
 
 ## `hole`
 
-Drills holes into a planar face at world points on it (or at the points of a sketch): simple, counterbore (for socket head screws), countersink (for flat head screws) or tapped (a threaded hole: set thread, e.g. "M5"; drilled at its tap drill and the thread modelled, with a countersink at its open ends); to a depth or through all.
+Drills holes into a planar face at world points on it (or at the points of a sketch): simple, counterbore (for socket head screws), countersink (for flat head screws) or tapped (a threaded hole: set thread, e.g. "M5"; drilled at its tap drill and the thread modelled, with a countersink at its top); to a depth or through all.
 
 | Argument | Type | Description |
 |---|---|---|
@@ -220,9 +220,10 @@ Drills holes into a planar face at world points on it (or at the points of a ske
 | `sketch` | integer | instead of face + points: every point entity of this sketch (holes go along its normal) |
 | `thread` | string | tapped: the thread size, e.g. "M3", "M5", "M8x1", "1/4-20 UNC" (see the thread tool) |
 | `thread_clearance` | number or string | tapped: radial print clearance, mm (default 0.15) |
-| `thread_countersink` | boolean | tapped: a countersink at the open ends (default true) |
+| `thread_countersink` | boolean | tapped: a countersink (default true) |
 | `thread_countersink_angle` | number | tapped: its included angle, degrees (default 90; 82 for inch screws) |
 | `thread_countersink_diameter` | number or string | tapped: its diameter at the face, mm (default a little over the thread) |
+| `thread_countersink_ends` | `top` / `bottom` / `both` | tapped: where: top (the face drilled into, default), bottom (where a through hole comes out) or both |
 | `through_all` | boolean | go through everything |
 | `tip_angle` | number or string | drill point angle, default 118 |
 | `type` | `simple` / `counterbore` / `countersink` / `tapped` | default simple |
@@ -283,14 +284,15 @@ Repeats bodies, or holes / extrudes, in rows (rectangular: count and spacing alo
 
 ## `thread`
 
-Threads round faces: a hole's wall (internal thread, to take a screw) or a post (external, a bolt), with modelled helical threads. Any hole or post takes any size: it is fitted to the thread on its own axis (a hole too big is filled and bored again, too small opened; a post too thin is grown, too fat turned down). The size comes from the diameter unless given. A hole gets a countersink at its open ends (countersink_angle, countersink_diameter; countersink false for a square entry). clearance (radial) makes printed threads fit. Sizes: ISO M2-M24 coarse, M8x1..M24x2 fine, UNC and UNF #2 to 1", UNEF (extra fine, e.g. 1/2-28) #12 to 7/8".
+Threads round faces: a hole's wall (internal thread, to take a screw) or a post (external, a bolt), with modelled helical threads. Any hole or post takes any size: it is fitted to the thread on its own axis (a hole too big is filled and bored again, too small opened; a post too thin is grown, too fat turned down). The size comes from the diameter unless given. A hole gets a countersink at its top end (countersink_ends: top, bottom or both; countersink_angle, countersink_diameter; countersink false for a square entry). clearance (radial) makes printed threads fit. Sizes: ISO M2-M24 coarse, M8x1..M24x2 fine, UNC and UNF #2 to 1", UNEF (extra fine, e.g. 1/2-28) #12 to 7/8".
 
 | Argument | Type | Description |
 |---|---|---|
 | `clearance` | number or string | radial print clearance, mm (default 0.15) |
-| `countersink` | boolean | holes: a countersink at the open ends (default true) |
+| `countersink` | boolean | holes: a countersink (default true) |
 | `countersink_angle` | number | its included angle, degrees (default 90; 82 for inch screws) |
 | `countersink_diameter` | number or string | its diameter at the face, mm (default a little over the thread) |
+| `countersink_ends` | `top` / `bottom` / `both` | holes: where: top (the higher open end, default), bottom or both |
 | `faces` **(required)** | array of objects | round faces (list_faces with type cylinder) |
 | `left_hand` | boolean | left-handed thread |
 | `length` | number or string | thread length from the open end, mm (default the whole face) |

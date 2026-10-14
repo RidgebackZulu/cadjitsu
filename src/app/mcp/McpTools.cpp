@@ -1290,7 +1290,7 @@ void McpTools::define() {
     add("hole",
         "Drills holes into a planar face at world points on it (or at the points of a sketch): simple, counterbore "
         "(for socket head screws), countersink (for flat head screws) or tapped (a threaded hole: set thread, e.g. "
-        "\"M5\"; drilled at its tap drill and the thread modelled, with a countersink at its open ends); to a depth "
+        "\"M5\"; drilled at its tap drill and the thread modelled, with a countersink at its top); to a depth "
         "or through all.",
         {{"face", topoItem("face")},
          {"points", arrayOf(xyz("a point on the face"), "hole centres (world coordinates, mm)")},
@@ -1298,7 +1298,8 @@ void McpTools::define() {
          {"type", enumOf({"simple", "counterbore", "countersink", "tapped"}, "default simple")},
          {"thread", str("tapped: the thread size, e.g. \"M3\", \"M5\", \"M8x1\", \"1/4-20 UNC\" (see the thread tool)")},
          {"thread_clearance", numberOrExpr("tapped: radial print clearance, mm (default 0.15)")},
-         {"thread_countersink", boolean("tapped: a countersink at the open ends (default true)")},
+         {"thread_countersink", boolean("tapped: a countersink (default true)")},
+         {"thread_countersink_ends", enumOf({"top", "bottom", "both"}, "tapped: where: top (the face drilled into, default), bottom (where a through hole comes out) or both")},
          {"thread_countersink_angle", number("tapped: its included angle, degrees (default 90; 82 for inch screws)")},
          {"thread_countersink_diameter", numberOrExpr("tapped: its diameter at the face, mm (default a little over the thread)")},
          {"diameter", numberOrExpr("hole diameter, default 5")},
@@ -1351,6 +1352,7 @@ void McpTools::define() {
                 h->threadClearance = slot(lengthExpr(a.value("thread_clearance", json(0.15)), "thread_clearance"),
                                           cad::ValueKind::Length, "thread_clearance");
                 h->threadCountersink = a.value("thread_countersink", true);
+                h->threadCountersinkEnds = cad::countersinkEndsFromString(a.value("thread_countersink_ends", "top"));
                 h->threadCountersinkAngle = a.value("thread_countersink_angle", 90.0);
                 if(a.contains("thread_countersink_diameter"))
                     h->threadCountersinkDiameter = slot(lengthExpr(a["thread_countersink_diameter"], "thread_countersink_diameter"),
@@ -1554,8 +1556,8 @@ void McpTools::define() {
         "Threads round faces: a hole's wall (internal thread, to take a screw) or a post (external, a bolt), with "
         "modelled helical threads. Any hole or post takes any size: it is fitted to the thread on its own axis (a hole "
         "too big is filled and bored again, too small opened; a post too thin is grown, too fat turned down). The size "
-        "comes from the diameter unless given. A hole gets a countersink at its open ends (countersink_angle, "
-        "countersink_diameter; countersink false for a square entry). clearance (radial) makes printed threads fit. "
+        "comes from the diameter unless given. A hole gets a countersink at its top end (countersink_ends: top, bottom or "
+        "both; countersink_angle, countersink_diameter; countersink false for a square entry). clearance (radial) makes printed threads fit. "
         "Sizes: ISO M2-M24 coarse, M8x1..M24x2 fine, UNC and UNF #2 to 1\", UNEF (extra fine, e.g. 1/2-28) #12 to "
         "7/8\".",
         {{"faces", arrayOf(topoItem("face"), "round faces (list_faces with type cylinder)")},
@@ -1563,7 +1565,8 @@ void McpTools::define() {
          {"clearance", numberOrExpr("radial print clearance, mm (default 0.15)")},
          {"length", numberOrExpr("thread length from the open end, mm (default the whole face)")},
          {"left_hand", boolean("left-handed thread")},
-         {"countersink", boolean("holes: a countersink at the open ends (default true)")},
+         {"countersink", boolean("holes: a countersink (default true)")},
+         {"countersink_ends", enumOf({"top", "bottom", "both"}, "holes: where: top (the higher open end, default), bottom or both")},
          {"countersink_angle", number("its included angle, degrees (default 90; 82 for inch screws)")},
          {"countersink_diameter", numberOrExpr("its diameter at the face, mm (default a little over the thread)")}},
         {"faces"}, [begin, settle, topo, commit, slot](const json &a) {
@@ -1581,6 +1584,7 @@ void McpTools::define() {
             if(a.contains("length")) t->length = slot(lengthExpr(a["length"], "length"), cad::ValueKind::Length, "length");
             t->leftHand = a.value("left_hand", false);
             t->countersink = a.value("countersink", true);
+            t->countersinkEnds = cad::countersinkEndsFromString(a.value("countersink_ends", "top"));
             t->countersinkAngle = a.value("countersink_angle", 90.0);
             if(a.contains("countersink_diameter"))
                 t->countersinkDiameter = slot(lengthExpr(a["countersink_diameter"], "countersink_diameter"), cad::ValueKind::Length,

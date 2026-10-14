@@ -3,6 +3,7 @@
 #include "command/CommandPanel.h"
 
 #include "doc/Feature.h"
+#include "features/ThreadFeature.h"
 
 #include <QString>
 #include <QStringList>
@@ -19,28 +20,31 @@ void noteThreadSize(const QString &name);
 // line, then every size in the table.
 void fillThreadSizes(QComboBox *box, const QString &first = {});
 
-// A threaded hole's countersink rows: on / off, the included angle and the
-// diameter at the face (blank: a little over the thread's major diameter).
+// A threaded hole's countersink rows: on / off, which ends (top, bottom or
+// both), the included angle and the diameter at the face (blank: a little
+// over the thread's major diameter).
 class CountersinkRows {
 public:
     void add(CommandPanel &panel, ValueField::Evaluator eval, const char *prefix);
-    void load(bool on, double angle, const cad::ParamSlot &diameter);
+    void load(bool on, cad::CountersinkEnds ends, double angle, const cad::ParamSlot &diameter);
     void setVisible(CommandPanel &panel, bool visible);
     // The auto diameter, shown greyed in the blank diameter box.
     void setAutoDiameter(double mm);
     bool valid() const; // the diameter is blank or a value
     bool on() const;
+    cad::CountersinkEnds ends() const;
     double angle() const;
     // The diameter as a parameter (empty: auto); `slot` names it.
     cad::ParamSlot diameter(const cad::ParamSlot &slot) const;
 
     QCheckBox *onBox() const { return m_on; }
+    QComboBox *endsBox() const { return m_ends; }
     QComboBox *angleBox() const { return m_angle; }
     ValueField *diameterField() const { return m_diameter; }
 
 private:
     QCheckBox *m_on = nullptr;
-    QComboBox *m_angle = nullptr;
+    QComboBox *m_ends = nullptr, *m_angle = nullptr;
     ValueField *m_diameter = nullptr;
 };
 

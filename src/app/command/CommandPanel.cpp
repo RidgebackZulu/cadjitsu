@@ -267,7 +267,10 @@ void CommandPanel::begin(const QString &title, IconId id) {
     raise();
 }
 
-void CommandPanel::end() { hide(); }
+void CommandPanel::end() {
+    setBusy(false);
+    hide();
+}
 
 void CommandPanel::addRow(const QString &label, QWidget *field) {
     auto *l = new QLabel(label, m_body);
@@ -401,6 +404,7 @@ void CommandPanel::setRowLabel(QWidget *field, const QString &label) {
 }
 
 void CommandPanel::setMessage(const QString &text, cad::Severity severity) {
+    m_busy = false;
     m_message->setText(text);
     m_message->setVisible(!text.isEmpty());
     const char *color = severity == cad::Severity::Error ? "#b3261e" : severity == cad::Severity::Warning ? "#8a6100" : "#3c4450";
@@ -409,6 +413,19 @@ void CommandPanel::setMessage(const QString &text, cad::Severity severity) {
 }
 
 QString CommandPanel::message() const { return m_message->isVisible() ? m_message->text() : QString(); }
+
+void CommandPanel::setBusy(bool busy) {
+    if(!busy) {
+        if(m_busy) setMessage(QString());
+        return;
+    }
+    m_busy = true;
+    m_message->setText(tr("Computing the preview…"));
+    m_message->setVisible(true);
+    m_message->setStyleSheet(QStringLiteral(
+        "color: #3a2c00; background: #ffd54a; border: 1px solid #e0b100; border-radius: 4px; padding: 2px 6px;"));
+    adjustSize();
+}
 
 void CommandPanel::setOkEnabled(bool on) { m_ok->setEnabled(on); }
 

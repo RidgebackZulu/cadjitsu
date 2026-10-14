@@ -162,8 +162,9 @@ void CommandController::preview() {
     // looking as if nothing happened.
     if(f)
         QTimer::singleShot(400, this, [this, id = m_request] {
-            if(m_cmd && m_request == id && m_delivered < id && m_ctx.panel->message().isEmpty())
-                m_ctx.panel->setMessage(tr("Computing the preview…"));
+            if(!m_cmd || m_request != id || m_delivered >= id) return;
+            m_ctx.panel->setBusy(true);
+            m_cmd->previewBusy(true);
         });
 }
 
@@ -175,6 +176,10 @@ bool CommandController::accepts(const EvaluationPtr &e) const {
 void CommandController::onEvaluation(const EvaluationPtr &e) {
     if(!m_cmd || !e->preview || e->id < m_request) return;
     m_delivered = e->id;
+    if(m_ctx.panel->busy()) {
+        m_ctx.panel->setBusy(false);
+        m_cmd->previewBusy(false);
+    }
     if(m_candidateIndex >= 0 && m_candidateIndex < int(e->statuses.size())) {
         // A feature that fails to compute cannot be committed; its message says why.
         const cad::Status &st = e->statuses[size_t(m_candidateIndex)];

@@ -1000,18 +1000,23 @@ private slots:
         settle();
         QVERIFY2(t->detectedLabel()->text().contains(QStringLiteral("opened to M8")), qPrintable(t->detectedLabel()->text()));
         const double withCountersink = shown();
-        QVERIFY(withCountersink < drilled - M_PI * (3.4 * 3.4 - 2.5 * 2.5) * 10);
+        QVERIFY2(withCountersink < drilled - M_PI * (3.4 * 3.4 - 2.5 * 2.5) * 10,
+                 qPrintable(QStringLiteral("%1 removed; %2").arg(drilled - withCountersink).arg(panel()->message())));
         // The countersink rows (a hole's), and a square entry without it.
         QVERIFY(field<QWidget>("threadCountersinkAngle")->isVisibleTo(panel()));
         t->countersink().onBox()->setChecked(false);
         settle();
         QVERIFY(shown() > withCountersink + 0.5);
+        // Once the preview is in, no yellow.
+        QVERIFY(!t->busy() && !panel()->busy());
         t->countersink().onBox()->setChecked(true);
         t->countersink().angleBox()->setCurrentIndex(0); // 82 degrees
+        t->countersink().endsBox()->setCurrentIndex(2);  // both ends
         panel()->okButton()->click();
         settle();
         const auto f = std::dynamic_pointer_cast<const cad::ThreadFeature>(doc().features().back());
-        QVERIFY(f && f->faces.size() == 1 && f->size == "M8" && f->countersink && f->countersinkAngle == 82);
+        QVERIFY(f && f->faces.size() == 1 && f->size == "M8" && f->countersink && f->countersinkAngle == 82 &&
+                f->countersinkEnds == cad::CountersinkEnds::Both);
         QVERIFY(doc().statusOf(f->id).isOk());
         // M8 is now the most recent size, listed first (after "From the diameter").
         QCOMPARE(recentThreadSizes().value(0), QStringLiteral("M8"));
@@ -1021,6 +1026,7 @@ private slots:
         QCOMPARE(t->sizeBox()->itemText(1), QStringLiteral("M8"));
         QCOMPARE(t->sizeBox()->currentText(), QStringLiteral("M8"));
         QCOMPARE(t->countersink().angleBox()->currentIndex(), 0);
+        QCOMPARE(t->countersink().endsBox()->currentIndex(), 2);
         panel()->cancelButton()->click();
         settle();
 
@@ -1073,8 +1079,14 @@ private slots:
             for(int k = 0; k < 8 && t->faceCount() == 0; ++k)
                 click(c + QPointF(r * std::cos(k * M_PI / 4), r * std::sin(k * M_PI / 4)));
         QCOMPARE(t->faceCount(), 1);
-        QTest::qWait(300); // the thread's preview is under way
+        // The thread's preview is under way: shown in yellow, in the panel and
+        // on the hole.
+        QTest::qWait(700);
+        QVERIFY(panel()->busy());
+        QVERIFY(panel()->message().contains(QStringLiteral("Computing")));
+        QVERIFY(t->busy());
         panel()->cancelButton()->click();
+        QVERIFY(!panel()->busy());
         trigger("hole");
         QVERIFY(command<HoleCommand>());
         QElapsedTimer clock;

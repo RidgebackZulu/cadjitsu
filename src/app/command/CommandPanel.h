@@ -136,6 +136,10 @@ public:
     void setRowLabel(QWidget *field, const QString &label);
     void setMessage(const QString &text, cad::Severity severity = cad::Severity::Ok);
     QString message() const;
+    // A preview that takes a while: "Computing the preview..." in a yellow
+    // pill, to draw the eye, until a message replaces it or it is cleared.
+    void setBusy(bool busy);
+    bool busy() const { return m_busy; }
     void setOkEnabled(bool on);
     QPushButton *okButton() const { return m_ok; }
     QPushButton *cancelButton() const { return m_cancel; }
@@ -157,6 +161,7 @@ private:
     QWidget *m_body;
     QGridLayout *m_rows;
     QLabel *m_message;
+    bool m_busy = false;
     QPushButton *m_ok, *m_cancel;
     std::map<QWidget *, QLabel *> m_labels;
     std::map<QWidget *, QWidget *> m_rowWidgets; // a field inside a row's widget (angle + dial)

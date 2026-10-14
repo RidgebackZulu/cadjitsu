@@ -46,6 +46,10 @@ void CountersinkRows::add(CommandPanel &panel, ValueField::Evaluator eval, const
     m_on = panel.addCheck(QObject::tr("Countersink"), p + "Countersink");
     m_on->setChecked(true);
     m_on->setToolTip(QObject::tr("A countersink at the hole's open ends, so a screw starts true."));
+    m_ends = panel.addChoice(QObject::tr("Countersink Ends"), {QObject::tr("Top"), QObject::tr("Bottom"), QObject::tr("Both")},
+                             p + "CountersinkEnds");
+    m_ends->setToolTip(QObject::tr("Which open end of the hole: the top (the face drilled into, or the higher end), the "
+                                   "bottom, or both."));
     QStringList angles;
     for(double a : kAngles) angles << QStringLiteral("%1°").arg(a);
     m_angle = panel.addChoice(QObject::tr("Countersink Angle"), angles, p + "CountersinkAngle");
@@ -56,13 +60,15 @@ void CountersinkRows::add(CommandPanel &panel, ValueField::Evaluator eval, const
                                 p + "CountersinkDiameter");
     m_diameter->setToolTip(QObject::tr("At the face. Leave it blank for a little over the thread's outside."));
     QObject::connect(m_on, &QCheckBox::toggled, m_angle, [this](bool on) {
+        m_ends->setEnabled(on);
         m_angle->setEnabled(on);
         m_diameter->setEnabled(on);
     });
 }
 
-void CountersinkRows::load(bool on, double angle, const cad::ParamSlot &diameter) {
+void CountersinkRows::load(bool on, cad::CountersinkEnds ends, double angle, const cad::ParamSlot &diameter) {
     m_on->setChecked(on);
+    m_ends->setCurrentIndex(ends == cad::CountersinkEnds::Bottom ? 1 : ends == cad::CountersinkEnds::Both ? 2 : 0);
     int best = 1;
     for(int i = 0; i < 4; ++i)
         if(std::fabs(kAngles[i] - angle) < std::fabs(kAngles[best] - angle)) best = i;
@@ -72,6 +78,7 @@ void CountersinkRows::load(bool on, double angle, const cad::ParamSlot &diameter
 
 void CountersinkRows::setVisible(CommandPanel &panel, bool visible) {
     panel.setRowVisible(m_on, visible);
+    panel.setRowVisible(m_ends, visible);
     panel.setRowVisible(m_angle, visible);
     panel.setRowVisible(m_diameter, visible);
 }
@@ -83,6 +90,11 @@ void CountersinkRows::setAutoDiameter(double mm) {
 bool CountersinkRows::valid() const { return !m_on->isChecked() || m_diameter->text().trimmed().isEmpty() || m_diameter->valid(); }
 
 bool CountersinkRows::on() const { return m_on->isChecked(); }
+
+cad::CountersinkEnds CountersinkRows::ends() const {
+    const int i = m_ends->currentIndex();
+    return i == 1 ? cad::CountersinkEnds::Bottom : i == 2 ? cad::CountersinkEnds::Both : cad::CountersinkEnds::Top;
+}
 
 double CountersinkRows::angle() const { return kAngles[std::clamp(m_angle->currentIndex(), 0, 3)]; }
 

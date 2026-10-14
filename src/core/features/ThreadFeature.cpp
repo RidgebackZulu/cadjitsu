@@ -74,18 +74,18 @@ TopoDS_Shape boolean(Op which, const TopoDS_Shape &a, const TopoDS_Shape &b, con
 // half pitch: it overlaps the core well clear of the root cylinder, so a
 // boolean with that cylinder only meets the flanks, square on (a face just
 // under the root, nearly on the cylinder, makes booleans slow and unsure).
-// It is made of pieces of up to three turns, each overlapping the next a
+// It is made of pieces of up to `perPiece` turns, each overlapping the next a
 // little (to be given to a boolean as separate tools): OCCT's booleans miss
 // the crossings of a single sweep of many turns with a cylinder (wrapping its
 // seam again and again) and leave the part untouched, where short pieces each
-// cross it simply.
-// `turn` rotates where it starts (a retry when a boolean trips on the geometry).
+// cross it simply. `turn` rotates where it starts; a retry when a boolean
+// trips on the geometry changes both.
 struct RidgePiece {
     TopoDS_Shape shape;
     double zLo, zHi; // the heights it spans
 };
 std::vector<RidgePiece> ridge(double pitch, double rRoot, double rCrest, double from, double to, bool leftHand, double sink,
-                              double turn) {
+                              double turn, double perPiece) {
     const double flank = std::tan(kPiT / 6);
     const double half = 3 * pitch / 8 + sink * flank;
     const double z0 = from + half, z1 = to - half;
@@ -99,7 +99,7 @@ std::vector<RidgePiece> ridge(double pitch, double rRoot, double rCrest, double 
                                     rRoot * 0.5);
     const double perTurn = std::hypot(2 * kPiT, pitch); // helix length parameter per turn
     Handle(Geom2d_Line) line = new Geom2d_Line(gp_Pnt2d(0, 0), gp_Dir2d(leftHand ? -2 * kPiT : 2 * kPiT, pitch));
-    const int pieces = std::max(1, int(std::ceil(turns / 3)));
+    const int pieces = std::max(1, int(std::ceil(turns / perPiece)));
     const double step = turns / pieces, overlap = 0.01; // turns
     for(int k = 0; k < pieces; ++k) {
         const double t0 = std::max(0.0, k * step - overlap), t1 = std::min(turns, (k + 1) * step + overlap);
@@ -224,7 +224,8 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
     // there is no thin, sharp first turn) on past the root into the bore,
     // for a screw to start true.
     TopoDS_Shape cones;
-    if(internal && csk.on && (openStart || openEnd)) {
+    const bool sinkStart = openStart && csk.atStart, sinkEnd = openEnd && csk.atEnd;
+    if(internal && csk.on && (sinkStart || sinkEnd)) {
         const double half = std::clamp(csk.angle, 30.0, 150.0) / 2 * kPiT / 180;
         const double rIn = std::max(0.5 * rMin, rMin - 0.2 * p);
         const double rWant = csk.diameter > 0 ? csk.diameter / 2 : rMaj + 0.15 * p;
@@ -232,8 +233,8 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
         const double rFace = std::min(rWant, rIn + std::tan(half) * L / 3);
         if(rFace > rMin + 1e-6) {
             const double deep = (rFace - rIn) / std::tan(half), over = e * std::tan(half);
-            if(openStart) cones = revolved({{0, -e}, {rFace + over, -e}, {rIn, deep}, {0, deep}});
-            if(openEnd) {
+            if(sinkStart) cones = revolved({{0, -e}, {rFace + over, -e}, {rIn, deep}, {0, deep}});
+            if(sinkEnd) {
                 const TopoDS_Shape top = revolved({{0, L - deep}, {rIn, L - deep}, {rFace + over, L + e}, {0, L + e}});
                 cones = cones.IsNull() ? top : boolean(Op::Fuse, cones, top, cancel);
             }
@@ -290,10 +291,12 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
         // How far the flanks run on under the root (adjacent turns must not
         // meet: under 0.21 P).
         static constexpr double kSink[] = {0.18, 0.15, 0.12, 0.16};
-        // Where round the axis the ridge starts (a retry starts it elsewhere).
+        // Where round the axis the ridge starts, and how long its pieces are
+        // (a retry changes both).
         static constexpr double kTurn[] = {2.6, 0.7, 4.5, 1.6};
+        static constexpr double kPerPiece[] = {2, 1.5, 3, 1};
         const double sink = p * kSink[attempt];
-        const std::vector<RidgePiece> swept = ridge(p, rMin, rMaj, -2 * p, L + 2 * p, leftHand, sink, kTurn[attempt]);
+        const std::vector<RidgePiece> swept = ridge(p, rMin, rMaj, -2 * p, L + 2 * p, leftHand, sink, kTurn[attempt], kPerPiece[attempt]);
         if(stopped()) return false;
         if(swept.empty()) continue;
         // Trimmed to the envelope where it ends or fades (the pieces between
@@ -328,6 +331,14 @@ bool threadBody(const NamedShape &body, const ThreadSpec &spec, const gp_Ax3 &fr
     return false;
 }
 
+const char *toString(CountersinkEnds e) {
+    return e == CountersinkEnds::Bottom ? "bottom" : e == CountersinkEnds::Both ? "both" : "top";
+}
+
+CountersinkEnds countersinkEndsFromString(const std::string &s) {
+    return s == "bottom" ? CountersinkEnds::Bottom : s == "both" ? CountersinkEnds::Both : CountersinkEnds::Top;
+}
+
 std::vector<ParamDef> ThreadFeature::params() const {
     std::vector<ParamDef> out;
     if(!clearance.empty()) out.push_back({clearance.name, clearance.expr, ValueKind::Length, id, name + " Clearance"});
@@ -341,7 +352,7 @@ json ThreadFeature::dataToJson() const {
     json fs = json::array();
     for(const auto &f : faces) fs.push_back(f.toJson());
     json j{{"faces", fs}, {"size", size}, {"clearance", clearance.toJson()}, {"countersink", countersink},
-           {"countersinkAngle", countersinkAngle}};
+           {"countersinkEnds", toString(countersinkEnds)}, {"countersinkAngle", countersinkAngle}};
     if(!length.empty()) j["length"] = length.toJson();
     if(!countersinkDiameter.empty()) j["countersinkDiameter"] = countersinkDiameter.toJson();
     if(leftHand) j["leftHand"] = true;
@@ -353,6 +364,7 @@ void ThreadFeature::dataFromJson(const json &j) {
     for(const json &f : j.value("faces", json::array())) faces.push_back(TopoRef::fromJson(f));
     size = jget<std::string>(j, "size", "");
     countersink = jget<bool>(j, "countersink", true);
+    countersinkEnds = countersinkEndsFromString(jget<std::string>(j, "countersinkEnds", "top"));
     countersinkAngle = jget<double>(j, "countersinkAngle", 90.0);
     countersinkDiameter = ParamSlot::fromJson(j.value("countersinkDiameter", json()));
     clearance = ParamSlot::fromJson(j.value("clearance", json()));
@@ -376,6 +388,7 @@ FeatureResult ThreadFeature::compute(const StatePtr &input, const ComputeContext
         Countersink csk;
         csk.on = countersink;
         csk.angle = countersinkAngle;
+        const bool top = countersinkEnds != CountersinkEnds::Bottom, bottom = countersinkEnds != CountersinkEnds::Top;
         if(countersink && !countersinkDiameter.empty()) {
             if(!ctx.value(countersinkDiameter, csk.diameter, st)) return {input, st};
             if(csk.diameter <= 0) return {input, Status::error("the countersink diameter must be positive")};
@@ -425,6 +438,10 @@ FeatureResult ThreadFeature::compute(const StatePtr &input, const ComputeContext
             // part-length thread's inner end, or a blind end, fades out.
             const bool startOpen = a <= v0 + 1e-9 && bottomOpen, endOpen = b >= v1 - 1e-9 && topOpen;
             gp_Ax3 frame(onAxis(a), dir, cyl.Position().XDirection());
+            // The top is the higher end (the one the axis points to, lying flat).
+            const bool endIsTop = dir.Z() > -1e-6;
+            csk.atEnd = endIsTop ? top : bottom;
+            csk.atStart = endIsTop ? bottom : top;
             const std::string tprefix = prefix + "/t" + std::to_string(i + 1);
             // The hole or post is fitted to the thread, then threaded.
             NamedShape result;

@@ -19,6 +19,7 @@ namespace cadjitsu {
 
 namespace {
 const QColor kFace(230, 140, 40);
+const QColor kBusy(255, 205, 0); // computing
 } // namespace
 
 IconId ThreadCommand::iconId() const { return IconId::Thread; }
@@ -48,7 +49,7 @@ void ThreadCommand::setup() {
         for(const auto &f : o->faces) m_faces.push_back(InputRef::ofTopo(f));
         if(!o->size.empty()) m_size->setCurrentText(QString::fromStdString(o->size));
         m_left->setChecked(o->leftHand);
-        m_csk.load(o->countersink, o->countersinkAngle, o->countersinkDiameter);
+        m_csk.load(o->countersink, o->countersinkEnds, o->countersinkAngle, o->countersinkDiameter);
     } else {
         for(const auto &it : m_ctx.view->selection().items())
             if(it.kind == SelectionItem::Kind::Face)
@@ -56,7 +57,7 @@ void ThreadCommand::setup() {
     }
     for(ValueField *v : {m_clearanceField, m_lengthField}) connect(v, &ValueField::edited, this, &Command::inputsChanged);
     connect(m_clearanceField, &ValueField::edited, this, &ThreadCommand::updateDetected);
-    for(QComboBox *c : {m_size, m_csk.angleBox()})
+    for(QComboBox *c : {m_size, m_csk.endsBox(), m_csk.angleBox()})
         connect(c, &QComboBox::currentIndexChanged, this, [this] {
             updateRows();
             emit inputsChanged();
@@ -137,7 +138,7 @@ void ThreadCommand::updateRows() {
 void ThreadCommand::updateMarks() {
     ModelView::InputMarks marks;
     if(const cad::StatePtr base = baseState())
-        for(size_t i = 0; i < m_faces.size(); ++i) markInput(*m_ctx.view, *base, m_faces[i], int(i), kFace, marks);
+        for(size_t i = 0; i < m_faces.size(); ++i) markInput(*m_ctx.view, *base, m_faces[i], int(i), m_busy ? kBusy : kFace, marks);
     m_ctx.view->setInputMarks(std::move(marks));
     m_facesField->setCount(int(m_faces.size()));
     updateDetected();
@@ -180,6 +181,7 @@ std::shared_ptr<cad::Feature> ThreadCommand::build(QString &why) {
     f->length = m_full->isChecked() ? cad::ParamSlot() : cad::ParamSlot{m_length.name, m_lengthField->expression().toStdString()};
     f->leftHand = m_left->isChecked();
     f->countersink = m_csk.on();
+    f->countersinkEnds = m_csk.ends();
     f->countersinkAngle = m_csk.angle();
     f->countersinkDiameter = m_csk.diameter(m_cskDiameter);
     return f;
@@ -187,6 +189,11 @@ std::shared_ptr<cad::Feature> ThreadCommand::build(QString &why) {
 
 void ThreadCommand::accepted(const cad::Feature &f) {
     noteThreadSize(QString::fromStdString(static_cast<const cad::ThreadFeature &>(f).size));
+}
+
+void ThreadCommand::previewBusy(bool busy) {
+    m_busy = busy;
+    updateMarks();
 }
 
 } // namespace cadjitsu

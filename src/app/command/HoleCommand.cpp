@@ -79,7 +79,7 @@ void HoleCommand::setup() {
     connect(m_threadClearanceField, &ValueField::edited, this, &Command::inputsChanged);
     if(o && o->holeType == cad::HoleType::Tapped) {
         m_threadSize->setCurrentText(QString::fromStdString(o->thread));
-        m_threadCsk.load(o->threadCountersink, o->threadCountersinkAngle, o->threadCountersinkDiameter);
+        m_threadCsk.load(o->threadCountersink, o->threadCountersinkEnds, o->threadCountersinkAngle, o->threadCountersinkDiameter);
     }
     const std::pair<ValueField *, const cad::ParamSlot *> values[] = {
         {m_diameterField, &m_diameter},           {m_depthField, &m_depth},
@@ -117,7 +117,7 @@ void HoleCommand::setup() {
     });
     connect(m_threadCsk.diameterField(), &ValueField::edited, this, &Command::inputsChanged);
     connect(m_threadCsk.onBox(), &QCheckBox::toggled, this, &Command::inputsChanged);
-    for(QComboBox *c : {m_type, m_extent, m_tip, m_threadSize, m_threadCsk.angleBox()})
+    for(QComboBox *c : {m_type, m_extent, m_tip, m_threadSize, m_threadCsk.endsBox(), m_threadCsk.angleBox()})
         connect(c, &QComboBox::currentIndexChanged, this, [this] {
             updateRows();
             emit inputsChanged();
@@ -333,6 +333,7 @@ std::shared_ptr<cad::Feature> HoleCommand::build(QString &why) {
         f->thread = m_threadSize->currentText().toStdString();
         f->threadClearance = take(m_threadClearance, m_threadClearanceField);
         f->threadCountersink = m_threadCsk.on();
+        f->threadCountersinkEnds = m_threadCsk.ends();
         f->threadCountersinkAngle = m_threadCsk.angle();
         f->threadCountersinkDiameter = m_threadCsk.diameter(m_threadCskDiameter);
     }

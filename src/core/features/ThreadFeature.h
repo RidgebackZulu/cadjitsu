@@ -12,11 +12,19 @@
 
 namespace cad {
 
+// Which open ends of a threaded hole get a countersink: the top (the face
+// drilled into; for a hole picked as it is, the higher end, or the end its
+// axis points to when it lies flat), the bottom, or both.
+enum class CountersinkEnds { Top, Bottom, Both };
+const char *toString(CountersinkEnds e);
+CountersinkEnds countersinkEndsFromString(const std::string &s);
+
 // A countersink at a threaded hole's open ends, for a screw to start on.
 struct Countersink {
     bool on = true;
     double angle = 90;    // included, degrees (82, 90, 100, 120 are usual)
     double diameter = 0;  // at the face, mm; 0: a little over the thread's major diameter
+    bool atStart = true, atEnd = true; // which ends (z = 0, z = length) may have one
 };
 
 // Threads cylindrical faces: the bores of holes (internal threads, to take a
@@ -34,6 +42,7 @@ public:
     bool leftHand = false;
     // A hole's countersink at its open ends.
     bool countersink = true;
+    CountersinkEnds countersinkEnds = CountersinkEnds::Top;
     double countersinkAngle = 90;   // included, degrees
     ParamSlot countersinkDiameter;  // empty: a little over the major diameter
 

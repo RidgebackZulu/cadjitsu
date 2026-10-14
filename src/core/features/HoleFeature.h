@@ -35,6 +35,7 @@ public:
     std::string thread;             // e.g. "M5", "1/4-20 UNC"
     ParamSlot threadClearance;      // radial, mm (default 0.15)
     bool threadCountersink = true;
+    CountersinkEnds threadCountersinkEnds = CountersinkEnds::Top; // top: the face drilled into
     double threadCountersinkAngle = 90;   // included, degrees
     ParamSlot threadCountersinkDiameter;  // empty: a little over the major diameter
 

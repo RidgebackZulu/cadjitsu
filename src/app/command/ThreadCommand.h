@@ -34,12 +34,14 @@ public:
     void accepted(const cad::Feature &f) override;
     void picked(const std::optional<SelectionItem> &item, const PickHit &hit, Qt::KeyboardModifiers mods) override;
     void previewed(const cad::StatePtr &) override { updateMarks(); }
+    void previewBusy(bool busy) override;
     ValueField *canvasValue() const override { return nullptr; }
 
     // Inputs (tests).
     int faceCount() const { return int(m_faces.size()); }
     QComboBox *sizeBox() const { return m_size; }
     const CountersinkRows &countersink() const { return m_csk; }
+    bool busy() const { return m_busy; }
     QCheckBox *fullBox() const { return m_full; }
     ValueField *lengthField() const { return m_lengthField; }
     QLabel *detectedLabel() const { return m_detected; }
@@ -55,6 +57,7 @@ private:
     SelectionField *m_facesField = nullptr;
     QComboBox *m_size = nullptr;
     CountersinkRows m_csk;
+    bool m_busy = false; // the preview is computing: the faces shown in yellow
     QLabel *m_detected = nullptr;
     ValueField *m_clearanceField = nullptr, *m_lengthField = nullptr;
     QCheckBox *m_full = nullptr, *m_left = nullptr;

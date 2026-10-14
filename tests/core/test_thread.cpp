@@ -124,12 +124,12 @@ TEST_CASE("a modelled M6 thread through a 5 mm hole, and it prints") {
     CHECK(v > 4000 - M_PI * rMaj * rMaj * 10);
     CHECK(v < before);
     requirePrintable(b.shape.shape());
-    // Both faces are open: a 45 degree lead-in a little over the major
-    // diameter at the face, and the thread running right up to it.
+    // Both faces are open: the thread runs right up to each; the top one
+    // has the countersink (by default), a little over the major diameter.
     for(const double face : {0.0, 10.0}) {
         const double in = face == 0 ? 1 : -1;
         INFO("face at z = " << face);
-        CHECK(solidAround(b.shape.shape(), 10, 10, rMaj + 0.05, face + 0.05 * in) == 0);
+        CHECK(solidAround(b.shape.shape(), 10, 10, rMaj + 0.05, face + 0.05 * in) == (face > 0 ? 0 : 72));
         CHECK(solidAround(b.shape.shape(), 10, 10, rMaj + 0.3, face + 0.05 * in) == 72);
         // Just under the lead-in, the flanks of the first full turn.
         const int part = solidAround(b.shape.shape(), 10, 10, (rMin + rMaj) / 2, face + 1.2 * in);
@@ -218,11 +218,11 @@ TEST_CASE("the countersink: its angle and diameter, or none") {
         INFO(p.doc.statusOf(th->id).message);
         REQUIRE(p.doc.statusOf(th->id).isOk());
         const TopoDS_Shape &s = onlyBody(p.doc.displayedState())->shape.shape();
-        for(const double z : {0.02, 9.98}) {
-            INFO("z = " << z);
-            CHECK(solidAround(s, 10, 10, 4.4, z) == 0);
-            CHECK(solidAround(s, 10, 10, 4.6, z) == 72);
-        }
+        // On the top only (the default): the 9 mm cone at the top face, a
+        // square entry at the bottom.
+        CHECK(solidAround(s, 10, 10, 4.4, 9.98) == 0);
+        CHECK(solidAround(s, 10, 10, 4.6, 9.98) == 72);
+        CHECK(solidAround(s, 10, 10, rMaj + 0.1, 0.02) == 72);
         // 120 degrees included: 0.5 mm in, the cone is 0.5 tan(60) narrower.
         const double rAt = 4.5 - 0.5 * std::tan(60 * M_PI / 180);
         CHECK(solidAround(s, 10, 10, rAt - 0.1, 9.5) == 0);
@@ -276,6 +276,24 @@ TEST_CASE("an external M8 thread on a boss") {
 }
 
 
+TEST_CASE("the countersink on the top, the bottom or both ends") {
+    const double rMaj = 3.0 + 0.15;
+    for(const CountersinkEnds ends : {CountersinkEnds::Top, CountersinkEnds::Bottom, CountersinkEnds::Both}) {
+        INFO(toString(ends));
+        Plate p(5.0);
+        auto th = p.thread("M6");
+        th->countersinkEnds = ends;
+        p.doc.addFeature(th);
+        REQUIRE(p.doc.statusOf(th->id).isOk());
+        const TopoDS_Shape &s = onlyBody(p.doc.displayedState())->shape.shape();
+        // Air just past the major at a countersunk face; solid at a square one.
+        const bool top = ends != CountersinkEnds::Bottom, bottom = ends != CountersinkEnds::Top;
+        CHECK(solidAround(s, 10, 10, rMaj + 0.1, 9.98) == (top ? 0 : 72));
+        CHECK(solidAround(s, 10, 10, rMaj + 0.1, 0.02) == (bottom ? 0 : 72));
+        requirePrintable(s);
+    }
+}
+
 TEST_CASE("a post thinner than the thread is grown to it") {
     Document doc;
     const FeatureId s = doc.addFeature(rectSketch(PlaneRef::origin(PlaneRef::Kind::XY), {-10, -10}, {10, 10}));
@@ -328,8 +346,10 @@ TEST_CASE("a tapped hole: the M5 tap drill with a modelled thread") {
     CHECK(v < 4000 - M_PI * 2.1 * 2.1 * 10); // less than the 4.2 mm tap drill leaves
     CHECK(v > 4000 - M_PI * 2.65 * 2.65 * 10);
     requirePrintable(onlyBody(doc.displayedState())->shape.shape());
-    // The default countersink at the top: air just past the major at the face.
+    // The default countersink at the face drilled into only: air just past
+    // the major there, solid at the bottom where the hole comes out.
     CHECK(solidAround(onlyBody(doc.displayedState())->shape.shape(), 10, 10, 2.5 + 0.15 + 0.05, 9.98) == 0);
+    CHECK(solidAround(onlyBody(doc.displayedState())->shape.shape(), 10, 10, 2.5 + 0.15 + 0.1, 0.02) == 72);
 }
 
 TEST_CASE("a long thread stops promptly when its compute is cancelled") {
