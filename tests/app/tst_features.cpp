@@ -4,6 +4,7 @@
 #include "TestRegistry.h"
 
 #include "MainWindow.h"
+#include "command/AlignCommand.h"
 #include "command/CombineCommand.h"
 #include "command/Command.h"
 #include "command/CommandPanel.h"
@@ -18,6 +19,7 @@
 #include "command/PlaneCommand.h"
 #include "command/SplitCommand.h"
 #include "command/TextCommand.h"
+#include "command/AlignCommand.h"
 #include "command/ThreadCommand.h"
 #include "command/ThreadOptions.h"
 #include "ui/AngleDial.h"
@@ -26,6 +28,7 @@
 #include "ui/TimelineWidget.h"
 #include "viewport/Viewport.h"
 
+#include "features/AlignFeature.h"
 #include "features/ChamferFeature.h"
 #include "features/TextFeature.h"
 #include "features/CombineFeature.h"
@@ -43,6 +46,8 @@
 #include "geom/OcctUtil.h"
 #include "topo/Resolver.h"
 
+#include <BRepBndLib.hxx>
+#include <Bnd_Box.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <gp_Pln.hxx>
@@ -1049,6 +1054,60 @@ private slots:
         const auto th = std::dynamic_pointer_cast<const cad::HoleFeature>(doc().features().back());
         QVERIFY(th && th->holeType == cad::HoleType::Tapped && th->thread == "M5" && th->threadCountersink);
         QCOMPARE(recentThreadSizes().mid(0, 2), (QStringList{QStringLiteral("M5"), QStringLiteral("M8")}));
+    }
+
+    void alignGuidesStepByStepAndMovesTheBody() {
+        // Two boxes: A (10 x 10 x 10) and B (20 x 20 x 5) off to the side.
+        box(0, 0, 10, 10, 10);
+        const cad::BodyId a = doc().displayedState()->bodies.begin()->first;
+        box(30, 0, 50, 20, 5);
+        showHome();
+        settle();
+        const double before = shown();
+        trigger("align");
+        auto *al = command<AlignCommand>();
+        QVERIFY(al);
+        // Step 1: the bodies.
+        QCOMPARE(al->activeField(), AlignCommand::Field::Objects);
+        QVERIFY2(al->guide()->text().contains(QStringLiteral("Step 1 of 3")), qPrintable(al->guide()->text()));
+        click(at(5, 5, 10)); // A's top
+        QCOMPARE(al->bodyCount(), 1);
+        // Step 2, at once: FROM on it. A's top corner.
+        QCOMPARE(al->activeField(), AlignCommand::Field::From);
+        QVERIFY2(al->guide()->text().contains(QStringLiteral("Step 2 of 3")), qPrintable(al->guide()->text()));
+        // B is not what moves: FROM refuses it, with a word why.
+        click(at(40, 10, 5));
+        QVERIFY(!al->hasFrom());
+        QVERIFY(panel()->message().contains(QStringLiteral("FROM")));
+        click(at(10, 0, 10));
+        QVERIFY(al->hasFrom());
+        // Step 3: TO. B's top corner.
+        QCOMPARE(al->activeField(), AlignCommand::Field::To);
+        QVERIFY2(al->guide()->text().contains(QStringLiteral("Step 3 of 3")), qPrintable(al->guide()->text()));
+        click(at(30, 0, 5));
+        QVERIFY(al->hasTo());
+        settle();
+        // What the pair does, in words; the preview has moved A.
+        QVERIFY2(al->guide()->text().contains(QStringLiteral("orange point sits on the blue point")), qPrintable(al->guide()->text()));
+        QVERIFY(std::fabs(shown() - before) < 1e-6);
+        panel()->okButton()->click();
+        settle();
+        const auto f = std::dynamic_pointer_cast<const cad::AlignFeature>(doc().features().back());
+        QVERIFY(f && f->bodies == std::vector<cad::BodyId>{a});
+        QVERIFY2(doc().statusOf(f->id).isOk(), doc().statusOf(f->id).message.c_str());
+        Bnd_Box bb;
+        BRepBndLib::AddOptimal(doc().displayedState()->body(a)->shape.shape(), bb, false, false);
+        double x0, y0, z0, x1, y1, z1;
+        bb.Get(x0, y0, z0, x1, y1, z1);
+        QVERIFY2(std::fabs(x0 - 20) < 1e-6 && std::fabs(x1 - 30) < 1e-6 && std::fabs(z0 + 5) < 1e-6 && std::fabs(z1 - 5) < 1e-6,
+                 qPrintable(QStringLiteral("%1..%2, %3..%4").arg(x0).arg(x1).arg(z0).arg(z1)));
+        // Edit Feature reopens it with every pick.
+        m_window->editFeature(f->id);
+        al = command<AlignCommand>();
+        QVERIFY(al && al->bodyCount() == 1 && al->hasFrom() && al->hasTo());
+        QVERIFY(al->guide()->text().contains(QStringLiteral("orange point sits on the blue point")));
+        panel()->cancelButton()->click();
+        settle();
     }
 
     void aLongThreadNeverHoldsUpTheNextCommand() {

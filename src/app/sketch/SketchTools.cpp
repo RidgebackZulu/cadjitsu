@@ -9,6 +9,7 @@
 #include "sketch/ContourFit.h"
 #include "sketch/SketchEdit.h"
 #include "sketch/SketchOffset.h"
+#include "sketch/SketchOps.h"
 #include "sketch/SketchPalette.h"
 #include "sketch/SketchText.h"
 #include "ui/Icons.h"
@@ -18,9 +19,11 @@
 #include <QComboBox>
 #include <QIcon>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLineF>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPlainTextEdit>
 #include <QPointer>
 
@@ -93,6 +96,7 @@ QString sketchToolName(SketchToolKind k) {
     case SketchToolKind::Text: return SketchTool::tr("Text");
     case SketchToolKind::Mirror: return SketchTool::tr("Mirror");
     case SketchToolKind::CircularPattern: return SketchTool::tr("Circular Pattern");
+    case SketchToolKind::Align: return SketchTool::tr("Align");
     case SketchToolKind::Project: return SketchTool::tr("Project");
     case SketchToolKind::Trim: return SketchTool::tr("Trim");
     case SketchToolKind::Extend: return SketchTool::tr("Extend");
@@ -2808,8 +2812,10 @@ protected:
     // More inputs below the two fields (their changes call refresh()).
     virtual void addInputs(CommandPanel &) {}
     virtual void focusValue() {}
-    // The second field's pick.
+    // The second field's pick (complete: OK can make it), and how many
+    // picks its field shows.
     virtual bool hasTarget() const = 0;
+    virtual int targetCount() const { return hasTarget() ? 1 : 0; }
     virtual void clearTarget() = 0;
     virtual QString targetDetail() const = 0;
     virtual bool pickTarget(QPointF px) = 0;
@@ -2841,7 +2847,7 @@ protected:
         SketchEditor &ed = editor();
         const std::set<int> ids = pickedEntities(ed);
         m_objects->setCount(int(ids.size()));
-        m_target->setCount(hasTarget() ? 1 : 0);
+        m_target->setCount(targetCount());
         m_target->setDetail(targetDetail());
         QString why;
         bool ok = false;
@@ -3120,6 +3126,289 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// Align: the geometry to move, then a point, line or circle on it (FROM),
+// then where it goes (TO: a point, line or circle, the origin or an axis).
+// The guide in the panel says what to click next, then what the pair will do;
+// FROM shows orange, TO blue, with an arrow between them, and the moved
+// geometry is previewed. Flip, Angle and Copy adjust it.
+
+class AlignTool final : public PanelSketchTool {
+public:
+    using PanelSketchTool::PanelSketchTool;
+    SketchToolKind kind() const override { return SketchToolKind::Align; }
+    QString prompt() const override {
+        if(field() == Field::Objects) return tr("Click the geometry to move, then press Enter (or click From).");
+        return !m_from ? tr("Click a point, line or circle on it to align FROM.")
+                       : tr("Click where it goes: a point, line, circle, the origin or an axis (TO).");
+    }
+
+protected:
+    QString title() const override { return tr("Align"); }
+    IconId icon() const override { return IconId::Align; }
+    QString targetLabel() const override { return tr("From"); }
+    QString targetHint() const override { return tr("A point, line or circle on it"); }
+    const char *objectsName() const override { return "sketchAlignObjects"; }
+    const char *targetName() const override { return "sketchAlignFrom"; }
+    QString needObjects() const override {
+        guide(tr("<b>Step 1 of 3</b> — Click the geometry you want to move (or drag a box round it), then press "
+                 "Enter or click From."));
+        return {};
+    }
+    QString needTarget() const override {
+        if(!m_from)
+            guide(tr("<b>Step 2 of 3</b> — Click a point, a line or a circle %1 on that geometry: the part that will "
+                     "be lined up.").arg(colored(tr("FROM"), kFrom)));
+        else
+            guide(tr("<b>Step 3 of 3</b> — Click where it goes %1: a point, a line or a circle, the origin or an axis.")
+                      .arg(colored(tr("TO"), kTo)));
+        return {};
+    }
+
+    void addInputs(CommandPanel &p) override {
+        m_toField = p.addSelection(tr("To"), tr("Where it goes"), "sketchAlignTo");
+        m_guideLabel = p.addInfo(QString(), "sketchAlignGuide");
+        m_guideLabel->setWordWrap(true);
+        m_guideLabel->setTextFormat(Qt::RichText);
+        m_guideLabel->setMinimumWidth(240);
+        m_guideLabel->setStyleSheet(QStringLiteral("font-weight: normal; color: #2a3140; background: #eef3fb; border: 1px "
+                                                   "solid #c9d6ec; border-radius: 4px; padding: 4px 6px;"));
+        m_flip = p.addCheck(tr("Flip"), "sketchAlignFlip");
+        m_flip->setToolTip(tr("Turn it the other way round along the line."));
+        const auto eval = [this](const std::string &expr, cad::ValueKind k) { return editor().evaluate(expr, k); };
+        m_angle = p.addAngle(tr("Angle"), eval, "sketchAlignAngle", kTo);
+        m_angle->setToolTip(tr("Turn it about the point it was aligned on."));
+        m_angle->setExpression(QString::fromStdString(SketchEditor::formatExpression(0, cad::ValueKind::Angle)));
+        m_copy = p.addCheck(tr("Copy"), "sketchAlignCopy");
+        m_copy->setToolTip(tr("Leave the geometry where it is and align a copy."));
+        track(QObject::connect(m_toField, &SelectionField::activated, context(), [this] {
+            if(field() != Field::Target) setField(Field::Target);
+            m_pickTo = m_from.has_value();
+            showFields();
+        }));
+        track(QObject::connect(m_toField, &SelectionField::cleared, context(), [this] {
+            m_to.reset();
+            m_pickTo = m_from.has_value();
+            showFields();
+            refresh();
+        }));
+        for(QCheckBox *c : {m_flip, m_copy}) track(QObject::connect(c, &QCheckBox::toggled, context(), [this] { refresh(); }));
+        track(QObject::connect(m_angle, &ValueField::revalidated, context(), [this] { refresh(); }));
+    }
+    void focusValue() override { showFields(); }
+
+    bool hasTarget() const override { return m_from && m_to; }
+    int targetCount() const override { return m_from ? 1 : 0; }
+    void clearTarget() override {
+        m_from.reset();
+        m_to.reset();
+        m_pickTo = false;
+        showFields();
+    }
+    QString targetDetail() const override { return m_from ? kindName(m_from->id) : QString(); }
+    bool pickTarget(QPointF px) override {
+        SketchEditor &ed = editor();
+        const auto at = ed.toSketch(px);
+        if(!m_pickTo) {
+            // FROM: on the geometry being moved.
+            const SketchHit hit = ed.hitTest(px, HitPoints | HitCurves);
+            if(!hit.valid() || !onMoved(hit.id)) {
+                if(hit.valid())
+                    if(CommandPanel *pn = panel())
+                        pn->setMessage(tr("FROM goes on the geometry being moved (the selected one)."), cad::Severity::Warning);
+                return false;
+            }
+            m_from = cad::SketchAlignPick{hit.id, at};
+            m_pickTo = true;
+        } else {
+            const SketchHit hit = ed.hitTest(px, HitPoints | HitCurves | HitOrigin | HitAxes);
+            if(!hit.valid()) return false;
+            if(hit.id > 0 && onMoved(hit.id)) {
+                if(CommandPanel *pn = panel())
+                    pn->setMessage(tr("TO is where it goes: pick geometry that stays put."), cad::Severity::Warning);
+                return false;
+            }
+            if(!cad::sketchAlignKind(ed.sketch(), hit.id)) return false;
+            m_to = cad::SketchAlignPick{hit.id, at};
+        }
+        return true;
+    }
+    void hoverTarget(QPointF px) override {
+        m_hover = px;
+        setHover(px, m_pickTo ? (HitPoints | HitCurves | HitOrigin | HitAxes) : (HitPoints | HitCurves));
+    }
+    QString preview(std::optional<QPointF> hover) override {
+        SketchEditor &ed = editor();
+        ed.previewLines.clear();
+        m_arrowFrom.reset();
+        m_arrowTo.reset();
+        if(m_from) m_arrowFrom = anchorPoint(*m_from);
+        if(!m_from) return {};
+        std::optional<cad::SketchAlignPick> to = m_to;
+        if(hover && m_pickTo) {
+            const SketchHit hit = ed.hitTest(*hover, HitPoints | HitCurves | HitOrigin | HitAxes);
+            if(hit.valid() && (hit.id <= 0 || !onMoved(hit.id)) && cad::sketchAlignKind(ed.sketch(), hit.id))
+                to = cad::SketchAlignPick{hit.id, ed.toSketch(*hover)};
+        }
+        if(!to) return {};
+        m_arrowTo = anchorPoint(*to);
+        std::string why;
+        const auto m = move(*to, why);
+        if(!m) {
+            guide(tr("<b>Can't do that pair:</b> %1.").arg(QString::fromStdString(why).toHtmlEscaped()));
+            return QString::fromStdString(why);
+        }
+        ed.previewLines = ed.movedOutline(pickedEntities(ed), m->pivot, m->delta, m->angle);
+        if(!hover || m_to) {
+            auto name = [](cad::AlignKind k) {
+                const QString n = tr(cad::alignKindName(k));
+                return n.left(1).toUpper() + n.mid(1);
+            };
+            guide(tr("<b>%1 → %2:</b> %3<br>Click OK to keep it, or click a field to pick again.")
+                      .arg(colored(name(m->from), kFrom), colored(tr(cad::alignKindName(m->to)), kTo),
+                           QString::fromStdString(cad::describeAlign(m->from, m->to)).toHtmlEscaped()));
+        }
+        return {};
+    }
+    bool apply(QString &why) override {
+        std::string w;
+        const auto m = move(*m_to, w);
+        if(!m) {
+            why = QString::fromStdString(w);
+            return false;
+        }
+        return editor().moveEntities(pickedEntities(editor()), m->pivot, m->delta, m->angle, m_copy->isChecked());
+    }
+    void contributeTool(RenderScene &scene) override {
+        auto hitOf = [](int id) {
+            return SketchHit{id == cad::kSketchOrigin ? SketchHit::Kind::Origin
+                             : id < 0              ? SketchHit::Kind::Axis
+                             : SketchHit::Kind::Curve,
+                             id};
+        };
+        auto pointOrCurve = [&](int id) {
+            const SkEntity *e = editor().sketch().find(id);
+            return e && e->type == cad::SkType::Point ? SketchHit{SketchHit::Kind::Point, id} : hitOf(id);
+        };
+        if(m_from) highlight(scene, {pointOrCurve(m_from->id)}, kFrom);
+        if(m_to) highlight(scene, {pointOrCurve(m_to->id)}, kTo);
+    }
+    void paintPanelOverlay(QPainter &p) override {
+        SketchEditor &ed = editor();
+        p.setRenderHint(QPainter::Antialiasing);
+        const std::optional<QPointF> a = m_arrowFrom ? std::optional<QPointF>(ed.toScreen(*m_arrowFrom)) : std::nullopt,
+                                     b = m_arrowTo ? std::optional<QPointF>(ed.toScreen(*m_arrowTo)) : std::nullopt;
+        if(a && b && QLineF(*a, *b).length() > 12) {
+            p.setPen(QPen(QColor(60, 60, 70), 2, Qt::DashLine));
+            p.drawLine(*a, *b);
+            const QLineF l(*a, *b);
+            const double ang = std::atan2(-l.dy(), l.dx());
+            QPainterPath head;
+            head.moveTo(*b);
+            head.lineTo(*b - QPointF(std::cos(ang - 0.45) * 13, -std::sin(ang - 0.45) * 13));
+            head.lineTo(*b - QPointF(std::cos(ang + 0.45) * 13, -std::sin(ang + 0.45) * 13));
+            head.closeSubpath();
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(60, 60, 70));
+            p.drawPath(head);
+        }
+        auto tag = [&](QPointF at, const QString &text, const QColor &c) {
+            p.setPen(QPen(Qt::white, 2));
+            p.setBrush(c);
+            p.drawEllipse(at, 5, 5);
+            QFont f = p.font();
+            f.setBold(true);
+            p.setFont(f);
+            const QRectF box = QFontMetricsF(f).boundingRect(text).adjusted(-5, -2, 5, 2).translated(at + QPointF(10, -10));
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(255, 255, 255, 225));
+            p.drawRoundedRect(box, 4, 4);
+            p.setPen(c);
+            p.drawText(box, Qt::AlignCenter, text);
+        };
+        if(a) tag(*a, tr("FROM"), kFrom);
+        if(b) tag(*b, tr("TO"), kTo);
+    }
+
+private:
+    static constexpr QColor kFrom = QColor(230, 120, 20), kTo = QColor(20, 100, 225);
+    static QString colored(const QString &text, const QColor &c) {
+        return QStringLiteral("<span style=\"color:%1; font-weight:600\">%2</span>").arg(c.name(), text);
+    }
+    void guide(const QString &html) const {
+        if(!m_guideLabel) return;
+        m_guideLabel->setText(html);
+        m_guideLabel->setMinimumHeight(
+            m_guideLabel->heightForWidth(std::max(m_guideLabel->width(), m_guideLabel->minimumWidth())));
+        if(CommandPanel *pn = panel()) pn->adjustSize();
+    }
+    // FROM, then TO: the fields light up in turn.
+    void showFields() {
+        if(field() != Field::Target) {
+            if(m_toField) m_toField->setActive(false);
+            return;
+        }
+        if(SelectionField *from = panel() ? panel()->findChild<SelectionField *>(targetName()) : nullptr)
+            from->setActive(!m_pickTo);
+        if(m_toField) {
+            m_toField->setActive(m_pickTo);
+            m_toField->setCount(m_to ? 1 : 0);
+            m_toField->setDetail(m_to ? kindName(m_to->id) : QString());
+        }
+    }
+    bool onMoved(int id) const {
+        const std::set<int> ids = pickedEntities(editor());
+        if(ids.count(id)) return true;
+        // A point of a curve that moves.
+        for(int c : ids)
+            if(const SkEntity *e = editor().sketch().find(c))
+                if(e->a == id || e->b == id || e->c == id) return true;
+        return false;
+    }
+    QString kindName(int id) const {
+        if(id == cad::kSketchOrigin) return tr("Origin");
+        if(id == cad::kSketchXAxis) return tr("X axis");
+        if(id == cad::kSketchYAxis) return tr("Y axis");
+        const SkEntity *e = editor().sketch().find(id);
+        if(!e) return {};
+        switch(e->type) {
+        case cad::SkType::Point: return tr("Point");
+        case cad::SkType::Line: return tr("Line");
+        case cad::SkType::Circle: return tr("Circle");
+        case cad::SkType::Arc: return tr("Arc");
+        default: return {};
+        }
+    }
+    // Where a pick's anchor is (the arrow's ends).
+    std::optional<Vec2> anchorPoint(const cad::SketchAlignPick &pk) const {
+        const cad::Sketch &s = editor().sketch();
+        if(pk.id < 0) return pk.id == cad::kSketchOrigin || !pk.click ? Vec2(0, 0)
+                             : pk.id == cad::kSketchXAxis ? Vec2(pk.click->x, 0) : Vec2(0, pk.click->y);
+        const SkEntity *e = s.find(pk.id);
+        if(!e) return std::nullopt;
+        if(e->type == cad::SkType::Point) return Vec2(e->x, e->y);
+        if(e->type == cad::SkType::Line) {
+            const Vec2 a = s.pointPos(e->a), b = s.pointPos(e->b);
+            if(!pk.click) return (a + b) * 0.5;
+            return (*pk.click - a).length() <= (*pk.click - b).length() ? a : b;
+        }
+        return s.pointPos(e->a);
+    }
+    std::optional<cad::SketchAlignMove> move(const cad::SketchAlignPick &to, std::string &why) const {
+        const double angle = m_angle && m_angle->valid() ? *m_angle->value() : 0.0;
+        return cad::sketchAlignMove(editor().sketch(), *m_from, to, m_flip && m_flip->isChecked(), angle, why);
+    }
+
+    std::optional<cad::SketchAlignPick> m_from, m_to;
+    bool m_pickTo = false;
+    std::optional<Vec2> m_arrowFrom, m_arrowTo;
+    QPointF m_hover;
+    SelectionField *m_toField = nullptr;
+    QLabel *m_guideLabel = nullptr;
+    QCheckBox *m_flip = nullptr, *m_copy = nullptr;
+    ValueField *m_angle = nullptr;
+};
+
+// ---------------------------------------------------------------------------
 // Project: the other sketches' geometry is shown; click a curve or point of
 // one of them to project it onto this sketch. Projected geometry follows its
 // original and is drawn purple.
@@ -3280,6 +3569,7 @@ std::unique_ptr<SketchTool> createSketchTool(SketchMode &mode, SketchToolKind ki
     case SketchToolKind::TraceCanvas: return std::make_unique<TraceTool>(mode);
     case SketchToolKind::Mirror: return std::make_unique<MirrorTool>(mode);
     case SketchToolKind::CircularPattern: return std::make_unique<PatternTool>(mode);
+    case SketchToolKind::Align: return std::make_unique<AlignTool>(mode);
     case SketchToolKind::Project: return std::make_unique<ProjectTool>(mode);
     default: return std::make_unique<ConstraintTool>(mode, kind);
     }

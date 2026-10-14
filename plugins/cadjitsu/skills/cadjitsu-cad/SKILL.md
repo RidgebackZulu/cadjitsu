@@ -65,7 +65,8 @@ port. Start every session with `get_design`.
    "new body, then combine" to extruding with `operation: "cut"`, because it keeps each shape editable and visible.
 5. **Refine** - `fillet`, `chamfer`, `hole` using face / edge indexes from `list_faces` / `list_edges`.
    Repeat holes or bosses with `pattern` (rows, grids, bolt circles) and symmetric halves with `mirror`,
-   instead of drawing every copy.
+   instead of drawing every copy. Put parts against each other with `align` (a face onto a face, an edge
+   along an edge, a corner onto a corner or the origin) rather than working out the move by hand.
 6. **Verify** - `get_design` (volumes, bounding boxes, every feature `ok`), `measure` (distances, wall
    thicknesses, hole spacing, angles), `screenshot` (view `home`, `top`, `front`...), `section` to look inside.
 7. **Export** - `export_stl` (report must say `printable: true`, `shells: 1` for a single part) and/or
@@ -162,6 +163,7 @@ text, extrude the plate, then the letters). For FDM: letters 5 mm or taller with
 - `sketch_mirror` mirrors geometry about a sketch line or axis (symmetric halves: draw half up to the axis,
   mirror it); `sketch_pattern` copies geometry around a centre (bolt circles, spokes); `project_to_sketch`
   brings lines of an earlier sketch (usually on another plane) onto this one, linked so they follow;
+  `sketch_align` brings a point or line of some geometry onto another point, line or axis (the geometry moves with it);
   `set_construction` turns geometry into construction lines (references that make no profile). Entity ids
   are in each sketch's `curves` (get_design, create_sketch, add_to_sketch).
 - `sketch_trim` removes the piece of a curve near a point (between the curves crossing it), `sketch_extend`

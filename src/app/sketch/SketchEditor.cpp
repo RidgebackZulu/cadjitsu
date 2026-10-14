@@ -595,25 +595,7 @@ bool SketchEditor::moveEntities(const std::set<int> &ids, Vec2 pivot, Vec2 delta
             }
         }
     } else {
-        for(int p : pts) {
-            SkEntity *e = work.find(p);
-            const Vec2 q = moved(Vec2(e->x, e->y), pivot, delta, angle);
-            e->x = q.x;
-            e->y = q.y;
-        }
-        for(int c : curves)
-            if(SkEntity *e = work.find(c); e && e->isText()) e->angle += angle * 180.0 / cad::kPi;
-        // Constraints the move breaks: pins on moved points, and H/V on turned lines.
-        std::vector<int> drop;
-        for(SkConstraint &c : work.constraints) {
-            const bool movedLine = curves.count(c.e1) || (pts.count(c.e1) && pts.count(c.e2));
-            if(c.type == SkCon::Fix && pts.count(c.e1)) drop.push_back(c.id);
-            else if((c.type == SkCon::Horizontal || c.type == SkCon::Vertical) && movedLine) {
-                if(!square) drop.push_back(c.id);
-                else if(swapHV) c.type = c.type == SkCon::Horizontal ? SkCon::Vertical : SkCon::Horizontal;
-            }
-        }
-        for(int id : drop) work.removeConstraint(id);
+        cad::transformEntities(work, std::vector<int>(ids.begin(), ids.end()), pivot, delta, angle);
     }
     // Solve holding the moved geometry where it was put, so what is attached
     // to it stretches; if that cannot work, let the constraints decide.

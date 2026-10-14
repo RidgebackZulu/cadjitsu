@@ -13,6 +13,7 @@
 #include "base/KernelLock.h"
 #include "doc/Document.h"
 #include "doc/Section.h"
+#include "features/AlignFeature.h"
 #include "features/ChamferFeature.h"
 #include "features/CombineFeature.h"
 #include "features/DraftFeature.h"
@@ -45,6 +46,7 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepGProp.hxx>
+#include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 #include <TopoDS.hxx>
@@ -61,6 +63,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <sstream>
 #include <stdexcept>
 
@@ -268,9 +271,11 @@ void McpTools::define() {
     auto topo = [bodyOf](const cad::StatePtr &st, const json &item, cad::TopoKind kind) {
         const cad::Body *b = bodyOf(st, item.at("body"));
         const int i = item.at("index").get<int>();
-        const int n = kind == cad::TopoKind::Face ? b->shape.faceCount() : b->shape.edgeCount();
+        const int n = kind == cad::TopoKind::Face   ? b->shape.faceCount()
+                      : kind == cad::TopoKind::Edge ? b->shape.edgeCount()
+                                                    : b->shape.vertexCount();
         if(i < 1 || i > n)
-            fail((kind == cad::TopoKind::Face ? "face" : "edge") + std::string(" index ") + std::to_string(i) + " is not in 1.." +
+            fail((kind == cad::TopoKind::Face ? "face" : kind == cad::TopoKind::Edge ? "edge" : "vertex") + std::string(" index ") + std::to_string(i) + " is not in 1.." +
                  std::to_string(n) + " for " + b->id);
         return cad::makeTopoRef(*b, kind, i);
     };
@@ -927,6 +932,62 @@ void McpTools::define() {
             return r;
         });
 
+    const json sketchAlignEnd = {
+        {"description",
+         "an entity id (a point; a line, anchored at its end nearest \"at\" or its middle; a circle or arc: its centre), "
+         "{\"id\": n, \"at\": [x, y]}, or \"origin\", \"x_axis\", \"y_axis\""},
+        {"anyOf", json::array({{{"type", "integer"}}, {{"type", "string"}}, {{"type", "object"}}})}};
+    auto sketchAlignPick = [](const json &v, const char *what) {
+        cad::SketchAlignPick p;
+        const json id = v.is_object() ? v.value("id", json()) : v;
+        if(id.is_string()) {
+            const std::string n = lower(id.get<std::string>());
+            p.id = n == "origin" ? cad::kSketchOrigin : n == "x_axis" ? cad::kSketchXAxis : n == "y_axis" ? cad::kSketchYAxis : 0;
+            if(!p.id) fail(std::string(what) + " must be an entity id, \"origin\", \"x_axis\" or \"y_axis\"");
+        } else if(id.is_number_integer()) {
+            p.id = id.get<int>();
+        } else {
+            fail(std::string(what) + " must be an entity id, {\"id\": n, \"at\": [x, y]}, \"origin\", \"x_axis\" or \"y_axis\"");
+        }
+        if(v.is_object() && v.contains("at")) p.click = vec2Arg(v["at"], "at");
+        return p;
+    };
+    add("sketch_align",
+        "Aligns sketch geometry like the sketch Align tool: a point or line of the geometry that moves (from) is brought "
+        "onto a point or line of the rest of the sketch or its axes (to), and the entities move with it. point -> point: "
+        "moves it there; point -> line: onto the nearest spot of the line; line -> line: the lines line up end to end "
+        "(flip: the other way round). angle (degrees) then turns it about the target. One undo step.",
+        {{"sketch", integer("sketch feature id")},
+         {"entities", arrayOf(integer("entity id"), "the curves / points / texts to move (from must be among them)")},
+         {"from", sketchAlignEnd},
+         {"to", sketchAlignEnd},
+         {"flip", boolean("turn it the other way round (default false)")},
+         {"angle", number("degrees, default 0")}},
+        {"sketch", "entities", "from", "to"}, [editSketch, entityIds, solvedOrFail, sketchAlignPick](const json &a) {
+            const std::vector<int> ids = entityIds(a);
+            const cad::SketchAlignPick from = sketchAlignPick(a.at("from"), "from"), to = sketchAlignPick(a.at("to"), "to");
+            const bool flip = a.value("flip", false);
+            const double angle = a.value("angle", 0.0) * cad::kPi / 180.0;
+            return editSketch(a, "Align", [&](cad::Sketch &s, const cad::SketchResult &, const cad::StatePtr &) {
+                std::set<int> moving;
+                for(int id : ids) {
+                    if(!s.find(id)) fail("no entity " + std::to_string(id) + " in this sketch");
+                    const cad::SkEntity &e = *s.find(id);
+                    moving.insert(id);
+                    if(e.type != cad::SkType::Point)
+                        for(int p : {e.a, e.type == cad::SkType::Circle ? 0 : e.b, e.type == cad::SkType::Circle ? 0 : e.c})
+                            if(p > 0) moving.insert(p);
+                }
+                if(from.id <= 0 || !moving.count(from.id)) fail("from must be on the entities being moved");
+                if(to.id > 0 && moving.count(to.id)) fail("to must be geometry that stays put, not on the entities being moved");
+                std::string why;
+                const auto m = cad::sketchAlignMove(s, from, to, flip, angle, why);
+                if(!m) fail(why);
+                cad::transformEntities(s, ids, m->pivot, m->delta, m->angle);
+                solvedOrFail(s, "the aligned sketch cannot be solved");
+            });
+        });
+
     add("project_to_sketch",
         "Projects lines, curves and points of another sketch (usually on another plane) onto a sketch, like the "
         "sketch Project tool. Projected geometry stays linked: when the original changes, it follows. It is fixed in "
@@ -1550,6 +1611,82 @@ void McpTools::define() {
                 }
             }
             return commit(p, "Pattern (MCP)");
+        });
+
+    // Align: one end of the pair, as a TopoRef / plane / origin entity.
+    const json alignEnd = {
+        {"description",
+         "a vertex {\"vertex\": {body, index}} or {\"vertex\": {body, \"near\": [x, y, z]}} (the corner nearest a point), "
+         "an edge {\"edge\": {body, index}} (a straight edge: a line, anchored at its end nearest \"at\": [x, y, z] when "
+         "given; a round edge: its axis), a face {\"face\": {body, index}} (flat: the face; round: its axis), a "
+         "construction plane {\"plane\": <feature id>}, or \"origin\", \"x_axis\", \"y_axis\", \"z_axis\", \"xy_plane\", "
+         "\"xz_plane\", \"yz_plane\""},
+        {"anyOf", json::array({{{"type", "string"}}, {{"type", "object"}}})}};
+    auto alignRefOf = [topo, bodyOf](const cad::StatePtr &st, const json &v, const char *what) {
+        cad::AlignRef r;
+        if(v.is_string()) {
+            std::string b = lower(v.get<std::string>());
+            for(const char *suffix : {"_axis", "_plane"})
+                if(b.size() > std::strlen(suffix) && b.compare(b.size() - std::strlen(suffix), std::string::npos, suffix) == 0)
+                    b.resize(b.size() - std::strlen(suffix));
+            if(b != "origin" && b != "x" && b != "y" && b != "z" && b != "xy" && b != "xz" && b != "yz")
+                fail(std::string(what) + ": \"" + v.get<std::string>() + "\" is not origin, x_axis, y_axis, z_axis, xy_plane, xz_plane or yz_plane");
+            r.builtin = b;
+        } else if(v.is_object() && v.contains("vertex")) {
+            const json &item = v["vertex"];
+            if(item.is_object() && item.contains("near")) {
+                const cad::Body *b = bodyOf(st, item.at("body"));
+                const gp_Pnt near = pntArg(item["near"], "near");
+                const cad::KernelLock lock(cad::kernelMutex());
+                int best = 0;
+                double bestD = 0;
+                for(int i = 1; i <= b->shape.vertexCount(); ++i) {
+                    const double d = BRep_Tool::Pnt(b->shape.vertex(i)).Distance(near);
+                    if(!best || d < bestD) best = i, bestD = d;
+                }
+                if(!best) fail(std::string(what) + ": " + b->id + " has no vertices");
+                r.ref = cad::makeTopoRef(*b, cad::TopoKind::Vertex, best);
+            } else {
+                r.ref = topo(st, item, cad::TopoKind::Vertex);
+            }
+        } else if(v.is_object() && v.contains("edge")) {
+            r.ref = topo(st, v["edge"], cad::TopoKind::Edge);
+            if(v.contains("at")) r.at = pntArg(v["at"], "at");
+        } else if(v.is_object() && v.contains("face")) {
+            r.ref = topo(st, v["face"], cad::TopoKind::Face);
+        } else if(v.is_object() && v.contains("plane") && v["plane"].is_number_integer()) {
+            r.plane = cad::PlaneRef::construction(v["plane"].get<int>());
+        } else {
+            fail(std::string(what) + " must be {\"vertex\": ...}, {\"edge\": ...}, {\"face\": ...}, {\"plane\": id} or an origin "
+                                     "entity (\"origin\", \"x_axis\", \"xy_plane\"...)");
+        }
+        return r;
+    };
+    add("align",
+        "Aligns bodies like Fusion's Align: geometry picked on the bodies (from) is brought onto geometry elsewhere (to), "
+        "and the bodies move with it. point -> point: moves it there; point -> edge / face: onto the nearest spot of it; "
+        "edge -> edge: the edges line up end to end along one line (flip: the other way round); face -> face: the faces "
+        "meet flat and centre to centre, facing each other (flip: stacked facing the same way); edge -> face: lies in "
+        "the face. angle then turns it about the aligned line or normal. copy leaves the original and adds moved copies. "
+        "The moved bodies keep their face names, so later features still find them. A timeline step.",
+        {{"bodies", arrayOf(str("body id or name"), "the bodies to move")},
+         {"from", alignEnd},
+         {"to", alignEnd},
+         {"flip", boolean("turn it the other way round (default false)")},
+         {"angle", numberOrExpr("degrees to turn about the aligned line or normal (default 0)")},
+         {"copy", boolean("keep the original and add moved copies (default false)")}},
+        {"bodies", "from", "to"}, [begin, settle, bodyOf, commit, slot, alignRefOf](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            auto f = std::make_shared<cad::AlignFeature>();
+            for(const json &b : a.at("bodies")) f->bodies.push_back(bodyOf(st, b)->id);
+            if(f->bodies.empty()) fail("give the bodies to move");
+            f->from = alignRefOf(st, a.at("from"), "from");
+            f->to = alignRefOf(st, a.at("to"), "to");
+            f->flip = a.value("flip", false);
+            if(a.contains("angle")) f->angle = slot(angleExpr(a["angle"], "angle"), cad::ValueKind::Angle, "angle");
+            f->copy = a.value("copy", false);
+            return commit(f, "Align (MCP)");
         });
 
     add("thread",

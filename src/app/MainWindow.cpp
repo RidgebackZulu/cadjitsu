@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "command/AlignCommand.h"
 #include "command/Command.h"
 #include "command/CanvasCommands.h"
 #include "command/CanvasValueBox.h"
@@ -399,7 +400,7 @@ void MainWindow::updateActions() {
     if(!m_commands || m_actions.empty()) return;
     const bool sketching = m_sketch->active(), commanding = m_commands->active();
     action(QStringLiteral("createSketch"))->setEnabled(!sketching);
-    for(const char *name : {"extrude", "revolve", "shell", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "embossText", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs", "insertCanvas", "insertViews"})
+    for(const char *name : {"extrude", "revolve", "shell", "hole", "fillet", "chamfer", "combine", "split", "draft", "thread", "align", "embossText", "mirror", "patternRect", "patternCircular", "offsetPlane", "sectionAnalysis", "measure", "overhangs", "insertCanvas", "insertViews"})
         action(QString::fromLatin1(name))->setEnabled(!commanding);
     action(QStringLiteral("undo"))->setEnabled(sketching || commanding || m_document->canUndo());
     action(QStringLiteral("redo"))->setEnabled(sketching || m_document->canRedo());
@@ -580,6 +581,7 @@ void MainWindow::editFeature(cad::FeatureId id) {
     case cad::FeatureType::Text: m_commands->start(std::make_unique<TextCommand>(ctx, id)); return;
     case cad::FeatureType::Revolve: m_commands->start(std::make_unique<RevolveCommand>(ctx, id)); return;
     case cad::FeatureType::Shell: m_commands->start(std::make_unique<ShellCommand>(ctx, id)); return;
+    case cad::FeatureType::Align: m_commands->start(std::make_unique<AlignCommand>(ctx, id)); return;
     case cad::FeatureType::Pattern:
         m_commands->start(std::make_unique<PatternCommand>(
             ctx, std::static_pointer_cast<const cad::PatternFeature>(f)->kind, id));
@@ -626,6 +628,7 @@ bool MainWindow::showSketchEntityMenu(const QPoint &globalPos) {
     menu.addAction(action(QStringLiteral("sketchMirror")));
     menu.addAction(action(QStringLiteral("sketchCircularPattern")));
     menu.addAction(action(QStringLiteral("sketchMove")));
+    menu.addAction(action(QStringLiteral("sketchAlign")));
     menu.addSeparator();
     menu.addAction(action(QStringLiteral("sketchDelete")));
     m_sketchEntityMenu = &menu;
@@ -641,13 +644,13 @@ void MainWindow::showMarkingMenu(QPoint canvasPos) {
                             a("sketchDelete"), a("redo"), a("undo"), a("sketchDimension")});
         m_marking->setList({a("sketchLookAt"), a("sketchConstruction"), a("sketchArc"), a("sketchPoint"),
                             a("sketchCenterRectangle"), a("sketchTrim"), a("sketchFillet"), a("sketchMirror"),
-                            a("sketchCircularPattern"), a("sketchProject")});
+                            a("sketchCircularPattern"), a("sketchAlign"), a("sketchProject")});
     } else {
         QAction *repeat = a("repeatCommand");
         QAction *last = action(m_lastCommand);
         repeat->setEnabled(last != nullptr);
         repeat->setText(last ? tr("Repeat %1").arg(last->text()) : tr("Repeat"));
-        m_marking->setRing({repeat, a("createSketch"), a("extrude"), a("fillet"), nullptr, a("redo"), a("undo"), a("hole")});
+        m_marking->setRing({repeat, a("createSketch"), a("extrude"), a("fillet"), a("align"), a("redo"), a("undo"), a("hole")});
         m_marking->setList({a("fitView"), a("homeView"), a("toggleOrigin")});
     }
     m_marking->open(canvasPos);
@@ -770,6 +773,12 @@ void MainWindow::buildActions() {
                [this, ctx] { startCommand(QStringLiteral("chamfer"), std::make_unique<ChamferCommand>(ctx)); });
     makeAction("combine", tr("Combine"), IconId::Combine, {},
                [this, ctx] { startCommand(QStringLiteral("combine"), std::make_unique<CombineCommand>(ctx)); });
+    makeAction("align", tr("Align"), IconId::Align, QKeySequence(Qt::Key_A),
+               [this, ctx] { startCommand(QStringLiteral("align"), std::make_unique<AlignCommand>(ctx)); });
+    m_actions[QStringLiteral("align")]->setToolTip(
+        tr("<b>Align</b><p>Brings one body onto another by geometry: a point onto a point, an edge along an edge, a "
+           "face flat onto a face.</p><p>Click the body to move, then a point, edge or face on it (FROM, orange), "
+           "then where it goes (TO, blue). The dialog says what each pair does; Flip, Angle and Copy adjust it.</p>"));
     makeAction("thread", tr("Thread"), IconId::Thread, {},
                [this, ctx] { startCommand(QStringLiteral("thread"), std::make_unique<ThreadCommand>(ctx)); });
     makeAction("embossText", tr("Emboss Text"), IconId::Emboss, {},
@@ -850,6 +859,7 @@ void MainWindow::buildActions() {
         {"sketchTrace", SketchToolKind::TraceCanvas, IconId::Trace, {}},
         {"sketchMirror", SketchToolKind::Mirror, IconId::Mirror, {}},
         {"sketchCircularPattern", SketchToolKind::CircularPattern, IconId::PatternCircular, {}},
+        {"sketchAlign", SketchToolKind::Align, IconId::Align, {}},
         {"sketchProject", SketchToolKind::Project, IconId::Project, QKeySequence(Qt::Key_P)},
         {"constraintCoincident", SketchToolKind::Coincident, IconId::Coincident, {}},
         {"constraintHorizontalVertical", SketchToolKind::HorizontalVertical, IconId::HorizontalVertical, {}},
@@ -887,6 +897,10 @@ void MainWindow::buildActions() {
         tr("<b>Mirror</b><p>Mirrors sketch geometry about a line.</p><p>In the dialog, pick the geometry (click or "
            "drag a box), then the line or axis to mirror it about. The mirror image stays symmetric to the "
            "original.</p>"));
+    m_actions[QStringLiteral("sketchAlign")]->setToolTip(
+        tr("<b>Align</b><p>Moves sketch geometry so a point or line on it meets another: a corner onto a point, an "
+           "edge along a line or an axis.</p><p>Select the geometry, then click a point, line or circle on it (FROM, "
+           "orange), then where it goes (TO, blue). Flip, Angle and Copy adjust it.</p>"));
     m_actions[QStringLiteral("sketchCircularPattern")]->setToolTip(
         tr("<b>Circular Pattern</b><p>Copies sketch geometry around a centre point.</p><p>In the dialog, pick the "
            "geometry and the centre, then type how many in all and the angle they spread over; the copies show "
@@ -971,6 +985,7 @@ void MainWindow::buildRibbon() {
     modify->addAction(action(QStringLiteral("combine")));
     modify->addAction(action(QStringLiteral("split")));
     modify->addAction(action(QStringLiteral("draft")));
+    modify->addAction(action(QStringLiteral("align")));
     RibbonGroup *construct = m_solidTab->addGroup(tr("CONSTRUCT"));
     construct->addAction(action(QStringLiteral("offsetPlane")));
     RibbonGroup *insert = m_solidTab->addGroup(tr("INSERT"));
@@ -1007,6 +1022,7 @@ void MainWindow::buildRibbon() {
     modifySketch->addAction(action(QStringLiteral("sketchOffset")));
     modifySketch->addAction(action(QStringLiteral("sketchMirror")));
     modifySketch->addAction(action(QStringLiteral("sketchCircularPattern")));
+    modifySketch->addAction(action(QStringLiteral("sketchAlign")));
     modifySketch->addAction(action(QStringLiteral("sketchProject")));
     RibbonGroup *constraints = m_sketchTab->addGroup(tr("CONSTRAINTS"));
     for(const char *name : {"constraintCoincident", "constraintHorizontalVertical", "constraintParallel",

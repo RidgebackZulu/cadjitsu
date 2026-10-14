@@ -255,4 +255,104 @@ bool patternEntities(Sketch &sketch, const std::vector<int> &ids, Vec2 centre, i
     return true;
 }
 
+void transformEntities(Sketch &sketch, const std::vector<int> &ids, Vec2 pivot, Vec2 delta, double angle) {
+    std::set<int> pts, curves;
+    for(int id : ids) {
+        const SkEntity *e = sketch.find(id);
+        if(!e || id <= 0) continue;
+        if(e->type != SkType::Point) curves.insert(id);
+        if(e->type == SkType::Point) pts.insert(id);
+        else if(e->type == SkType::Circle) pts.insert(e->a);
+        else
+            for(int q : {e->a, e->b, e->c})
+                if(q) pts.insert(q);
+    }
+    const double c = std::cos(angle), sn = std::sin(angle);
+    for(int q : pts) {
+        SkEntity *e = sketch.find(q);
+        const Vec2 d(e->x - pivot.x, e->y - pivot.y);
+        e->x = pivot.x + d.x * c - d.y * sn + delta.x;
+        e->y = pivot.y + d.x * sn + d.y * c + delta.y;
+    }
+    for(int id : curves)
+        if(SkEntity *e = sketch.find(id); e && e->isText()) e->angle += angle * 180.0 / kPi;
+    const double quarter = angle / (kPi / 2);
+    const bool square = std::fabs(quarter - std::round(quarter)) < 1e-9;
+    const bool swapHV = square && (long(std::llround(quarter)) % 2 != 0);
+    std::vector<int> drop;
+    for(SkConstraint &k : sketch.constraints) {
+        const bool movedLine = curves.count(k.e1) || (pts.count(k.e1) && pts.count(k.e2));
+        if(k.type == SkCon::Fix && pts.count(k.e1)) drop.push_back(k.id);
+        else if((k.type == SkCon::Horizontal || k.type == SkCon::Vertical) && movedLine) {
+            if(!square) drop.push_back(k.id);
+            else if(swapHV) k.type = k.type == SkCon::Horizontal ? SkCon::Vertical : SkCon::Horizontal;
+        }
+    }
+    for(int id : drop) sketch.removeConstraint(id);
+}
+
+std::optional<AlignKind> sketchAlignKind(const Sketch &sketch, int id) {
+    if(id == kSketchOrigin) return AlignKind::Point;
+    if(id == kSketchXAxis || id == kSketchYAxis) return AlignKind::Line;
+    const SkEntity *e = sketch.find(id);
+    if(!e) return std::nullopt;
+    switch(e->type) {
+    case SkType::Point: case SkType::Circle: case SkType::Arc: return AlignKind::Point;
+    case SkType::Line: return AlignKind::Line;
+    default: return std::nullopt;
+    }
+}
+
+namespace {
+
+std::optional<AlignAnchor> sketchAnchor(const Sketch &sketch, const SketchAlignPick &pick) {
+    auto at = [](Vec2 v) { return gp_Pnt(v.x, v.y, 0); };
+    if(pick.id == kSketchOrigin) return AlignAnchor{AlignKind::Point, gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), true};
+    if(pick.id == kSketchXAxis || pick.id == kSketchYAxis)
+        return AlignAnchor{AlignKind::Line, gp_Pnt(0, 0, 0), pick.id == kSketchXAxis ? gp_Dir(1, 0, 0) : gp_Dir(0, 1, 0), false};
+    const SkEntity *e = sketch.find(pick.id);
+    if(!e) return std::nullopt;
+    switch(e->type) {
+    case SkType::Point: return AlignAnchor{AlignKind::Point, at(Vec2(e->x, e->y)), gp_Dir(0, 0, 1), true};
+    case SkType::Circle: case SkType::Arc:
+        return AlignAnchor{AlignKind::Point, at(sketch.pointPos(e->a)), gp_Dir(0, 0, 1), true};
+    case SkType::Line: {
+        Vec2 a = sketch.pointPos(e->a), b = sketch.pointPos(e->b);
+        if((b - a).length() < 1e-12) return std::nullopt;
+        Vec2 p = (a + b) * 0.5;
+        if(pick.click) {
+            // From the end nearer the click, pointing along the line.
+            if((*pick.click - b).length() < (*pick.click - a).length()) std::swap(a, b);
+            p = a;
+        }
+        const Vec2 d = b - a;
+        return AlignAnchor{AlignKind::Line, at(p), gp_Dir(d.x, d.y, 0), true};
+    }
+    default: return std::nullopt;
+    }
+}
+
+} // namespace
+
+std::optional<SketchAlignMove> sketchAlignMove(const Sketch &sketch, const SketchAlignPick &from, const SketchAlignPick &to,
+                                               bool flip, double angle, std::string &why) {
+    const auto f = sketchAnchor(sketch, from), t = sketchAnchor(sketch, to);
+    if(!f || !t) {
+        why = "pick a point, a line, a circle or an arc";
+        return std::nullopt;
+    }
+    const auto tr = alignTransform(*f, *t, flip, angle, why, gp_Dir(0, 0, 1));
+    if(!tr) return std::nullopt;
+    // As pivot 0, a turn and a shift: p -> R p + delta.
+    const gp_Pnt o = gp_Pnt(0, 0, 0).Transformed(*tr);
+    const gp_Dir x = gp_Dir(1, 0, 0).Transformed(*tr);
+    SketchAlignMove m;
+    m.pivot = Vec2(0, 0);
+    m.delta = Vec2(o.X(), o.Y());
+    m.angle = std::atan2(x.Y(), x.X());
+    m.from = f->kind;
+    m.to = t->kind;
+    return m;
+}
+
 } // namespace cad

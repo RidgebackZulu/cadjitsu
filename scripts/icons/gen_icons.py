@@ -1245,6 +1245,22 @@ def shell():
     return s
 
 
+def align():
+    """A block brought down onto another: its orange face to the base's top, by a blue arrow."""
+    iso = Iso(33, 40, 1.0)
+    P = iso.p
+    s = iso.floor_shadow(-15, -15, 30, 30)
+    s += iso.box(-15, -15, 0, 30, 30, 7, top="url(#oTop)")
+    # The block above, offset and turned a little, its underside the orange face.
+    s += poly([P(-9, -9, 25), P(5, -9, 25), P(5, 5, 25), P(-9, 5, 25)], "url(#oTop)", INK, 1.3, 'fill-opacity="0.9"')
+    s += iso.box(-9, -9, 25, 14, 14, 9)
+    # The arrow down, from the block to the base.
+    c = P(-2, -2, 14)
+    s += arrow_poly([(c[0] - 2.4, c[1] - 9), (c[0] + 2.4, c[1] - 9), (c[0] + 2.4, c[1] - 1),
+                     (c[0] + 6.5, c[1] - 1), (c[0], c[1] + 7), (c[0] - 6.5, c[1] - 1), (c[0] - 2.4, c[1] - 1)])
+    return s
+
+
 def canvas():
     """A photo pinned flat on a plane: a framed picture with hills and a sun."""
     iso = Iso(32, 34, 1.0)
@@ -1305,7 +1321,7 @@ ICONS = {
     "folder": folder, "warning": warning, "error": error,
     "timeline-first": t_first, "timeline-back": t_back, "timeline-forward": t_forward, "timeline-last": t_last,
     "origin": origin, "flip": flip,
-    "revolve": revolve, "shell": shell, "canvas": canvas,
+    "revolve": revolve, "shell": shell, "canvas": canvas, "align": align,
     "trim": trim_tool, "extend": extend_tool, "sketch-fillet": sketch_fillet, "slot": slot_tool,
     "polygon": polygon_tool, "trace": trace_tool, "views": views,
     "settings": settings, "mcp-server": mcp_server, "delete": delete, "repeat": repeat,

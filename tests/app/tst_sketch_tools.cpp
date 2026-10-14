@@ -20,6 +20,7 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QTimer>
+#include <QLabel>
 #include <QtTest>
 
 #include <algorithm>
@@ -104,6 +105,56 @@ private slots:
         QVERIFY(waitForFrames(vp(), 2));
     }
     void cleanup() { m_window.reset(); }
+
+    void alignDialogPicksObjectsFromAndTo() {
+        startSketch(cad::PlaneRef::Kind::XY);
+        int p0 = 0, p2 = 0, target = 0;
+        ed()->edit(QStringLiteral("L"), [&](cad::Sketch &s) {
+            p0 = s.addPoint(5, 5);
+            const int p1 = s.addPoint(25, 5);
+            p2 = s.addPoint(25, 15);
+            s.addLine(p0, p1);
+            s.addLine(p1, p2);
+            target = s.addPoint(40, 30);
+        }, false);
+        trigger("sketchAlign");
+        QCOMPARE(mode()->tool(), SketchToolKind::Align);
+        CommandPanel *panel = m_window->commandPanel();
+        QVERIFY(panel->isOpen());
+        SelectionField *objects = field("sketchAlignObjects"), *from = field("sketchAlignFrom"), *to = field("sketchAlignTo");
+        QVERIFY(objects && from && to);
+        auto *guide = panel->findChild<QLabel *>(QStringLiteral("sketchAlignGuide"));
+        QVERIFY(guide);
+        QVERIFY2(guide->text().contains(QStringLiteral("Step 1 of 3")), qPrintable(guide->text()));
+        click(at(15, 5));
+        click(at(25, 10));
+        QCOMPARE(objects->count(), 2);
+        // Enter: on to FROM.
+        key(Qt::Key_Return);
+        QVERIFY(from->active());
+        QVERIFY2(guide->text().contains(QStringLiteral("Step 2 of 3")), qPrintable(guide->text()));
+        // The target point does not move: not a FROM.
+        click(at(40, 30));
+        QCOMPARE(from->count(), 0);
+        click(at(5, 5)); // the corner
+        QCOMPARE(from->count(), 1);
+        QVERIFY(to->active() && !from->active());
+        QVERIFY2(guide->text().contains(QStringLiteral("Step 3 of 3")), qPrintable(guide->text()));
+        // Hovering a TO previews the move; clicking picks it.
+        move(at(40, 30));
+        QVERIFY(!ed()->previewLines.empty());
+        click(at(40, 30));
+        QCOMPARE(to->count(), 1);
+        QVERIFY2(guide->text().contains(QStringLiteral("orange point sits on the blue point")), qPrintable(guide->text()));
+        QVERIFY(panel->okButton()->isEnabled());
+        panel->okButton()->click();
+        QVERIFY(!panel->isOpen());
+        QCOMPARE(ed()->posOf(p0).x, 40.0);
+        QCOMPARE(ed()->posOf(p0).y, 30.0);
+        QCOMPARE(ed()->posOf(p2).x, 60.0);
+        QCOMPARE(ed()->posOf(p2).y, 40.0);
+        QCOMPARE(ed()->posOf(target).x, 40.0);
+    }
 
     void mirrorDialogPicksObjectsThenTheLine() {
         startSketch(cad::PlaneRef::Kind::XY);

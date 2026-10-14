@@ -85,6 +85,19 @@ Circular pattern in a sketch, like the sketch Circular Pattern tool: copies of g
 | `entities` **(required)** | array of integer | the curves / points / texts to copy |
 | `sketch` **(required)** | integer | sketch feature id |
 
+## `sketch_align`
+
+Aligns sketch geometry like the sketch Align tool: a point or line of the geometry that moves (from) is brought onto a point or line of the rest of the sketch or its axes (to), and the entities move with it. point -> point: moves it there; point -> line: onto the nearest spot of the line; line -> line: the lines line up end to end (flip: the other way round). angle (degrees) then turns it about the target. One undo step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `angle` | number | degrees, default 0 |
+| `entities` **(required)** | array of integer | the curves / points / texts to move (from must be among them) |
+| `flip` | boolean | turn it the other way round (default false) |
+| `from` **(required)** | integer or string or object | an entity id (a point; a line, anchored at its end nearest "at" or its middle; a circle or arc: its centre), {"id": n, "at": [x, y]}, or "origin", "x_axis", "y_axis" |
+| `sketch` **(required)** | integer | sketch feature id |
+| `to` **(required)** | integer or string or object | an entity id (a point; a line, anchored at its end nearest "at" or its middle; a circle or arc: its centre), {"id": n, "at": [x, y]}, or "origin", "x_axis", "y_axis" |
+
 ## `project_to_sketch`
 
 Projects lines, curves and points of another sketch (usually on another plane) onto a sketch, like the sketch Project tool. Projected geometry stays linked: when the original changes, it follows. It is fixed in this sketch, can bound profiles like any line, and can be made construction geometry (set_construction). Circles and arcs project only onto a parallel plane. The other sketch must come before this one in the timeline. One undo step.
@@ -281,6 +294,19 @@ Repeats bodies, or holes / extrudes, in rows (rectangular: count and spacing alo
 | `spacing2` | number or string | mm along direction2 |
 | `symmetric` | boolean | circular: spread both ways from the original |
 | `type` **(required)** | `rectangular` / `circular` | rectangular (rows along directions) or circular (around an axis) |
+
+## `align`
+
+Aligns bodies like Fusion's Align: geometry picked on the bodies (from) is brought onto geometry elsewhere (to), and the bodies move with it. point -> point: moves it there; point -> edge / face: onto the nearest spot of it; edge -> edge: the edges line up end to end along one line (flip: the other way round); face -> face: the faces meet flat and centre to centre, facing each other (flip: stacked facing the same way); edge -> face: lies in the face. angle then turns it about the aligned line or normal. copy leaves the original and adds moved copies. The moved bodies keep their face names, so later features still find them. A timeline step.
+
+| Argument | Type | Description |
+|---|---|---|
+| `angle` | number or string | degrees to turn about the aligned line or normal (default 0) |
+| `bodies` **(required)** | array of string | the bodies to move |
+| `copy` | boolean | keep the original and add moved copies (default false) |
+| `flip` | boolean | turn it the other way round (default false) |
+| `from` **(required)** | string or object | a vertex {"vertex": {body, index}} or {"vertex": {body, "near": [x, y, z]}} (the corner nearest a point), an edge {"edge": {body, index}} (a straight edge: a line, anchored at its end nearest "at": [x, y, z] when given; a round edge: its axis), a face {"face": {body, index}} (flat: the face; round: its axis), a construction plane {"plane": <feature id>}, or "origin", "x_axis", "y_axis", "z_axis", "xy_plane", "xz_plane", "yz_plane" |
+| `to` **(required)** | string or object | a vertex {"vertex": {body, index}} or {"vertex": {body, "near": [x, y, z]}} (the corner nearest a point), an edge {"edge": {body, index}} (a straight edge: a line, anchored at its end nearest "at": [x, y, z] when given; a round edge: its axis), a face {"face": {body, index}} (flat: the face; round: its axis), a construction plane {"plane": <feature id>}, or "origin", "x_axis", "y_axis", "z_axis", "xy_plane", "xz_plane", "yz_plane" |
 
 ## `thread`
 

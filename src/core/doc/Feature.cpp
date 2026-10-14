@@ -1,5 +1,6 @@
 #include "doc/Feature.h"
 
+#include "features/AlignFeature.h"
 #include "features/ChamferFeature.h"
 #include "features/CombineFeature.h"
 #include "features/ConstructionPlaneFeature.h"
@@ -44,6 +45,7 @@ const TypeName kTypes[] = {
     {FeatureType::Text, "text", "Text"},
     {FeatureType::Revolve, "revolve", "Revolve"},
     {FeatureType::Shell, "shell", "Shell"},
+    {FeatureType::Align, "align", "Align"},
 };
 
 } // namespace
@@ -116,6 +118,7 @@ std::shared_ptr<Feature> Feature::create(FeatureType type) {
     case FeatureType::Text: return std::make_shared<TextFeature>();
     case FeatureType::Revolve: return std::make_shared<RevolveFeature>();
     case FeatureType::Shell: return std::make_shared<ShellFeature>();
+    case FeatureType::Align: return std::make_shared<AlignFeature>();
     }
     return nullptr;
 }

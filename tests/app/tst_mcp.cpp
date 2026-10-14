@@ -160,7 +160,7 @@ private slots:
             QVERIFY(t.contains("inputSchema") && t.contains("description"));
         }
         for(const char *n : {"get_design", "create_sketch", "extrude", "fillet", "chamfer", "hole", "combine", "list_edges",
-                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text", "set_material", "set_render", "render_image", "sketch_mirror", "sketch_pattern", "project_to_sketch", "set_construction"})
+                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text", "set_material", "set_render", "render_image", "sketch_mirror", "sketch_pattern", "project_to_sketch", "set_construction", "align", "sketch_align"})
             QVERIFY2(names.count(n), n);
         // The session ends: back to listening.
         QCOMPARE(post({}, kToken, {}, QStringLiteral("/mcp"), "DELETE").status, 200);
@@ -392,6 +392,72 @@ private slots:
         // Features: a hole in a plate, around a hole's own axis is pointless; around z.
         QVERIFY(tool("pattern", {{"type", "circular"}, {"features", {1}}}).first); // a sketch cannot be repeated
         QVERIFY(tool("pattern", {{"type", "rectangular"}, {"bodies", {"Body1"}}}).first); // no spacing
+    }
+
+    void alignBodiesAndSketchGeometry() {
+        initialize();
+        QVERIFY(!tool("create_sketch", {{"plane", "XY"},
+                                         {"entities", {{{"type", "rectangle"}, {"corner1", {0, 0}}, {"corner2", {10, 10}}}}}})
+                     .first);
+        QVERIFY(!tool("extrude", {{"sketch", 1}, {"distance", 10}}).first);
+        const auto [e0, s2] = tool("create_sketch", {{"plane", "XY"},
+                                                     {"entities", {{{"type", "rectangle"}, {"corner1", {30, 0}}, {"corner2", {50, 20}}}}}});
+        QVERIFY2(!e0, s2.dump().c_str());
+        QVERIFY(!tool("extrude", {{"sketch", s2["sketch"]}, {"distance", 5}, {"operation", "new_body"}}).first);
+        const int top1 = tool("list_faces", {{"body", "Body1"}, {"normal", "+z"}}).second["faces"][0]["index"];
+        const int top2 = tool("list_faces", {{"body", "Body2"}, {"normal", "+z"}}).second["faces"][0]["index"];
+        // Face to face: Body1 lands upside down on Body2's top, centre to centre.
+        const auto [e1, r] = tool("align", {{"bodies", {"Body1"}},
+                                            {"from", {{"face", {{"body", "Body1"}, {"index", top1}}}}},
+                                            {"to", {{"face", {{"body", "Body2"}, {"index", top2}}}}}});
+        QVERIFY2(!e1, r.dump().c_str());
+        json moved;
+        for(const json &b : r["bodies"])
+            if(b["name"] == "Body1") moved = b["bounding_box"];
+        QCOMPARE(moved["min"], json({35.0, 5.0, 5.0}));
+        QCOMPARE(moved["max"], json({45.0, 15.0, 15.0}));
+        // A copy of Body2, its corner onto the origin.
+        const auto [e2, c] = tool("align", {{"bodies", {"Body2"}},
+                                            {"from", {{"vertex", {{"body", "Body2"}, {"near", {30, 0, 0}}}}}},
+                                            {"to", "origin"},
+                                            {"copy", true}});
+        QVERIFY2(!e2, c.dump().c_str());
+        QCOMPARE(int(c["bodies"].size()), 3);
+        // From must be on the bodies that move; to must not.
+        QVERIFY(tool("align", {{"bodies", {"Body1"}}, {"from", {{"face", {{"body", "Body2"}, {"index", top2}}}}}, {"to", "xy_plane"}}).first);
+        QVERIFY(tool("align", {{"bodies", {"Body1"}}, {"from", {{"face", {{"body", "Body1"}, {"index", top1}}}}}, {"to", "w_axis"}}).first);
+
+        // Sketch: an L's corner onto a point, then its leg along the Y axis.
+        const auto [e3, l] = tool("create_sketch", {{"plane", "XY"},
+                                                    {"entities", {{{"type", "polyline"}, {"points", {{5, 5}, {25, 5}, {25, 15}}}},
+                                                                  {{"type", "point"}, {"at", {40, 30}}}}}});
+        QVERIFY2(!e3, l.dump().c_str());
+        const int sketch = l["sketch"];
+        std::vector<int> lines;
+        int corner = 0, target = 0;
+        for(const json &cv : l["curves"]) {
+            if(cv["type"] == "line") {
+                lines.push_back(cv["id"]);
+                if(cv["from"] == json({5.0, 5.0})) corner = cv["point_ids"][0];
+            }
+            if(cv["type"] == "point") target = cv["id"];
+        }
+        QVERIFY(corner && target && lines.size() == 2);
+        const auto [e4, a] = tool("sketch_align", {{"sketch", sketch}, {"entities", lines}, {"from", corner}, {"to", target}});
+        QVERIFY2(!e4, a.dump().c_str());
+        bool found = false;
+        for(const json &cv : a["curves"])
+            if(cv["type"] == "line" && cv["from"] == json({40.0, 30.0})) found = true;
+        QVERIFY2(found, a.dump().c_str());
+        QVERIFY(tool("sketch_align", {{"sketch", sketch}, {"entities", lines}, {"from", target}, {"to", corner}}).first);
+        QVERIFY(tool("sketch_align", {{"sketch", sketch}, {"entities", lines}, {"from", corner}, {"to", "z_axis"}}).first);
+        // The first leg along the Y axis: it turns a quarter turn onto it.
+        const auto [e5, y] = tool("sketch_align", {{"sketch", sketch}, {"entities", lines}, {"from", {{"id", lines[0]}, {"at", {40, 30}}}}, {"to", "y_axis"}});
+        QVERIFY2(!e5, y.dump().c_str());
+        for(const json &cv : y["curves"])
+            if(cv["id"] == lines[0]) {
+                QVERIFY2(std::abs(cv["from"][0].get<double>()) < 1e-6 && std::abs(cv["to"][0].get<double>()) < 1e-6, cv.dump().c_str());
+            }
     }
 
     void threadsAndTappedHoles() {

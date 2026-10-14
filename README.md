@@ -141,7 +141,7 @@ Releases are on the [Releases page](https://github.com/RidgebackZulu/cadjitsu/re
 | Remap the mouse | **File > Settings…** (Cmd+,): presets for Cadjitsu, Fusion 360 and SolidWorks, or choose the drag for orbit, pan and zoom; invert the wheel; trackpad drag orbits |
 | Marking menu | Right-click the canvas (without dragging): a ring of commands (Repeat, Create Sketch, Extrude, undo / redo...) plus a short list; click one or press Esc |
 | Extrude | E (with a profile or planar face selected, or inside a sketch to finish it and extrude its profile) |
-| Fillet / Hole | F / H |
+| Fillet / Hole / Align | F / H / A |
 | 3D Print (export an STL) | Cmd+P |
 | Undo / redo | Cmd+Z / Shift+Cmd+Z (inside a sketch: the sketch's own steps; while a command is open: cancel it) |
 
@@ -170,6 +170,7 @@ Releases are on the [Releases page](https://github.com/RidgebackZulu/cadjitsu/re
 | Extend | | |
 | Mirror | | a dialog: Objects, then the Mirror Line (a line or axis) |
 | Circular Pattern | | a dialog: Objects, Centre Point, Quantity, Angle |
+| Align | | a dialog: Objects, From (orange), To (blue), Flip, Angle, Copy |
 | Project | P | click lines, curves and points of another sketch |
 
 - Points snap to existing points, the origin, midpoints, quadrants, curves and the sketch axes.
@@ -187,6 +188,9 @@ Releases are on the [Releases page](https://github.com/RidgebackZulu/cadjitsu/re
 - **Mirror:** pick the geometry, then (Enter, or click **Mirror Line**) a line or one of the sketch axes; the field names it ("Y axis"). Hovering a line shows the mirror image. The copies are held symmetric to the originals, so they follow when the originals change. Points on the mirror line are shared, so half an outline drawn up to the line becomes one closed profile.
 - **Circular Pattern:** pick the geometry, then the **Centre Point** (a point, the origin or anywhere), and type **Quantity** (how many in all, the original included) and the **Angle** they spread over (360 by default). The copies show as you type; OK places them. Their dimensions follow the original's.
 - **Project (P):** the other sketches' geometry shows faintly in purple. Click a line, circle, arc or point of another sketch (usually on another plane) to bring it onto this one. Projected geometry is purple and fixed. It stays linked: change the original and it follows. It can bound profiles like any other line, and can be made construction geometry and back. Lines and points project onto any plane; circles and arcs only onto a parallel one. You can only project from sketches earlier in the timeline. If the original is deleted, the projection stays where it was, with a warning on the sketch.
+
+**Align** (SKETCH > MODIFY, and on the right-click menu)
+- Works like Align on bodies (below), in the sketch: pick the geometry to move (**Objects**, Enter when done), then a point or line on it (**From**, orange), then a point or line it goes to (**To**, blue: other geometry, the origin or an axis). A line is anchored at the end nearer the click. Hovering a target previews the move, a dashed arrow runs from From to To, and the panel's guide says what to click next and then what will happen. **Flip** turns it the other way round, **Angle** turns it about the target, **Copy** keeps the original. OK moves it (one undo step).
 
 **Trim, Extend, Fillet, Slot and Polygon**
 - **Trim (T):** hover a curve and the piece between the curves crossing it turns red; click to remove it, or drag across several curves to trim each. A line or arc is shortened or split in two, a circle becomes an arc, and a curve nothing crosses is deleted. The new ends stay on the curves that cut them.
@@ -286,6 +290,23 @@ Right-click a sketch in the browser for **Edit Sketch** or **Delete**. Deleting 
 - **Rectangular**: count and spacing along X, Y, Z or an edge, optionally in a second direction (a grid of pegs). A negative spacing goes the other way.
 - **Circular**: count over a total angle (360° spreads the copies evenly: a bolt circle) around X, Y, Z, an edge, or a cylinder's axis (pick the part's round face); **Symmetric** spreads a partial angle both ways.
 - Counts, spacings and angles are parameters.
+
+**Align (A)** (Modify)
+- Put one part exactly against another, as in Fusion 360. Three clicks, and the dialog's guide says which is next ("Step 2 of 3 — Click a point, edge or face on it to align FROM"):
+  1. **Objects:** the bodies to move (the one you clicked first is already in).
+  2. **From** (orange): a vertex, edge or face on them.
+  3. **To** (blue): where it goes: a vertex, edge or face of another body, or an origin plane or axis.
+- Once both are picked the guide says what will happen, the moved bodies are previewed, and a dashed arrow runs from From to To:
+
+  | From → To | What it does |
+  |---|---|
+  | point → point | moves so the points meet |
+  | point → edge / face | moves straight onto it |
+  | edge → edge | the edges line up end to end along one line (round edges and faces: their axes line up) |
+  | face → face | the faces meet flat, centre to centre, facing each other |
+  | edge → face | the edge comes to lie in the face |
+
+- **Flip** turns it the other way round (faces stacked facing the same way, an edge reversed), **Angle** turns it about the aligned line or normal, **Copy** leaves the original and adds the moved copy. Align is a timeline step: the moved bodies keep their face names, so fillets and holes made on them later still hold, and Edit Feature reopens it with every pick.
 
 **Draft** (Modify)
 - Tilt flat faces about a hinge edge: pick the faces, then a straight edge of one of them as the hinge (the first face's edges are offered). The face across the hinge sets the pull direction and stays put.

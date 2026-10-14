@@ -1,6 +1,9 @@
 #pragma once
 
+#include "geom/Align.h"
 #include "sketch/Sketch.h"
+
+#include <optional>
 
 #include <string>
 #include <vector>
@@ -32,5 +35,32 @@ bool patternEntities(Sketch &sketch, const std::vector<int> &ids, Vec2 centre, i
 
 // The rotation step of a circular pattern (degrees).
 double patternStep(int count, double totalAngle);
+
+// Moves `ids` (curves with their points, texts, lone points): each point p
+// goes to pivot + R(angle) (p - pivot) + delta, texts turn with them. Pins
+// on moved points are dropped, and horizontal / vertical on turned lines
+// (swapped by a quarter turn). The sketch is not solved.
+void transformEntities(Sketch &sketch, const std::vector<int> &ids, Vec2 pivot, Vec2 delta, double angle);
+
+// Align in a sketch: a pick on the geometry that moves (from) and one it goes
+// to (to): a point, a line (the end nearer `click`, or its middle), a circle
+// or arc (its centre), the origin (kSketchOrigin) or an axis (kSketchXAxis,
+// kSketchYAxis). The move it makes (see alignTransform: point onto point or
+// line, line along line, `flip`, then turned `angle` radians), as a pivot,
+// a shift and a turn for transformEntities / the editor's move; false with
+// `why` if it cannot.
+struct SketchAlignPick {
+    int id = 0;
+    std::optional<Vec2> click;
+};
+struct SketchAlignMove {
+    Vec2 pivot, delta;
+    double angle = 0;
+    AlignKind from = AlignKind::Point, to = AlignKind::Point;
+};
+std::optional<SketchAlignMove> sketchAlignMove(const Sketch &sketch, const SketchAlignPick &from, const SketchAlignPick &to,
+                                               bool flip, double angle, std::string &why);
+// The kind a pick stands for (nullopt: none, e.g. a text).
+std::optional<AlignKind> sketchAlignKind(const Sketch &sketch, int id);
 
 } // namespace cad

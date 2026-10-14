@@ -49,6 +49,7 @@ enum class SketchToolKind {
     Slot,
     Polygon,
     TraceCanvas,
+    Align,
 };
 
 QString sketchToolName(SketchToolKind kind);
