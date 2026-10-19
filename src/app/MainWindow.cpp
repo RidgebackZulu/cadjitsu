@@ -973,7 +973,8 @@ void MainWindow::buildRibbon() {
     m_themeButton = new QToolButton(m_ribbon);
     m_themeButton->setObjectName(QStringLiteral("themeButton"));
     m_themeButton->setAutoRaise(true);
-    m_themeButton->setIconSize(QSize(20, 20));
+    m_themeButton->setIconSize(QSize(18, 18));
+    m_themeButton->setFixedSize(26, 26); // no taller than the MCP button beside it
     m_themeButton->setFocusPolicy(Qt::NoFocus);
     m_themeButton->setCursor(Qt::PointingHandCursor);
     connect(m_themeButton, &QToolButton::clicked, this, [this] { action(QStringLiteral("darkMode"))->toggle(); });
