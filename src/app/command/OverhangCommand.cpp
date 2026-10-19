@@ -1,4 +1,5 @@
 #include "command/OverhangCommand.h"
+#include "ui/Theme.h"
 
 #include "model/ModelView.h"
 #include "ui/Icons.h"
@@ -24,7 +25,7 @@ void OverhangCommand::setup() {
     m_near = panel.addInfo(tr("Near the limit"), "overhangNear");
     m_legend = panel.addInfo(QString(), "overhangLegend");
     m_legend->setTextFormat(Qt::RichText);
-    m_legend->setStyleSheet(QStringLiteral("color: #3c4450; font-weight: normal;"));
+    styled(m_legend, QStringLiteral("color: #3c4450; font-weight: normal;"));
     m_legend->setText(tr("<span style='color:#e1322d'>■</span> needs support<br>"
                          "<span style='color:#f5aa1e'>■</span> near the limit<br>"
                          "<span style='color:#286ee6'>■</span> flat bridge<br>"

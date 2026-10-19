@@ -38,6 +38,7 @@ public:
 
     QColor backgroundTop{250, 251, 252};
     QColor backgroundBottom{196, 205, 216};
+    QColor gridMinor{120, 132, 148, 70}, gridMajor{96, 108, 124, 130};
 
     size_t cachedMeshCount() const { return m_meshes.size(); }
 

@@ -1,4 +1,5 @@
 #include "ui/MarkingMenu.h"
+#include "ui/Theme.h"
 
 #include <QAction>
 #include <QKeyEvent>
@@ -98,11 +99,11 @@ void MarkingMenu::paintEvent(QPaintEvent *) {
     f.setPixelSize(12);
     p.setFont(f);
     // Centre.
-    p.setPen(QPen(QColor(90, 100, 115, 160), 1.5));
-    p.setBrush(QColor(255, 255, 255, 170));
+    p.setPen(QPen(themed(90, 100, 115, 160), 1.5));
+    p.setBrush(themed(255, 255, 255, 170));
     p.drawEllipse(m_center, 14, 14);
     if(m_hotSlot >= 0) {
-        p.setPen(QPen(QColor(30, 110, 220), 2.0));
+        p.setPen(QPen(themed(30, 110, 220), 2.0));
         p.drawLine(m_center, slotCenter(m_hotSlot));
     }
     for(int i = 0; i < 8; ++i) {
@@ -110,39 +111,39 @@ void MarkingMenu::paintEvent(QPaintEvent *) {
         if(!a) continue;
         const QRect r = slotRect(i);
         const bool hot = i == m_hotSlot, enabled = a->isEnabled();
-        p.setPen(QPen(hot ? QColor(30, 110, 220) : QColor(140, 150, 165), 1.0));
-        p.setBrush(hot ? QColor(222, 236, 255, 250) : QColor(250, 251, 253, 240));
+        p.setPen(QPen(hot ? themed(30, 110, 220) : themed(140, 150, 165), 1.0));
+        p.setBrush(hot ? themed(222, 236, 255, 250) : themed(250, 251, 253, 240));
         p.drawRoundedRect(r, 5, 5);
         if(!a->icon().isNull())
             a->icon().paint(&p, QRect(r.left() + 6, r.top() + 5, 20, 20), Qt::AlignCenter,
                             enabled ? QIcon::Normal : QIcon::Disabled);
-        p.setPen(enabled ? QColor(30, 36, 44) : QColor(160, 166, 175));
+        p.setPen(enabled ? themed(30, 36, 44) : themed(160, 166, 175));
         p.drawText(r.adjusted(30, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft,
                    fontMetrics().elidedText(a->text().remove(QLatin1Char('&')), Qt::ElideRight, r.width() - 36));
     }
     if(!m_list.empty()) {
         const QRect box = listRow(0).united(listRow(int(m_list.size()) - 1)).adjusted(-4, -6, 4, 6);
-        p.setPen(QPen(QColor(140, 150, 165), 1.0));
-        p.setBrush(QColor(250, 251, 253, 245));
+        p.setPen(QPen(themed(140, 150, 165), 1.0));
+        p.setBrush(themed(250, 251, 253, 245));
         p.drawRoundedRect(box, 5, 5);
         for(int i = 0; i < int(m_list.size()); ++i) {
             QAction *a = m_list[size_t(i)];
             if(!a) continue;
             const QRect r = listRow(i);
             if(a->isSeparator()) {
-                p.setPen(QColor(210, 214, 220));
+                p.setPen(themed(210, 214, 220));
                 p.drawLine(r.left() + 6, r.center().y(), r.right() - 6, r.center().y());
                 continue;
             }
             if(i == m_hotRow && a->isEnabled()) {
                 p.setPen(Qt::NoPen);
-                p.setBrush(QColor(222, 236, 255));
+                p.setBrush(themed(222, 236, 255));
                 p.drawRoundedRect(r.adjusted(0, 1, 0, -1), 3, 3);
             }
             if(!a->icon().isNull())
                 a->icon().paint(&p, QRect(r.left() + 6, r.top() + 4, 18, 18), Qt::AlignCenter,
                                 a->isEnabled() ? QIcon::Normal : QIcon::Disabled);
-            p.setPen(a->isEnabled() ? QColor(30, 36, 44) : QColor(160, 166, 175));
+            p.setPen(a->isEnabled() ? themed(30, 36, 44) : themed(160, 166, 175));
             p.drawText(r.adjusted(30, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft, a->text().remove(QLatin1Char('&')));
         }
     }

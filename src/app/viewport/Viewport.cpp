@@ -1,4 +1,5 @@
 #include "viewport/Viewport.h"
+#include "ui/Theme.h"
 
 #include "ui/Icons.h"
 #include "viewport/NavBar.h"
@@ -39,6 +40,13 @@ float niceStep(float approx) {
 
 } // namespace
 
+void Viewport::applyThemeColors() {
+    m_renderer.backgroundTop = canvasTop();
+    m_renderer.backgroundBottom = canvasBottom();
+    m_renderer.gridMinor = isDark() ? QColor(150, 160, 176, 60) : QColor(120, 132, 148, 70);
+    m_renderer.gridMajor = isDark() ? QColor(178, 188, 204, 105) : QColor(96, 108, 124, 130);
+}
+
 Viewport::Viewport(QWidget *parent) : QRhiWidget(parent) {
     setMinimumSize(320, 240);
     setFocusPolicy(Qt::StrongFocus);
@@ -48,13 +56,18 @@ Viewport::Viewport(QWidget *parent) : QRhiWidget(parent) {
 
     m_overlay = new ViewportOverlay(this);
     m_navBar = new NavBar(this);
+    applyThemeColors();
+    connect(&ThemeNotifier::instance(), &ThemeNotifier::changed, this, [this] {
+        applyThemeColors();
+        update();
+    });
 
     m_homeButton = new QToolButton(this);
     m_homeButton->setObjectName(QStringLiteral("viewCubeHome"));
     m_homeButton->setIcon(icon(IconId::Home));
     m_homeButton->setIconSize(QSize(16, 16));
     m_homeButton->setFixedSize(26, 26);
-    m_homeButton->setStyleSheet(QStringLiteral(
+    styled(m_homeButton, QStringLiteral(
         "#viewCubeHome { border: 1px solid rgba(120, 135, 155, 150); border-radius: 13px;"
         " background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255,255,255,235), stop:1 rgba(222,229,238,235)); }"
         "#viewCubeHome:hover { border-color: #2f7be0;"

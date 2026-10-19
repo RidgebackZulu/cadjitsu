@@ -1,4 +1,5 @@
 #include "ui/BrowserTree.h"
+#include "ui/Theme.h"
 
 #include "model/CanvasPicture.h"
 
@@ -29,12 +30,12 @@ QIcon bodyIcon(const cad::BodyMaterial &m, bool chosen) {
         const QColor c = QColor::fromRgb(QRgb(m.rgb));
         const double r = size * 0.24;
         const QPointF centre(size - r - 0.5, size - r - 0.5);
-        p.setPen(QPen(QColor(255, 255, 255), size / 16.0));
+        p.setPen(QPen(themed(255, 255, 255), size / 16.0));
         p.setBrush(m.finish == cad::Finish::Translucent ? QColor(c.red(), c.green(), c.blue(), 150) : c);
         p.drawEllipse(centre, r, r);
         if(m.finish == cad::Finish::Silk) {
             p.setPen(Qt::NoPen);
-            p.setBrush(QColor(255, 255, 255, 170));
+            p.setBrush(themed(255, 255, 255, 170));
             p.drawEllipse(centre - QPointF(r * 0.35, r * 0.35), r * 0.3, r * 0.3);
         }
         p.end();
@@ -90,7 +91,7 @@ BrowserTree::BrowserTree(cad::Document &doc, ModelView *view, QWidget *parent)
     setIndentation(14);
     setFocusPolicy(Qt::ClickFocus);
     setEditTriggers(QAbstractItemView::EditKeyPressed | QAbstractItemView::SelectedClicked);
-    setStyleSheet(QStringLiteral("#browser { background: rgba(250, 251, 253, 240); border: none;"
+    styled(this, QStringLiteral("#browser { background: rgba(250, 251, 253, 240); border: none;"
                                  " border-right: 1px solid #c9ced6; font-size: 12px; color: #1c2128; }"
                                  "#browser::item { color: #1c2128; padding: 1px 0; }"
                                  "#browser::item:selected { background: #cfe0f7; color: #0f1a2a; }"

@@ -1,4 +1,5 @@
 #include "mcp/McpDialog.h"
+#include "ui/Theme.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -78,7 +79,7 @@ McpDialog::McpDialog(McpServer &server, McpLog &log, QWidget *parent)
     setWindowTitle(tr("MCP Server"));
     setObjectName(QStringLiteral("mcpDialog"));
     resize(760, 560);
-    setStyleSheet(QStringLiteral(
+    styled(this, QStringLiteral(
         "#mcpDialog { background: #f6f7f9; }"
         "QTabWidget::pane { border: 1px solid #d3d8df; border-radius: 6px; background: white; top: -1px; }"
         "QTabBar::tab { padding: 6px 16px; color: #3c4450; font-weight: 600; border: none; }"

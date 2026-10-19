@@ -1261,6 +1261,30 @@ def align():
     return s
 
 
+def theme_dark():
+    """Dark mode: a crescent moon, with two small stars."""
+    # The crescent: a disc with a smaller disc bitten out of its upper right.
+    d = ("M 40 48 A 19 19 0 1 1 36 13 A 14 14 0 1 0 51 36 A 19 19 0 0 1 40 48 Z")
+    s = path(d, "url(#yellow)", INK, 1.6)
+    for (x, y, r) in ((47, 14, 3.2), (54, 24, 2.2)):
+        s += path(f"M {f(x)} {f(y - r)} L {f(x + r * 0.32)} {f(y - r * 0.32)} L {f(x + r)} {f(y)} "
+                  f"L {f(x + r * 0.32)} {f(y + r * 0.32)} L {f(x)} {f(y + r)} L {f(x - r * 0.32)} {f(y + r * 0.32)} "
+                  f"L {f(x - r)} {f(y)} L {f(x - r * 0.32)} {f(y - r * 0.32)} Z", "#F5C54A", INK, 0.9)
+    return s
+
+
+def theme_light():
+    """Light mode: a sun, a disc with eight rays."""
+    c = (32, 32)
+    s = ""
+    for k in range(8):
+        a = math.radians(k * 45)
+        s += line((c[0] + 15 * math.cos(a), c[1] + 15 * math.sin(a)),
+                  (c[0] + 23 * math.cos(a), c[1] + 23 * math.sin(a)), "#E8A317", 3.4)
+    s += circle(c, 10.5, "url(#yellow)", INK, 1.6)
+    return s
+
+
 def canvas():
     """A photo pinned flat on a plane: a framed picture with hills and a sun."""
     iso = Iso(32, 34, 1.0)
@@ -1321,7 +1345,7 @@ ICONS = {
     "folder": folder, "warning": warning, "error": error,
     "timeline-first": t_first, "timeline-back": t_back, "timeline-forward": t_forward, "timeline-last": t_last,
     "origin": origin, "flip": flip,
-    "revolve": revolve, "shell": shell, "canvas": canvas, "align": align,
+    "revolve": revolve, "shell": shell, "canvas": canvas, "align": align, "theme_dark": theme_dark, "theme_light": theme_light,
     "trim": trim_tool, "extend": extend_tool, "sketch-fillet": sketch_fillet, "slot": slot_tool,
     "polygon": polygon_tool, "trace": trace_tool, "views": views,
     "settings": settings, "mcp-server": mcp_server, "delete": delete, "repeat": repeat,

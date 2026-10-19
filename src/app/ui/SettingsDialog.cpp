@@ -1,4 +1,5 @@
 #include "ui/SettingsDialog.h"
+#include "ui/Theme.h"
 
 #include "MainWindow.h"
 #include "command/ExtrudeCommand.h"
@@ -52,9 +53,20 @@ SettingsDialog::SettingsDialog(const MouseBindings &current, QWidget *parent) : 
                                "the scroll wheel and pinch zoom towards the cursor."),
                             mouse);
     note->setWordWrap(true);
-    note->setStyleSheet(QStringLiteral("color: #5a6270;"));
+    styled(note, QStringLiteral("color: #5a6270;"));
     form->addRow(note);
     v->addWidget(mouse);
+
+    auto *lookBox = new QGroupBox(tr("Appearance"), this);
+    auto *lf = new QFormLayout(lookBox);
+    m_theme = new QComboBox(lookBox);
+    m_theme->setObjectName(QStringLiteral("theme"));
+    m_theme->addItem(tr("Light"), int(ThemeMode::Light));
+    m_theme->addItem(tr("Dark"), int(ThemeMode::Dark));
+    m_theme->addItem(tr("Match system"), int(ThemeMode::System));
+    m_theme->setCurrentIndex(std::max(0, m_theme->findData(int(themeSetting()))));
+    lf->addRow(tr("Theme"), m_theme);
+    v->addWidget(lookBox);
 
     auto *unitsBox = new QGroupBox(tr("Units"), this);
     auto *uf = new QFormLayout(unitsBox);
@@ -70,7 +82,7 @@ SettingsDialog::SettingsDialog(const MouseBindings &current, QWidget *parent) : 
                                    "type in it; the value is converted."),
                                 unitsBox);
     unitNote->setWordWrap(true);
-    unitNote->setStyleSheet(QStringLiteral("color: #5a6270;"));
+    styled(unitNote, QStringLiteral("color: #5a6270;"));
     uf->addRow(unitNote);
     v->addWidget(unitsBox);
 
@@ -83,7 +95,7 @@ SettingsDialog::SettingsDialog(const MouseBindings &current, QWidget *parent) : 
     auto *opNote = new QLabel(tr("Off: every extrude makes a new body; join or subtract bodies afterwards with Combine."),
                               modeling);
     opNote->setWordWrap(true);
-    opNote->setStyleSheet(QStringLiteral("color: #5a6270;"));
+    styled(opNote, QStringLiteral("color: #5a6270;"));
     mv->addWidget(opNote);
     v->addWidget(modeling);
 
@@ -97,7 +109,7 @@ SettingsDialog::SettingsDialog(const MouseBindings &current, QWidget *parent) : 
                                    "heavy models they wait until you let go of the mouse."),
                                 sketching);
     liveNote->setWordWrap(true);
-    liveNote->setStyleSheet(QStringLiteral("color: #5a6270;"));
+    styled(liveNote, QStringLiteral("color: #5a6270;"));
     sv->addWidget(liveNote);
     v->addWidget(sketching);
     connect(m_preset, &QComboBox::activated, this, [this](int i) {
@@ -132,6 +144,7 @@ void SettingsDialog::updatePreset() {
 
 bool SettingsDialog::autoOperation() const { return m_autoOperation->isChecked(); }
 bool SettingsDialog::liveSketchBodies() const { return m_liveBodies->isChecked(); }
+ThemeMode SettingsDialog::theme() const { return ThemeMode(m_theme->currentData().toInt()); }
 QString SettingsDialog::lengthUnit() const { return m_lengthUnit->currentData().toString(); }
 
 MouseBindings SettingsDialog::bindings() const {

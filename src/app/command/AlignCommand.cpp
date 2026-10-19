@@ -1,4 +1,5 @@
 #include "command/AlignCommand.h"
+#include "ui/Theme.h"
 
 #include "model/ModelView.h"
 #include "ui/AngleDial.h"
@@ -56,7 +57,7 @@ public:
         };
         const QPointF a = from ? m_vp->camera().project(*from) : QPointF(), b = to ? m_vp->camera().project(*to) : QPointF();
         if(from && to && QLineF(a, b).length() > 12) {
-            QPen pen(QColor(60, 60, 70), 2, Qt::DashLine);
+            QPen pen(themed(60, 60, 70), 2, Qt::DashLine);
             p.setPen(pen);
             p.setBrush(Qt::NoBrush);
             const QLineF l(a, b);
@@ -70,7 +71,7 @@ public:
             head.lineTo(tip - QPointF(std::cos(ang + 0.45) * 13, -std::sin(ang + 0.45) * 13));
             head.closeSubpath();
             p.setPen(Qt::NoPen);
-            p.setBrush(QColor(60, 60, 70));
+            p.setBrush(themed(60, 60, 70));
             p.drawPath(head);
         }
         if(from) {
@@ -110,7 +111,7 @@ void AlignCommand::setup() {
     m_guide->setWordWrap(true);
     m_guide->setTextFormat(Qt::RichText);
     m_guide->setMinimumWidth(240);
-    m_guide->setStyleSheet(QStringLiteral("font-weight: normal; color: #2a3140; background: #eef3fb; border: 1px solid "
+    styled(m_guide, QStringLiteral("font-weight: normal; color: #2a3140; background: #eef3fb; border: 1px solid "
                                           "#c9d6ec; border-radius: 4px; padding: 4px 6px;"));
     m_objectsField = panel.addSelection(tr("Bodies"), tr("Select the bodies to move"), "alignBodies");
     m_fromField = panel.addSelection(tr("From"), tr("A point, edge or face on them"), "alignFrom");

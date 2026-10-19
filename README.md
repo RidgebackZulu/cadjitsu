@@ -373,6 +373,11 @@ Canvases live in the browser's **Canvases** folder (eye to hide, double-click to
 
 ## Display
 
+**Dark mode:** the moon button at the top right of the ribbon, next to MCP, turns the whole app dark: panels, ribbon,
+browser, timeline, dialogs, icons and the canvas. The sun button turns it back. Cadjitsu remembers the choice
+(also **View > Dark Mode**). **Settings > Appearance > Theme** offers Light, Dark or Match system (follows the
+computer's light / dark appearance).
+
 **View > visual style** (also the display button in the navigation bar under the canvas):
 
 | Style | What it shows |

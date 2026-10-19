@@ -1,4 +1,5 @@
 #include "sketch/HeadsUpInput.h"
+#include "ui/Theme.h"
 
 #include "base/Vec2.h"
 #include "ui/Units.h"
@@ -170,7 +171,7 @@ void HeadsUpInput::updateStyle(int i) {
     const bool invalid = e.locked && !e.value;
     const QString border = invalid ? QStringLiteral("#d23c3c") : e.locked ? QStringLiteral("#1a65c9") : QStringLiteral("#8fb3e3");
     const QString text = invalid ? QStringLiteral("#b02020") : e.locked ? QStringLiteral("#10223c") : QStringLiteral("#3b4552");
-    e.edit->setStyleSheet(QString::fromLatin1(kBoxStyle).arg(border, text) + QStringLiteral(" #unitSuffix { border: none; }"));
+    styled(e.edit, QString::fromLatin1(kBoxStyle).arg(border, text) + QStringLiteral(" #unitSuffix { border: none; }"));
 }
 
 bool HeadsUpInput::eventFilter(QObject *o, QEvent *ev) {
@@ -208,7 +209,7 @@ InlineValueEditor::InlineValueEditor(QWidget *host, const QString &expr, cad::Va
     const QString text = units::displayText(expr, kind);
     setText(text);
     setAlignment(Qt::AlignCenter);
-    setStyleSheet(QString::fromLatin1(kBoxStyle).arg(QStringLiteral("#1a65c9"), QStringLiteral("#10223c")) +
+    styled(this, QString::fromLatin1(kBoxStyle).arg(QStringLiteral("#1a65c9"), QStringLiteral("#10223c")) +
                   QStringLiteral(" #unitSuffix { border: none; }"));
     m_unit = UnitSuffix::attach(this, kind);
     const int suffix = m_unit ? m_unit->sizeHint().width() + 2 : 0;
@@ -233,7 +234,7 @@ void InlineValueEditor::keyPressEvent(QKeyEvent *e) {
         if(m_apply && m_apply(expr, &error)) {
             finish(true);
         } else {
-            setStyleSheet(QString::fromLatin1(kBoxStyle).arg(QStringLiteral("#d23c3c"), QStringLiteral("#b02020")) +
+            styled(this, QString::fromLatin1(kBoxStyle).arg(QStringLiteral("#d23c3c"), QStringLiteral("#b02020")) +
                           QStringLiteral(" #unitSuffix { border: none; }"));
             setToolTip(error);
             QToolTip::showText(mapToGlobal(QPoint(0, height())), error, this);

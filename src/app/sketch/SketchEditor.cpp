@@ -1,4 +1,5 @@
 #include "sketch/SketchEditor.h"
+#include "ui/Theme.h"
 
 #include "sketch/ProfileMesh.h"
 #include "ui/Icons.h"
@@ -1523,7 +1524,7 @@ void SketchEditor::contribute(RenderScene &scene) const {
         return b;
     };
     LineBatch projected = batch(kProjectedColor, 1.9f), projectedConstruction = batch(kProjectedColor, 1.5f);
-    LineBatch construction = batch(kConstructionColor, 1.5f), fixed = batch(kFixedColor, 1.7f),
+    LineBatch construction = batch(kConstructionColor, 1.5f), fixed = batch(themed(kFixedColor), 1.7f),
               freeB = batch(kFreeColor, 1.7f), failedB = batch(kFailedColor, 2.0f), hov = batch(kHoverColor, 2.8f),
               sel = batch(kSelectedColor, 2.8f);
     // Construction geometry is dotted along whole curves (2 px dots, 4 px apart).
@@ -1603,7 +1604,7 @@ void SketchEditor::contribute(RenderScene &scene) const {
         b.size = size;
         return b;
     };
-    PointBatch fixedP = points(Qt::white, kFixedColor, 7.0f), freeP = points(Qt::white, kFreeColor, 7.0f),
+    PointBatch fixedP = points(Qt::white, themed(kFixedColor), 7.0f), freeP = points(Qt::white, kFreeColor, 7.0f),
                failedP = points(Qt::white, kFailedColor, 7.5f), hovP = points(kHoverColor, kHoverColor.darker(130), 9.0f),
                selP = points(kSelectedColor, kSelectedColor.darker(140), 9.0f),
                projP = points(Qt::white, kProjectedColor, 7.0f);
@@ -1674,8 +1675,8 @@ void SketchEditor::paintDimension(QPainter &p, const SkConstraint &c) {
     const QColor col = contains(m_solve.failed, c.id) ? kFailedColor
                        : isSel                         ? kSelectedColor.darker(115)
                        : isHot                         ? kFreeColor
-                       : c.driven                      ? kDrivenColor
-                                                       : kDimensionColor;
+                       : c.driven                      ? themed(kDrivenColor)
+                                                       : themed(kDimensionColor);
     p.setPen(QPen(col, 1.0));
     p.setBrush(Qt::NoBrush);
     const Vec2 anchor = dimensionAnchor(c);
@@ -1827,7 +1828,7 @@ void SketchEditor::paintDimension(QPainter &p, const SkConstraint &c) {
     QRectF r(0, 0, fm.horizontalAdvance(text) + 8, fm.height() + 2);
     r.moveCenter(sL);
     p.setPen(isSel || isHot ? QPen(col, 1.0) : Qt::NoPen);
-    p.setBrush(QColor(255, 255, 255, isSel || isHot ? 240 : 205));
+    p.setBrush(themed(255, 255, 255, isSel || isHot ? 240 : 205));
     p.drawRoundedRect(r, 3, 3);
     p.setPen(col);
     p.drawText(r, Qt::AlignCenter, text);

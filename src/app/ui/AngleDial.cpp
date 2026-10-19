@@ -1,4 +1,5 @@
 #include "ui/AngleDial.h"
+#include "ui/Theme.h"
 
 #include <QMouseEvent>
 #include <QPainter>
@@ -52,9 +53,9 @@ void AngleDial::paintEvent(QPaintEvent *) {
 
     // The face: a soft disc with a track ring.
     QRadialGradient face(c, r + 4);
-    face.setColorAt(0.0, QColor(255, 255, 255));
-    face.setColorAt(1.0, QColor(238, 242, 247));
-    p.setPen(QPen(hot ? m_accent.lighter(150) : QColor(203, 210, 220), 1.0));
+    face.setColorAt(0.0, themed(255, 255, 255));
+    face.setColorAt(1.0, themed(238, 242, 247));
+    p.setPen(QPen(hot ? m_accent.lighter(150) : themed(203, 210, 220), 1.0));
     p.setBrush(face);
     p.drawEllipse(c, r + 3.5, r + 3.5);
 
@@ -63,7 +64,7 @@ void AngleDial::paintEvent(QPaintEvent *) {
         const double t = deg * M_PI / 180.0;
         const QPointF u(std::cos(t), -std::sin(t));
         const bool major = deg % 90 == 0;
-        p.setPen(QPen(major ? QColor(120, 131, 146) : QColor(176, 185, 197), major ? 1.3 : 0.9, Qt::SolidLine,
+        p.setPen(QPen(major ? themed(120, 131, 146) : themed(176, 185, 197), major ? 1.3 : 0.9, Qt::SolidLine,
                       Qt::RoundCap));
         p.drawLine(c + u * (r - (major ? 5.0 : 3.0)), c + u * (r - 0.5));
     }
@@ -85,7 +86,7 @@ void AngleDial::paintEvent(QPaintEvent *) {
     }
 
     // The zero mark and the knob.
-    p.setPen(QPen(QColor(120, 131, 146, 150), 1.0));
+    p.setPen(QPen(themed(120, 131, 146, 150), 1.0));
     p.drawLine(c, c + QPointF(r - 5.0, 0));
     if(!m_invalid) {
         const double t = a * M_PI / 180.0;
@@ -93,11 +94,11 @@ void AngleDial::paintEvent(QPaintEvent *) {
         p.setPen(QPen(m_accent, 1.6));
         p.drawLine(c, c + (k - c) * 0.72);
         p.setPen(QPen(m_accent.darker(115), 1.6));
-        p.setBrush(hot ? m_accent : QColor(255, 255, 255));
+        p.setBrush(hot ? m_accent : themed(255, 255, 255));
         p.drawEllipse(k, 4.2, 4.2);
     }
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(90, 100, 115));
+    p.setBrush(themed(90, 100, 115));
     p.drawEllipse(c, 1.6, 1.6);
 
     // The value in the middle, on a small plate so it reads over the wedge.
@@ -108,9 +109,9 @@ void AngleDial::paintEvent(QPaintEvent *) {
     const QString text = m_invalid ? QStringLiteral("–") : QStringLiteral("%1°").arg(std::lround(a));
     const double w = p.fontMetrics().horizontalAdvance(text) + 4.0;
     const QRectF plate(c.x() - w / 2, c.y() + 3.0, w, 11.0);
-    p.setBrush(QColor(255, 255, 255, 215));
+    p.setBrush(themed(255, 255, 255, 215));
     p.drawRoundedRect(plate, 3, 3);
-    p.setPen(QColor(40, 49, 62));
+    p.setPen(themed(40, 49, 62));
     p.drawText(plate, Qt::AlignCenter, text);
 }
 

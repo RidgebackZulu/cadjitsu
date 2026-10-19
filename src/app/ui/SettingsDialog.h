@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ui/Theme.h"
 #include "viewport/MouseBindings.h"
 
 #include <QDialog>
@@ -19,6 +20,8 @@ public:
     bool autoOperation() const;
     bool liveSketchBodies() const;
     QString lengthUnit() const;
+    ThemeMode theme() const;
+    QComboBox *themeBox() const { return m_theme; }
     QComboBox *lengthUnitBox() const { return m_lengthUnit; }
 
     QComboBox *presetBox() const { return m_preset; }
@@ -28,7 +31,7 @@ private:
     void showBindings(const MouseBindings &b);
     void updatePreset();
 
-    QComboBox *m_preset, *m_lengthUnit;
+    QComboBox *m_preset, *m_lengthUnit, *m_theme;
     QComboBox *m_orbit[2], *m_pan[2], *m_zoom[2];
     QCheckBox *m_invert, *m_trackpad, *m_autoOperation, *m_liveBodies;
     bool m_updating = false;

@@ -1,4 +1,5 @@
 #include "ui/Icons.h"
+#include "ui/Theme.h"
 
 #include <QFile>
 #include <QHash>
@@ -109,6 +110,8 @@ constexpr std::array kIcons = {
     Entry{IconId::Trace, "trace"},
     Entry{IconId::Views, "views"},
     Entry{IconId::Align, "align"},
+    Entry{IconId::ThemeDark, "theme_dark"},
+    Entry{IconId::ThemeLight, "theme_light"},
     Entry{IconId::Repeat, "repeat"},
 };
 
@@ -125,6 +128,11 @@ QByteArray svgSource(IconId id, const QColor &accent) {
         const QByteArray to = accent.name(QColor::HexRgb).toLatin1();
         svg.replace(kIconAccent.name(QColor::HexRgb).toLatin1(), to);
         svg.replace(kIconAccent.name(QColor::HexRgb).toUpper().toLatin1(), to);
+    }
+    // Dark theme: the outlines' ink turns light so it shows on dark panels.
+    if(isDark()) {
+        svg.replace("#22324A", "#D3DAE4");
+        svg.replace("#22324a", "#D3DAE4");
     }
     return svg;
 }
@@ -150,7 +158,8 @@ QImage disabled(QImage img) {
         for(int x = 0; x < img.width(); ++x) {
             const QRgb c = line[x];
             const int g = (qRed(c) * 11 + qGreen(c) * 16 + qBlue(c) * 5) / 32;
-            const int v = 150 + g * 100 / 255; // lift towards a light grey
+            // Towards the panel's grey: light, or dark in the dark theme.
+            const int v = isDark() ? 70 + g * 70 / 255 : 150 + g * 100 / 255;
             line[x] = qRgba(v, v, v, qAlpha(c) * 45 / 100);
         }
     }
@@ -181,12 +190,13 @@ public:
     QPixmap scaledPixmap(const QSize &size, QIcon::Mode mode, QIcon::State, qreal scale) override {
         const QSize px = (QSizeF(size) * scale).toSize();
         if(px.isEmpty()) return {};
-        const QString cacheKey = QStringLiteral("cadjitsu-icon-%1-%2-%3x%4-%5")
+        const QString cacheKey = QStringLiteral("cadjitsu-icon-%1-%2-%3x%4-%5-%6")
                                      .arg(int(m_id))
                                      .arg(m_accent.rgba())
                                      .arg(px.width())
                                      .arg(px.height())
-                                     .arg(int(mode));
+                                     .arg(int(mode))
+                                     .arg(isDark() ? 'd' : 'l');
         QPixmap pm;
         if(!QPixmapCache::find(cacheKey, &pm)) {
             QImage img = render(svgSource(m_id, m_accent), px);
@@ -223,11 +233,11 @@ void paintGlyphChip(QPainter &p, const QRectF &r, const QIcon &ic, const QColor 
     p.save();
     p.setRenderHint(QPainter::Antialiasing);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(15, 30, 55, 45));
+    p.setBrush(themed(15, 30, 55, 45));
     p.drawRoundedRect(r.translated(0, 1.2).adjusted(-0.5, 0, 0.5, 0.5), 4.5, 4.5);
     QLinearGradient g(r.topLeft(), r.bottomLeft());
-    g.setColorAt(0, hot ? QColor(236, 244, 255) : QColor(255, 255, 255, 245));
-    g.setColorAt(1, hot ? QColor(212, 229, 252) : QColor(236, 241, 247, 245));
+    g.setColorAt(0, hot ? themed(236, 244, 255) : themed(255, 255, 255, 245));
+    g.setColorAt(1, hot ? themed(212, 229, 252) : themed(236, 241, 247, 245));
     p.setPen(QPen(border, 1.0));
     p.setBrush(g);
     p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 4, 4);

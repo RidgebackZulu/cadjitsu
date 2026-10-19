@@ -1,4 +1,5 @@
 #include "sketch/SketchTools.h"
+#include "ui/Theme.h"
 
 #include "command/CommandPanel.h"
 #include "image/RegionTrace.h"
@@ -3170,7 +3171,7 @@ protected:
         m_guideLabel->setWordWrap(true);
         m_guideLabel->setTextFormat(Qt::RichText);
         m_guideLabel->setMinimumWidth(240);
-        m_guideLabel->setStyleSheet(QStringLiteral("font-weight: normal; color: #2a3140; background: #eef3fb; border: 1px "
+        styled(m_guideLabel, QStringLiteral("font-weight: normal; color: #2a3140; background: #eef3fb; border: 1px "
                                                    "solid #c9d6ec; border-radius: 4px; padding: 4px 6px;"));
         m_flip = p.addCheck(tr("Flip"), "sketchAlignFlip");
         m_flip->setToolTip(tr("Turn it the other way round along the line."));
@@ -3298,7 +3299,7 @@ protected:
         const std::optional<QPointF> a = m_arrowFrom ? std::optional<QPointF>(ed.toScreen(*m_arrowFrom)) : std::nullopt,
                                      b = m_arrowTo ? std::optional<QPointF>(ed.toScreen(*m_arrowTo)) : std::nullopt;
         if(a && b && QLineF(*a, *b).length() > 12) {
-            p.setPen(QPen(QColor(60, 60, 70), 2, Qt::DashLine));
+            p.setPen(QPen(themed(60, 60, 70), 2, Qt::DashLine));
             p.drawLine(*a, *b);
             const QLineF l(*a, *b);
             const double ang = std::atan2(-l.dy(), l.dx());
@@ -3308,7 +3309,7 @@ protected:
             head.lineTo(*b - QPointF(std::cos(ang + 0.45) * 13, -std::sin(ang + 0.45) * 13));
             head.closeSubpath();
             p.setPen(Qt::NoPen);
-            p.setBrush(QColor(60, 60, 70));
+            p.setBrush(themed(60, 60, 70));
             p.drawPath(head);
         }
         auto tag = [&](QPointF at, const QString &text, const QColor &c) {

@@ -18,6 +18,7 @@
 class QAction;
 class QActionGroup;
 class QLabel;
+class QToolButton;
 class QMenu;
 
 namespace cadjitsu {
@@ -113,6 +114,7 @@ public:
     McpServer *mcpServer() const { return m_mcp; }
     McpLog *mcpLog() const { return m_mcpLog; }
     McpButton *mcpButton() const { return m_mcpButton; }
+    QToolButton *themeButton() const { return m_themeButton; }
     McpTools *mcpTools() const { return m_mcpTools.get(); }
     McpDialog *openMcpDialog();
     // Deletes a sketch (finishing it first if it is open). With `ask`, asks
@@ -171,6 +173,7 @@ private:
     std::unique_ptr<McpTools> m_mcpTools;
     McpServer *m_mcp = nullptr;
     McpButton *m_mcpButton = nullptr;
+    QToolButton *m_themeButton = nullptr;
     QPointer<McpDialog> m_mcpDialog;
     QPointer<RenderDialog> m_renderDialog;
     QMenu *m_sketchEntityMenu = nullptr;

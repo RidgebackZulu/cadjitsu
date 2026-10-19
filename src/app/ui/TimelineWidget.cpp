@@ -1,4 +1,5 @@
 #include "ui/TimelineWidget.h"
+#include "ui/Theme.h"
 
 #include "features/PatternFeature.h"
 
@@ -73,7 +74,7 @@ TimelineWidget::TimelineWidget(cad::Document &doc, QWidget *parent) : QWidget(pa
     setObjectName(QStringLiteral("timeline"));
     setMouseTracking(true);
     setAttribute(Qt::WA_StyledBackground);
-    setStyleSheet(QStringLiteral("#timeline { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f4f6f9,"
+    styled(this, QStringLiteral("#timeline { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #f4f6f9,"
                                  " stop:1 #e8ecf1); border-top: 1px solid #c9ced6; }"
                                  "QToolButton { border: none; border-radius: 5px; padding: 3px; background: transparent; }"
                                  "QToolButton:hover { background: rgba(47, 123, 224, 38); }"
@@ -184,12 +185,12 @@ void TimelineWidget::paintEvent(QPaintEvent *) {
         const QRectF group(m_first->geometry().left() - 3.5, m_first->geometry().top() - 3.5,
                            m_last->geometry().right() - m_first->geometry().left() + 8, 31);
         QLinearGradient g(group.topLeft(), group.bottomLeft());
-        g.setColorAt(0, QColor(255, 255, 255));
-        g.setColorAt(1, QColor(226, 231, 238));
-        p.setPen(QPen(QColor(178, 187, 200), 1));
+        g.setColorAt(0, themed(255, 255, 255));
+        g.setColorAt(1, themed(226, 231, 238));
+        p.setPen(QPen(themed(178, 187, 200), 1));
         p.setBrush(g);
         p.drawRoundedRect(group, 7, 7);
-        p.setPen(QPen(QColor(206, 213, 223), 1));
+        p.setPen(QPen(themed(206, 213, 223), 1));
         for(QToolButton *b : {m_back, m_forward, m_last}) {
             const qreal x = b->geometry().left() - 2.5;
             p.drawLine(QPointF(x, group.top() + 6), QPointF(x, group.bottom() - 6));
@@ -203,10 +204,10 @@ void TimelineWidget::paintEvent(QPaintEvent *) {
     // The track: a soft inset groove.
     const QRectF track(kLeft + 4, kTop - 3, width() - kLeft - 8, kItem + 8);
     QLinearGradient tg(track.topLeft(), track.bottomLeft());
-    tg.setColorAt(0, QColor(203, 210, 220));
-    tg.setColorAt(0.25, QColor(216, 222, 230));
-    tg.setColorAt(1, QColor(228, 232, 238));
-    p.setPen(QPen(QColor(186, 194, 206), 1));
+    tg.setColorAt(0, themed(203, 210, 220));
+    tg.setColorAt(0.25, themed(216, 222, 230));
+    tg.setColorAt(1, themed(228, 232, 238));
+    p.setPen(QPen(themed(186, 194, 206), 1));
     p.setBrush(tg);
     p.drawRoundedRect(track, 7, 7);
 
@@ -221,20 +222,20 @@ void TimelineWidget::paintEvent(QPaintEvent *) {
         if(hover && !after) chip.translate(0, -1);
         // Shadow, lifted a little more on hover.
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(20, 40, 70, hover ? 60 : 34));
+        p.setBrush(themed(20, 40, 70, hover ? 60 : 34));
         p.drawRoundedRect(chip.translated(0, hover ? 2.0 : 1.2), 6, 6);
         if(selected) {
-            p.setBrush(QColor(47, 123, 224, 70));
+            p.setBrush(themed(47, 123, 224, 70));
             p.drawRoundedRect(chip.adjusted(-2.5, -2.5, 2.5, 2.5), 8, 8);
         }
         QLinearGradient cg(chip.topLeft(), chip.bottomLeft());
-        cg.setColorAt(0, hover ? QColor(255, 255, 255) : QColor(253, 254, 255));
-        cg.setColorAt(1, hover ? QColor(226, 236, 248) : QColor(230, 235, 242));
-        p.setPen(QPen(selected ? QColor(36, 110, 214) : QColor(160, 170, 184), selected ? 1.6 : 1.0));
+        cg.setColorAt(0, hover ? themed(255, 255, 255) : themed(253, 254, 255));
+        cg.setColorAt(1, hover ? themed(226, 236, 248) : themed(230, 235, 242));
+        p.setPen(QPen(selected ? themed(36, 110, 214) : themed(160, 170, 184), selected ? 1.6 : 1.0));
         p.setBrush(cg);
         p.drawRoundedRect(chip, 6, 6);
         // Inner highlight along the top.
-        p.setPen(QPen(QColor(255, 255, 255, 200), 1));
+        p.setPen(QPen(themed(255, 255, 255, 200), 1));
         p.drawLine(QPointF(chip.left() + 5, chip.top() + 1.2), QPointF(chip.right() - 5, chip.top() + 1.2));
 
         const QRect ir = chip.toAlignedRect().adjusted(4, 4, -4, -4);
@@ -256,21 +257,21 @@ void TimelineWidget::paintEvent(QPaintEvent *) {
             p.drawText(b, Qt::AlignCenter, glyph);
         };
         if(f->suppressed) {
-            p.setPen(QPen(QColor(120, 128, 140), 1.8, Qt::SolidLine, Qt::RoundCap));
+            p.setPen(QPen(themed(120, 128, 140), 1.8, Qt::SolidLine, Qt::RoundCap));
             p.drawLine(QPointF(chip.left() + 5, chip.bottom() - 5), QPointF(chip.right() - 5, chip.top() + 5));
         }
-        if(st.isError()) badge(QColor(214, 48, 38), QStringLiteral("!"));
-        else if(st.severity == cad::Severity::Warning) badge(QColor(232, 160, 20), QStringLiteral("!"));
+        if(st.isError()) badge(themed(214, 48, 38), QStringLiteral("!"));
+        else if(st.severity == cad::Severity::Warning) badge(themed(232, 160, 20), QStringLiteral("!"));
     }
     p.setOpacity(1.0);
 
     // The history marker: a slim bar with a rounded, gripped flag on top.
     const qreal mx = markerX() + 0.5;
     const bool editing = m_editing != cad::kNoFeature;
-    const QColor top = editing ? QColor(255, 178, 70) : QColor(88, 156, 240);
-    const QColor bottom = editing ? QColor(222, 118, 12) : QColor(28, 88, 184);
+    const QColor top = editing ? themed(255, 178, 70) : themed(88, 156, 240);
+    const QColor bottom = editing ? themed(222, 118, 12) : themed(28, 88, 184);
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(20, 40, 70, 50));
+    p.setBrush(themed(20, 40, 70, 50));
     p.drawRoundedRect(QRectF(mx - 1.5 + 1, kTop - 1, 3, kItem + 8), 1.5, 1.5);
     p.setBrush(bottom);
     p.drawRoundedRect(QRectF(mx - 1.5, kTop - 2, 3, kItem + 8), 1.5, 1.5);
@@ -288,7 +289,7 @@ void TimelineWidget::paintEvent(QPaintEvent *) {
     p.setBrush(fg);
     p.drawPath(fp.simplified());
     p.setPen(Qt::NoPen);
-    p.setBrush(QColor(255, 255, 255, 210));
+    p.setBrush(themed(255, 255, 255, 210));
     for(int k = -1; k <= 1; ++k) p.drawEllipse(QPointF(mx + k * 3.0, flag.center().y() - 0.5), 1.0, 1.0);
 }
 

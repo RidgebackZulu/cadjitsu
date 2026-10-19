@@ -21,6 +21,7 @@
 #include "command/TextCommand.h"
 #include "command/ThreadCommand.h"
 #include "mcp/McpButton.h"
+#include "ui/Theme.h"
 #include "mcp/McpDialog.h"
 #include "mcp/McpLog.h"
 #include "mcp/McpServer.h"
@@ -694,6 +695,7 @@ SettingsDialog *MainWindow::openSettings() {
         ExtrudeCommand::setAutoOperation(dlg->autoOperation());
         setLiveSketchBodies(dlg->liveSketchBodies());
         units::setDefaultLengthUnit(dlg->lengthUnit());
+        if(dlg->theme() != themeSetting()) setTheme(dlg->theme());
         m_viewport->refreshOverlay(); // dimension labels
     });
     dlg->open();
@@ -715,6 +717,11 @@ ExportDialog *MainWindow::openExportDialog(ExportJob::Format format) {
 // --- actions, ribbon, menus -------------------------------------------------------------
 
 void MainWindow::buildActions() {
+    // Dark mode: the ribbon's sun / moon button and View > Dark Mode; remembered.
+    QAction *dark = makeAction("darkMode", tr("Dark Mode"), IconId::ThemeDark, {}, {});
+    dark->setCheckable(true);
+    dark->setChecked(isDark());
+    connect(dark, &QAction::toggled, this, [](bool on) { setTheme(on ? ThemeMode::Dark : ThemeMode::Light); });
     makeAction("newDocument", tr("New Design"), IconId::New, QKeySequence::New, [this] { newDocument(); });
     makeAction("open", tr("Open..."), IconId::Open, QKeySequence::Open, [this] {
         const QString p = QFileDialog::getOpenFileName(this, tr("Open"), {}, tr("Cadjitsu designs (*.cadjitsu *.cadly)"));
@@ -963,6 +970,25 @@ void MainWindow::buildRibbon() {
         m_ribbon->addLeadingWidget(b);
     }
 
+    m_themeButton = new QToolButton(m_ribbon);
+    m_themeButton->setObjectName(QStringLiteral("themeButton"));
+    m_themeButton->setAutoRaise(true);
+    m_themeButton->setIconSize(QSize(20, 20));
+    m_themeButton->setFocusPolicy(Qt::NoFocus);
+    m_themeButton->setCursor(Qt::PointingHandCursor);
+    connect(m_themeButton, &QToolButton::clicked, this, [this] { action(QStringLiteral("darkMode"))->toggle(); });
+    auto syncTheme = [this] {
+        QAction *a = action(QStringLiteral("darkMode"));
+        const QSignalBlocker block(a);
+        a->setChecked(isDark());
+        // The button shows where a click takes you: the moon to go dark, the sun back to light.
+        m_themeButton->setIcon(icon(isDark() ? IconId::ThemeLight : IconId::ThemeDark));
+        m_themeButton->setToolTip(isDark() ? tr("Switch to light mode") : tr("Switch to dark mode"));
+    };
+    syncTheme();
+    connect(&ThemeNotifier::instance(), &ThemeNotifier::changed, this, syncTheme);
+    m_ribbon->addTrailingWidget(m_themeButton);
+
     m_mcpButton = new McpButton(m_ribbon);
     connect(m_mcpButton, &QAbstractButton::clicked, this, [this] { openMcpDialog(); });
     m_ribbon->addTrailingWidget(m_mcpButton);
@@ -1062,6 +1088,8 @@ void MainWindow::buildMenus() {
         const StandardView sv = v;
         view->addAction(tr(name), this, [this, sv] { m_viewport->setStandardView(sv); });
     }
+    view->addSeparator();
+    view->addAction(action(QStringLiteral("darkMode")));
     view->addSeparator();
     // Visual styles (also in the navigation bar's display menu; both follow the canvas).
     auto *styles = new QActionGroup(this);

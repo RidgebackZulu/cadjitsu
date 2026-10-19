@@ -97,6 +97,8 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
+    // The saved theme (self tests always run light, so their pictures compare).
+    if(!parser.isSet(selfTestOpt)) cadjitsu::applyTheme(cadjitsu::themeSetting());
     cadjitsu::MainWindow window;
     if(parser.isSet(toolsOpt)) {
         printf("%s\n", window.mcpTools()->toolList().dump(2).c_str());

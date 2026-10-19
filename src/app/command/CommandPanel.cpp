@@ -1,4 +1,5 @@
 #include "command/CommandPanel.h"
+#include "ui/Theme.h"
 
 #include "sketch/SketchEditor.h"
 #include "ui/AngleDial.h"
@@ -171,7 +172,7 @@ void SelectionField::mousePressEvent(QMouseEvent *e) {
 void SelectionField::restyle() {
     m_text->setText(m_count <= 0 ? m_hint : m_detail.isEmpty() ? tr("%n selected", nullptr, m_count) : m_detail);
     m_clear->setVisible(m_count > 0);
-    setStyleSheet(m_active ? QStringLiteral("cadjitsu--SelectionField { border: 1px solid #1a66c9; border-radius: 3px;"
+    styled(this, m_active ? QStringLiteral("cadjitsu--SelectionField { border: 1px solid #1a66c9; border-radius: 3px;"
                                             " background: #e3efff; }")
                            : QStringLiteral("cadjitsu--SelectionField { border: 1px solid #b9c1cc; border-radius: 3px;"
                                             " background: white; }"));
@@ -181,7 +182,7 @@ void SelectionField::restyle() {
 
 CommandPanel::CommandPanel(QWidget *canvas) : QFrame(canvas) {
     setObjectName(QStringLiteral("commandPanel"));
-    setStyleSheet(QStringLiteral(
+    styled(this, QStringLiteral(
         "#commandPanel { background: rgba(250, 251, 253, 245); border: 1px solid rgba(120, 130, 145, 140);"
         " border-radius: 6px; }"
         "#commandTitle { font-weight: 700; font-size: 11px; color: #2c333d; letter-spacing: 1px; }"
@@ -370,7 +371,7 @@ QLabel *CommandPanel::addInfo(const QString &label, const char *name) {
     l->setTextInteractionFlags(Qt::TextSelectableByMouse);
     l->setWordWrap(true);
     l->setMinimumWidth(150);
-    l->setStyleSheet(QStringLiteral("color: #16202c; font-weight: 600;"));
+    styled(l, QStringLiteral("color: #16202c; font-weight: 600;"));
     addRow(label, l);
     return l;
 }
@@ -408,7 +409,7 @@ void CommandPanel::setMessage(const QString &text, cad::Severity severity) {
     m_message->setText(text);
     m_message->setVisible(!text.isEmpty());
     const char *color = severity == cad::Severity::Error ? "#b3261e" : severity == cad::Severity::Warning ? "#8a6100" : "#3c4450";
-    m_message->setStyleSheet(QStringLiteral("color: %1;").arg(QString::fromLatin1(color)));
+    styled(m_message, QStringLiteral("color: %1;").arg(QString::fromLatin1(color)));
     adjustSize();
 }
 
@@ -422,7 +423,7 @@ void CommandPanel::setBusy(bool busy) {
     m_busy = true;
     m_message->setText(tr("Computing the preview…"));
     m_message->setVisible(true);
-    m_message->setStyleSheet(QStringLiteral(
+    styled(m_message, QStringLiteral(
         "color: #3a2c00; background: #ffd54a; border: 1px solid #e0b100; border-radius: 4px; padding: 2px 6px;"));
     adjustSize();
 }

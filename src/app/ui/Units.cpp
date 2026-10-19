@@ -1,4 +1,5 @@
 #include "ui/Units.h"
+#include "ui/Theme.h"
 
 #include <QEvent>
 #include <QLineEdit>
@@ -188,9 +189,9 @@ void UnitSuffix::paintEvent(QPaintEvent *) {
     const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
     const bool hot = underMouse() || isDown();
     p.setPen(Qt::NoPen);
-    p.setBrush(hot ? QColor(215, 230, 250) : QColor(236, 241, 248));
+    p.setBrush(hot ? themed(215, 230, 250) : themed(236, 241, 248));
     p.drawRoundedRect(r, 3, 3);
-    const QColor ink = m_active ? QColor(52, 66, 86) : QColor(160, 170, 184);
+    const QColor ink = m_active ? themed(52, 66, 86) : themed(160, 170, 184);
     QFont f = font();
     f.setPixelSize(11);
     p.setFont(f);

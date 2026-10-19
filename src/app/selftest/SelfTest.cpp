@@ -1,4 +1,5 @@
 #include "selftest/SelfTest.h"
+#include "ui/Theme.h"
 
 #include "MainWindow.h"
 #include "command/Command.h"
@@ -81,6 +82,7 @@
 #include <QPushButton>
 #include <QTextStream>
 #include <QTimer>
+#include <QSettings>
 #include <QToolButton>
 
 #include <gp_Pln.hxx>
@@ -1719,6 +1721,20 @@ bool acceptanceScenario(MainWindow &w, const QDir &out, QTextStream &log) {
     check(styleDiff > 1.0, QStringLiteral("rendered differs from shaded (mean %1 levels)").arg(styleDiff, 0, 'f', 1));
     w.action(QStringLiteral("displayShadedEdges"))->trigger();
     waitForFrames(vp, 1);
+
+    // 8b. The sun / moon button: dark mode, canvas included, and back (the
+    // saved choice is put back after).
+    const ThemeMode savedTheme = themeSetting();
+    w.themeButton()->click();
+    waitForFrames(vp, 3);
+    const QImage darkFrame = vp->grabFramebuffer();
+    w.grab().save(out.filePath(QStringLiteral("acceptance_5b_dark_mode.png")));
+    check(isDark() && darkFrame.pixelColor(4, darkFrame.height() - 4).lightness() < 80,
+          QStringLiteral("the moon button turns the app and the canvas dark"));
+    w.themeButton()->click();
+    waitForFrames(vp, 2);
+    check(!isDark() && vp->grabFramebuffer().pixelColor(4, 4).lightness() > 200, QStringLiteral("and the sun back to light"));
+    QSettings().setValue(QStringLiteral("ui/theme"), themeName(savedTheme));
 
     // 9. MAKE > 3D Print: a watertight STL, checked before it is written.
     const double design = shown();

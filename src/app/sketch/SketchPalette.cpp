@@ -1,4 +1,5 @@
 #include "sketch/SketchPalette.h"
+#include "ui/Theme.h"
 
 #include "ui/Icons.h"
 #include "viewport/ViewCube.h"
@@ -15,7 +16,7 @@ namespace cadjitsu {
 
 SketchPalette::SketchPalette(QWidget *canvas) : QFrame(canvas) {
     setObjectName(QStringLiteral("sketchPalette"));
-    setStyleSheet(QStringLiteral(
+    styled(this, QStringLiteral(
         "#sketchPalette { background: rgba(250, 251, 253, 238); border: 1px solid rgba(120, 130, 145, 120);"
         " border-radius: 6px; }"
         "#sketchPaletteTitle { font-weight: 700; font-size: 10px; color: #3c4450; letter-spacing: 1px; }"

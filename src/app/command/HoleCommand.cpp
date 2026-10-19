@@ -1,4 +1,5 @@
 #include "command/HoleCommand.h"
+#include "ui/Theme.h"
 
 #include "model/ModelView.h"
 #include "sketch/SketchEditor.h"
@@ -50,7 +51,7 @@ void HoleCommand::setup() {
     m_threadSize->setCurrentText(recent.isEmpty() ? QStringLiteral("M3") : recent.front());
     m_threadClearanceField = panel.addValue(tr("Thread Clearance"), cad::ValueKind::Length, evaluator(), "holeThreadClearance");
     m_threadInfo = panel.addInfo(QString(), "holeThreadInfo");
-    m_threadInfo->setStyleSheet(QStringLiteral("color: #3c4450; font-weight: normal;"));
+    styled(m_threadInfo, QStringLiteral("color: #3c4450; font-weight: normal;"));
     m_threadCsk.add(panel, evaluator(), "holeThread");
     m_extent = panel.addChoice(tr("Extents"), {tr("Distance"), tr("All")}, "holeExtent");
     m_diameterField = panel.addValue(tr("Diameter"), cad::ValueKind::Length, evaluator(), "holeDiameter");

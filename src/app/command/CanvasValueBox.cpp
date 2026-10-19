@@ -1,4 +1,5 @@
 #include "command/CanvasValueBox.h"
+#include "ui/Theme.h"
 
 #include "command/CommandPanel.h"
 #include "ui/Units.h"
@@ -61,7 +62,7 @@ void CanvasValueBox::sync() {
 
 void CanvasValueBox::restyle() {
     const bool bad = m_field && !m_field->valid() && !m_field->expression().isEmpty(); // empty: waiting, not wrong
-    setStyleSheet(QStringLiteral("QLineEdit#%2 { background: rgba(255, 255, 255, 245); border: 1px solid %1;"
+    styled(this, QStringLiteral("QLineEdit#%2 { background: rgba(255, 255, 255, 245); border: 1px solid %1;"
                                  " border-radius: 3px; padding: 1px 4px; color: #10223c; font-size: 12px;"
                                  " selection-background-color: #9cc6ff; selection-color: #10223c; }"
                                  " #unitSuffix { border: none; }")

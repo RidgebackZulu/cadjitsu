@@ -1,4 +1,5 @@
 #include "viewport/NavBar.h"
+#include "ui/Theme.h"
 
 #include "ui/Icons.h"
 #include "viewport/Viewport.h"
@@ -66,7 +67,7 @@ protected:
             v.moveTo(cx - 3.2, cy - 1.8);
             v.lineTo(cx, cy + 1.6);
             v.lineTo(cx + 3.2, cy - 1.8);
-            p.setPen(QPen(underMouse() || open ? QColor(28, 88, 180) : QColor(92, 104, 122), 1.5, Qt::SolidLine,
+            p.setPen(QPen(underMouse() || open ? themed(28, 88, 180) : themed(92, 104, 122), 1.5, Qt::SolidLine,
                           Qt::RoundCap, Qt::RoundJoin));
             p.setBrush(Qt::NoBrush);
             p.drawPath(v);
@@ -90,7 +91,7 @@ QFrame *divider(QWidget *parent) {
 
 NavBar::NavBar(Viewport *viewport) : QFrame(viewport), m_viewport(viewport) {
     setObjectName(QStringLiteral("navBar"));
-    setStyleSheet(QStringLiteral(
+    styled(this, QStringLiteral(
         "#navBar { background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 246),"
         " stop:1 rgba(241, 244, 249, 246)); border: 1px solid rgba(118, 132, 152, 120); border-radius: 9px; }"
         "#navDivider { background: rgba(118, 132, 152, 90); border: none; }"

@@ -17,7 +17,9 @@
 #include "sketch/SketchEditor.h"
 #include "sketch/SketchMode.h"
 #include "ui/BrowserTree.h"
+#include "ui/Icons.h"
 #include "ui/MarkingMenu.h"
+#include "ui/Theme.h"
 #include "SettingsMigration.h"
 #include "ui/SettingsDialog.h"
 #include "ui/Units.h"
@@ -98,7 +100,10 @@ private slots:
         QVERIFY(QTest::qWaitForWindowExposed(m_window.get()));
         QVERIFY(waitForFrames(vp(), 2));
     }
-    void cleanup() { m_window.reset(); }
+    void cleanup() {
+        m_window.reset();
+        if(isDark()) setTheme(ThemeMode::Light); // a failed dark-mode test leaves the rest light
+    }
 
     void textIsDarkEvenInDarkMode() {
         // The app palette (set by applyLightTheme) has dark text on light panels.
@@ -109,6 +114,69 @@ private slots:
         QVERIFY(m_window->browser()->palette().color(QPalette::Text).lightness() < 80);
         QVERIFY(m_window->browser()->styleSheet().contains(QStringLiteral("color: #1c2128")));
         QVERIFY(m_window->commandPanel()->styleSheet().contains(QStringLiteral("color: #10161f")));
+    }
+
+    // The sun / moon button in the ribbon turns the whole app dark, canvas and
+    // icons included, and back; the choice is remembered.
+    void darkModeButtonSwitchesEverything() {
+        const QColor lightBottom = vp()->backgroundBottom();
+        const QString lightBrowser = m_window->browser()->styleSheet();
+        QVERIFY(!isDark());
+        QToolButton *b = m_window->themeButton();
+        QVERIFY(b && b->toolTip().contains(QStringLiteral("dark")));
+        auto inkOf = [](const QIcon &ic) {
+            // The darkest opaque pixel: the outline ink.
+            const QImage img = ic.pixmap(QSize(48, 48)).toImage().convertToFormat(QImage::Format_ARGB32);
+            int darkest = 255;
+            for(int y = 0; y < img.height(); ++y)
+                for(int x = 0; x < img.width(); ++x) {
+                    const QColor c = img.pixelColor(x, y);
+                    if(c.alpha() > 240) darkest = std::min(darkest, c.lightness());
+                }
+            return darkest;
+        };
+        const int lightInk = inkOf(icon(IconId::Line));
+        b->click();
+        QVERIFY(isDark());
+        QCOMPARE(QSettings().value(QStringLiteral("ui/theme")).toString(), QStringLiteral("dark"));
+        const QPalette p = QApplication::palette();
+        QVERIFY(p.color(QPalette::Text).lightness() > 180);
+        QVERIFY(p.color(QPalette::Window).lightness() < 70);
+        QVERIFY(p.color(QPalette::Base).lightness() < 60);
+        QVERIFY(m_window->browser()->styleSheet() != lightBrowser);
+        QVERIFY(!m_window->browser()->styleSheet().contains(QStringLiteral("#1c2128")));
+        QVERIFY(vp()->backgroundBottom().lightness() < 70);
+        QVERIFY(b->toolTip().contains(QStringLiteral("light")));
+        QVERIFY(m_window->findChild<QAction *>(QStringLiteral("darkMode"))->isChecked());
+        QVERIFY2(inkOf(icon(IconId::Line)) > lightInk + 60, "the outline ink turns light");
+        // A command panel opened now is dark too.
+        QVERIFY(startExtrude());
+        QVERIFY(!m_window->commandPanel()->styleSheet().contains(QStringLiteral("#10161f")));
+        if(const QByteArray dir = qgetenv("CADJITSU_DARK_SHOT"); !dir.isEmpty()) {
+            processEventsFor(300);
+            m_window->grab().save(QString::fromLocal8Bit(dir) + QStringLiteral("/dark_extrude.png"));
+        }
+        m_window->commandPanel()->cancelButton()->click();
+        // Back: exactly as before.
+        b->click();
+        QVERIFY(!isDark());
+        QCOMPARE(QSettings().value(QStringLiteral("ui/theme")).toString(), QStringLiteral("light"));
+        QCOMPARE(vp()->backgroundBottom(), lightBottom);
+        QCOMPARE(m_window->browser()->styleSheet(), lightBrowser);
+        QCOMPARE(QApplication::palette().color(QPalette::Text), QColor(28, 33, 40));
+        QCOMPARE(inkOf(icon(IconId::Line)), lightInk);
+    }
+
+    void settingsChooseTheTheme() {
+        SettingsDialog *dlg = m_window->openSettings();
+        QComboBox *t = dlg->themeBox();
+        QCOMPARE(t->currentData().toInt(), int(ThemeMode::Light));
+        t->setCurrentIndex(t->findData(int(ThemeMode::Dark)));
+        dlg->accept();
+        QVERIFY(isDark());
+        QCOMPARE(themeSetting(), ThemeMode::Dark);
+        setTheme(ThemeMode::Light);
+        QVERIFY(!isDark());
     }
 
     void clickingAValueSelectsItSoTypingReplacesIt() {

@@ -1,4 +1,5 @@
 #include "ui/Ribbon.h"
+#include "ui/Theme.h"
 
 #include <QAction>
 #include <QFrame>
@@ -21,7 +22,7 @@ MenuButton::MenuButton(const QString &text, Style style, QWidget *parent) : QToo
     setFocusPolicy(Qt::NoFocus);
     setCursor(Qt::PointingHandCursor);
     auto *menu = new QMenu(this);
-    menu->setStyleSheet(menuStyleSheet());
+    styled(menu, menuStyleSheet());
     // Rounded corners need a see-through window behind them.
     menu->setAttribute(Qt::WA_TranslucentBackground);
     menu->setWindowFlags(menu->windowFlags() | Qt::FramelessWindowHint | Qt::NoDropShadowWindowHint);
@@ -83,11 +84,11 @@ void MenuButton::paintEvent(QPaintEvent *) {
     p.setRenderHint(QPainter::Antialiasing);
     const bool lit = m_hover || m_open;
     const QColor accent(26, 102, 201);
-    const QColor ink = lit ? accent : (m_style == Style::Caption ? QColor(74, 82, 96) : QColor(28, 33, 40));
+    const QColor ink = lit ? accent : (m_style == Style::Caption ? themed(74, 82, 96) : themed(28, 33, 40));
     const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
     if(lit) {
-        p.setPen(m_open ? QPen(QColor(26, 102, 201, 70), 1) : Qt::NoPen);
-        p.setBrush(QColor(26, 102, 201, m_open ? 30 : 20));
+        p.setPen(m_open ? QPen(themed(26, 102, 201, 70), 1) : Qt::NoPen);
+        p.setBrush(themed(26, 102, 201, m_open ? 30 : 20));
         p.drawRoundedRect(r, r.height() / 2 > 8 ? 6 : 5, r.height() / 2 > 8 ? 6 : 5);
     }
     int x = 8;
@@ -173,7 +174,7 @@ void RibbonTab::addWidget(QWidget *w) { m_layout->addWidget(w); }
 Ribbon::Ribbon(QWidget *parent) : QWidget(parent) {
     setObjectName(QStringLiteral("ribbon"));
     setAttribute(Qt::WA_StyledBackground);
-    setStyleSheet(QStringLiteral(
+    styled(this, QStringLiteral(
         "#ribbon { background: #f4f5f7; border-bottom: 1px solid #c9ced6; }"
         "QToolButton { color: #1c2128; }"
         "QTabBar::tab { padding: 3px 14px; border: none; color: #3c4450; font-weight: 600; }"

@@ -89,6 +89,7 @@ public:
     QString backendName() const { return m_backendName; }
     QColor backgroundTop() const { return m_renderer.backgroundTop; }
     QColor backgroundBottom() const { return m_renderer.backgroundBottom; }
+    void applyThemeColors(); // the canvas background and grid for the current theme
     int frameCount() const { return m_frames; }
 
     // The Rendered style's path tracing: samples in the image shown (0: none yet).

@@ -1,4 +1,5 @@
 #include "command/ThreadCommand.h"
+#include "ui/Theme.h"
 
 #include "model/ModelView.h"
 #include "ui/Icons.h"
@@ -33,7 +34,7 @@ void ThreadCommand::setup() {
     m_size = panel.addChoice(tr("Size"), {}, "threadSize");
     fillThreadSizes(m_size, tr("From the diameter"));
     m_detected = panel.addInfo(QString(), "threadDetected");
-    m_detected->setStyleSheet(QStringLiteral("color: #3c4450; font-weight: normal;"));
+    styled(m_detected, QStringLiteral("color: #3c4450; font-weight: normal;"));
     m_clearanceField = panel.addValue(tr("Clearance"), cad::ValueKind::Length, evaluator(), "threadClearance");
     m_full = panel.addCheck(tr("Full Length"), "threadFull");
     m_lengthField = panel.addValue(tr("Length"), cad::ValueKind::Length, evaluator(), "threadLength");

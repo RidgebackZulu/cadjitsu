@@ -1,4 +1,5 @@
 #include "ui/RenderDialog.h"
+#include "ui/Theme.h"
 
 #include "model/ModelView.h"
 #include "ui/BrowserTree.h"
@@ -79,7 +80,7 @@ QIcon swatch(uint32_t rgb, cad::Finish finish) {
     } else {
         p.setBrush(c);
     }
-    p.setPen(QPen(QColor(90, 100, 115), 1.0));
+    p.setPen(QPen(themed(90, 100, 115), 1.0));
     p.drawRoundedRect(r, 4, 4);
     return QIcon(pm);
 }
@@ -97,7 +98,7 @@ RenderDialog::RenderDialog(cad::Document &doc, ModelView *view, Viewport *viewpo
     setWindowTitle(tr("Render"));
     setWindowIcon(icon(IconId::Render));
     setModal(false);
-    setStyleSheet(QStringLiteral(
+    styled(this, QStringLiteral(
         "QToolButton#segment { border: 1px solid #aab6c6; background: #f4f7fb; padding: 3px 10px; }"
         "QToolButton#segment:hover { background: #e4eefb; }"
         "QToolButton#segment:checked { background: #2f7be0; color: white; border-color: #1f5fb8; }"
@@ -224,7 +225,7 @@ RenderDialog::RenderDialog(cad::Document &doc, ModelView *view, Viewport *viewpo
 
     // Status, Save Image, Close.
     m_status = new QLabel(this);
-    m_status->setStyleSheet(QStringLiteral("color: #4a5a70;"));
+    styled(m_status, QStringLiteral("color: #4a5a70;"));
     outer->addWidget(m_status);
     auto *bottom = new QHBoxLayout;
     m_imageSize = new QComboBox(this);

@@ -1,4 +1,5 @@
 #include "mcp/McpButton.h"
+#include "ui/Theme.h"
 
 #include <QPainter>
 #include <QPainterPath>
@@ -107,6 +108,10 @@ void McpButton::paintEvent(QPaintEvent *) {
         fill = QColor(227, 246, 235);
         text = QColor(14, 92, 50);
         break;
+    }
+    if(isDark()) {
+        fill = themed(fill);
+        text = accent.lighter(m_state == McpServer::State::Off ? 125 : 150);
     }
     // The glow: a steady halo while an agent is connected, brighter during a pulse.
     if(m_state == McpServer::State::Connected) {

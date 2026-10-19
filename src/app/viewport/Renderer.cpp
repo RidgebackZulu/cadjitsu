@@ -1114,7 +1114,7 @@ void Renderer::render(QRhiCommandBuffer *cb, QRhiRenderTarget *rt, const RenderS
     if(scene.grid && !rendered) {
         DrawCall d;
         d.pipeline = p.grid.get();
-        d.uniform = uniform(QColor(120, 132, 148, 70), QColor(96, 108, 124, 130), scene.gridExtent, scene.gridMinor,
+        d.uniform = uniform(gridMinor, gridMajor, scene.gridExtent, scene.gridMinor,
                             scene.gridMajor, 0);
         setMat(uniforms.back().model, scene.gridFrame);
         d.vb0 = p.quadCorners.get();
