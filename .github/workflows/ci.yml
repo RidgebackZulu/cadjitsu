@@ -143,8 +143,17 @@ jobs:
 
       - name: Self tests (Metal)
         run: |
+          mkdir -p out/macos
           for t in $(build/macos/src/app/Cadjitsu.app/Contents/MacOS/Cadjitsu --list-selftests); do
-            build/macos/src/app/Cadjitsu.app/Contents/MacOS/Cadjitsu --selftest=$t --out out/macos
+            status=0
+            build/macos/src/app/Cadjitsu.app/Contents/MacOS/Cadjitsu --selftest=$t --out out/macos > "out/macos/selftest-$t.log" 2>&1 || status=$?
+            cat "out/macos/selftest-$t.log"
+            if [ "$status" -ne 0 ]; then
+              # The failed checks (or the last lines, after a crash) as annotations.
+              { grep -E '^  FAIL ' "out/macos/selftest-$t.log" || tail -n 5 "out/macos/selftest-$t.log"; } | head -n 8 |
+                while IFS= read -r l; do echo "::error title=selftest $t (exit $status)::$l"; done
+              exit "$status"
+            fi
           done
 
       - name: Bundle Cadjitsu.app
