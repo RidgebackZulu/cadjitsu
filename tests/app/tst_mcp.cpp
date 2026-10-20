@@ -160,7 +160,7 @@ private slots:
             QVERIFY(t.contains("inputSchema") && t.contains("description"));
         }
         for(const char *n : {"get_design", "create_sketch", "extrude", "fillet", "chamfer", "hole", "combine", "list_edges",
-                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text", "set_material", "set_render", "render_image", "sketch_mirror", "sketch_pattern", "project_to_sketch", "set_construction", "align", "sketch_align"})
+                             "list_faces", "set_parameter", "edit_feature", "undo", "screenshot", "export_stl", "export_step", "emboss_text", "set_material", "set_render", "render_image", "sketch_mirror", "sketch_pattern", "project_to_sketch", "set_construction", "align", "sketch_align", "delete_bodies"})
             QVERIFY2(names.count(n), n);
         // The session ends: back to listening.
         QCOMPARE(post({}, kToken, {}, QStringLiteral("/mcp"), "DELETE").status, 200);
@@ -458,6 +458,24 @@ private slots:
             if(cv["id"] == lines[0]) {
                 QVERIFY2(std::abs(cv["from"][0].get<double>()) < 1e-6 && std::abs(cv["to"][0].get<double>()) < 1e-6, cv.dump().c_str());
             }
+    }
+
+    void deleteBodiesAddsARemoveStep() {
+        initialize();
+        for(double x : {0.0, 30.0}) {
+            const auto [e, s] = tool("create_sketch", {{"plane", "XY"},
+                                                       {"entities", {{{"type", "rectangle"}, {"corner1", {x, 0}}, {"corner2", {x + 10, 10}}}}}});
+            QVERIFY2(!e, s.dump().c_str());
+            QVERIFY(!tool("extrude", {{"sketch", s["sketch"]}, {"distance", 5}, {"operation", "new_body"}}).first);
+        }
+        const auto [e1, r] = tool("delete_bodies", {{"bodies", {"Body2"}}});
+        QVERIFY2(!e1, r.dump().c_str());
+        QCOMPARE(int(r["bodies"].size()), 1);
+        QCOMPARE(r["deleted"], json({"Body2"}));
+        QVERIFY(tool("delete_bodies", {{"bodies", {"Body9"}}}).first); // no such body
+        const auto [e2, back] = tool("delete_feature", {{"feature", r["feature"]}});
+        QVERIFY2(!e2, back.dump().c_str());
+        QCOMPARE(int(back["bodies"].size()), 2);
     }
 
     void threadsAndTappedHoles() {

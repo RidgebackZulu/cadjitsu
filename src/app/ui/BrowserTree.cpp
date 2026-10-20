@@ -1,4 +1,7 @@
 #include "ui/BrowserTree.h"
+
+#include <QKeyEvent>
+#include <QTreeWidgetItemIterator>
 #include "ui/Theme.h"
 
 #include "model/CanvasPicture.h"
@@ -290,6 +293,28 @@ void BrowserTree::onDoubleClicked(QTreeWidgetItem *item, int column) {
     else if(kind == BodyItem) editItem(item, 0); // rename, as in Fusion
 }
 
+void BrowserTree::keyPressEvent(QKeyEvent *e) {
+    // Delete on selected bodies (not while renaming one: the editor has the keys then).
+    if(e->key() == Qt::Key_Delete || e->key() == Qt::Key_Backspace) {
+        std::vector<cad::BodyId> ids;
+        for(QTreeWidgetItem *it : selectedItems())
+            if(Kind(it->data(0, KindRole).toInt()) == BodyItem) ids.push_back(it->data(0, IdRole).toString().toStdString());
+        if(!ids.empty()) {
+            emit deleteBodiesRequested(ids);
+            e->accept();
+            return;
+        }
+    }
+    QTreeWidget::keyPressEvent(e);
+}
+
+QTreeWidgetItem *BrowserTree::bodyItem(const cad::BodyId &id) const {
+    for(QTreeWidgetItemIterator it(const_cast<BrowserTree *>(this)); *it; ++it)
+        if(Kind((*it)->data(0, KindRole).toInt()) == BodyItem && (*it)->data(0, IdRole).toString().toStdString() == id)
+            return *it;
+    return nullptr;
+}
+
 void BrowserTree::contextMenuEvent(QContextMenuEvent *e) {
     QTreeWidgetItem *item = itemAt(e->pos());
     if(!item) return;
@@ -303,6 +328,9 @@ void BrowserTree::contextMenuEvent(QContextMenuEvent *e) {
         if(ids.empty()) ids.push_back(item->data(0, IdRole).toString().toStdString());
         QMenu menu(this);
         menu.addAction(icon(IconId::Render), tr("Material..."), this, [this, ids] { emit materialRequested(ids); });
+        menu.addSeparator();
+        menu.addAction(icon(IconId::Delete), ids.size() > 1 ? tr("Delete %1 Bodies").arg(ids.size()) : tr("Delete"), this,
+                       [this, ids] { emit deleteBodiesRequested(ids); });
         menu.exec(e->globalPos());
         return;
     }

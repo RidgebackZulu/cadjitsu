@@ -111,6 +111,7 @@ public:
     void pressCubeControl(CubeControl c);
 
 signals:
+    void deletePressed(); // Delete / Backspace on the canvas, no tool taking it
     void hoverChanged(const cadjitsu::PickHit &hit);
     // Every cursor move over the canvas (hit.screen is the position), for
     // hover effects that are not bodies (sketch profiles).

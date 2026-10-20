@@ -157,6 +157,8 @@ text, extrude the plate, then the letters). For FDM: letters 5 mm or taller with
 - `edit_feature {"feature": "Extrude1", "set": {"distance": 12, "operation": "join"}}` - change a feature's
   own values (keys as in its data; lengths in mm, angles in degrees).
 - `suppress`, `delete_feature`, `roll_to` (insert features earlier in history), `undo` / `redo`.
+- `delete_bodies` drops bodies with a Remove step (the features that made them stay): use it, not
+  `delete_feature`, to get rid of one body a feature made among others, or a helper body you are done with.
 - `set_visibility {"planes": ["Plane1"], "folders": ["sketches"], "visible": false}` - show or hide bodies,
   sketches, construction planes, or whole browser folders (`bodies`, `sketches`, `construction`, `origin`); a
   hidden folder keeps each item's own setting. Tidy up before a `screenshot`.

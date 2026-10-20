@@ -4,6 +4,7 @@
 #include "TestRegistry.h"
 
 #include "MainWindow.h"
+#include "ui/BrowserTree.h"
 #include "command/AlignCommand.h"
 #include "command/CombineCommand.h"
 #include "command/Command.h"
@@ -1054,6 +1055,62 @@ private slots:
         const auto th = std::dynamic_pointer_cast<const cad::HoleFeature>(doc().features().back());
         QVERIFY(th && th->holeType == cad::HoleType::Tapped && th->thread == "M5" && th->threadCountersink);
         QCOMPARE(recentThreadSizes().mid(0, 2), (QStringList{QStringLiteral("M5"), QStringLiteral("M8")}));
+    }
+
+    // Delete on a selected body: a Remove step; undo brings it back. The
+    // browser's right-click Delete does the same.
+    void deleteKeyRemovesTheSelectedBody() {
+        box(0, 0, 10, 10, 10);
+        box(30, 0, 50, 20, 5);
+        showHome();
+        settle();
+        QCOMPARE(int(doc().displayedState()->bodies.size()), 2);
+        const size_t before = doc().features().size();
+        // Nothing selected: Delete does nothing (but says how).
+        QTest::keyClick(vp(), Qt::Key_Delete);
+        QCOMPARE(doc().features().size(), before);
+        // Body2 clicked in the browser, then Delete.
+        BrowserTree *tree = m_window->browser();
+        cad::BodyId b2;
+        for(const cad::Body *b : doc().displayedState()->orderedBodies())
+            if(doc().bodyName(*b) == "Body2") b2 = b->id;
+        QTreeWidgetItem *item = tree->bodyItem(b2);
+        QVERIFY(item);
+        tree->scrollToItem(item);
+        QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier, tree->visualItemRect(item).center());
+        QCOMPARE(m_window->selectedBodies(), std::vector<cad::BodyId>{b2});
+        QTest::keyClick(tree, Qt::Key_Delete);
+        settle();
+        QCOMPARE(doc().features().size(), before + 1);
+        const cad::FeaturePtr rm = doc().features().back();
+        QVERIFY(rm->type() == cad::FeatureType::Remove);
+        QCOMPARE(QString::fromStdString(rm->name), QStringLiteral("Remove1"));
+        QCOMPARE(int(doc().displayedState()->bodies.size()), 1);
+        QVERIFY(!doc().displayedState()->body(b2));
+        QVERIFY(QString::fromStdString(doc().undoLabel()).contains(QStringLiteral("Body2")));
+        trigger("undo");
+        settle();
+        QCOMPARE(int(doc().displayedState()->bodies.size()), 2);
+        // Selected on the canvas, Delete there.
+        SelectionSet sel;
+        SelectionItem pick;
+        pick.kind = SelectionItem::Kind::Body;
+        pick.body = b2;
+        sel.add(pick);
+        view()->setSelection(sel);
+        QTest::keyClick(vp(), Qt::Key_Delete);
+        settle();
+        QCOMPARE(int(doc().displayedState()->bodies.size()), 1);
+        trigger("undo");
+        settle();
+        QCOMPARE(int(doc().displayedState()->bodies.size()), 2);
+        // The browser's right-click Delete.
+        emit tree->deleteBodiesRequested({b2});
+        QTRY_COMPARE(int(doc().displayedState()->bodies.size()), 1);
+        // Deleting the step from the timeline brings the body back.
+        QVERIFY(doc().deleteFeature(doc().features().back()->id));
+        settle();
+        QCOMPARE(int(doc().displayedState()->bodies.size()), 2);
     }
 
     void alignGuidesStepByStepAndMovesTheBody() {

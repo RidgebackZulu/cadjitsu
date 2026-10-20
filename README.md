@@ -308,6 +308,9 @@ Right-click a sketch in the browser for **Edit Sketch** or **Delete**. Deleting 
 
 - **Flip** turns it the other way round (faces stacked facing the same way, an edge reversed), **Angle** turns it about the aligned line or normal, **Copy** leaves the original and adds the moved copy. Align is a timeline step: the moved bodies keep their face names, so fillets and holes made on them later still hold, and Edit Feature reopens it with every pick.
 
+**Delete a body**
+- Select it (double-click it on the canvas, drag a box round it, or click it in the browser) and press **Delete**, or right-click it in the browser > **Delete** (also **Edit > Delete Body**). A **Remove** step joins the timeline: the body is gone from there on, while the features that made it stay. Undo, or delete the Remove step from the timeline, to bring it back; roll the timeline back before it to see the body again.
+
 **Draft** (Modify)
 - Tilt flat faces about a hinge edge: pick the faces, then a straight edge of one of them as the hinge (the first face's edges are offered). The face across the hinge sets the pull direction and stays put.
 - Type the angle, turn the dial, or drag the ring drawn on the hinge (1° steps, 15° with Shift). A positive angle leans the faces in over the body, a taper that prints without support; **Lean Out** tilts them out. Pick all the walls of a box with one bottom edge to taper the whole box.

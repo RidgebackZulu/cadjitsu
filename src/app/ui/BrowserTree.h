@@ -28,6 +28,10 @@ public:
     void rebuild();
 
     QTreeWidgetItem *folder(const QString &name) const;
+    QTreeWidgetItem *bodyItem(const cad::BodyId &id) const; // its row (tests)
+
+protected:
+    void keyPressEvent(QKeyEvent *e) override;
 
 signals:
     void editSketchRequested(cad::FeatureId id);
@@ -39,6 +43,7 @@ signals:
     void lensCanvasRequested(int id);
     // "Delete" on a sketch.
     void deleteSketchRequested(cad::FeatureId id);
+    void deleteBodiesRequested(const std::vector<cad::BodyId> &ids);
     // "Material..." on bodies.
     void materialRequested(const std::vector<cad::BodyId> &ids);
 

@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "command/AlignCommand.h"
+#include "features/RemoveFeature.h"
 #include "command/Command.h"
 #include "command/CanvasCommands.h"
 #include "command/CanvasValueBox.h"
@@ -178,6 +179,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), m_document(std::m
     connect(m_browser, &BrowserTree::deleteSketchRequested, this, [this](cad::FeatureId id) {
         // Deferred: the browser rebuilds once the sketch is gone.
         QTimer::singleShot(0, this, [this, id] { deleteSketch(id); });
+    });
+    // Delete on the canvas (the sketch's tools take it while a sketch is open).
+    connect(m_viewport, &Viewport::deletePressed, this, [this] {
+        if(!m_sketch->active()) deleteSelectedBodies();
+    });
+    connect(m_browser, &BrowserTree::deleteBodiesRequested, this, [this](const std::vector<cad::BodyId> &ids) {
+        QTimer::singleShot(0, this, [this, ids] { deleteBodies(ids); });
     });
     connect(m_browser, &BrowserTree::materialRequested, this, [this](const std::vector<cad::BodyId> &ids) { openRenderDialog(ids); });
     connect(m_viewport, &Viewport::renderSettingsRequested, this, [this] { openRenderDialog(); });
@@ -583,11 +591,55 @@ void MainWindow::editFeature(cad::FeatureId id) {
     case cad::FeatureType::Revolve: m_commands->start(std::make_unique<RevolveCommand>(ctx, id)); return;
     case cad::FeatureType::Shell: m_commands->start(std::make_unique<ShellCommand>(ctx, id)); return;
     case cad::FeatureType::Align: m_commands->start(std::make_unique<AlignCommand>(ctx, id)); return;
+    case cad::FeatureType::Remove:
+        statusBar()->showMessage(tr("%1 deletes bodies from here on. Delete it from the timeline (or undo) to bring "
+                                    "them back.")
+                                     .arg(QString::fromStdString(f->name)),
+                                 8000);
+        return;
     case cad::FeatureType::Pattern:
         m_commands->start(std::make_unique<PatternCommand>(
             ctx, std::static_pointer_cast<const cad::PatternFeature>(f)->kind, id));
         return;
     }
+}
+
+std::vector<cad::BodyId> MainWindow::selectedBodies() const {
+    std::vector<cad::BodyId> ids;
+    for(const SelectionItem &it : m_modelView->selection().ofKind(SelectionItem::Kind::Body))
+        if(std::find(ids.begin(), ids.end(), it.body) == ids.end()) ids.push_back(it.body);
+    return ids;
+}
+
+void MainWindow::deleteSelectedBodies() {
+    if(m_commands->active()) return; // a command's fields take their own keys
+    const std::vector<cad::BodyId> ids = selectedBodies();
+    if(ids.empty()) {
+        statusBar()->showMessage(tr("To delete a body, select it first: double-click it on the canvas, drag a box "
+                                    "round it, or click it in the browser."),
+                                 6000);
+        return;
+    }
+    deleteBodies(ids);
+}
+
+cad::FeatureId MainWindow::deleteBodies(const std::vector<cad::BodyId> &ids) {
+    finishInteractions();
+    const cad::StatePtr st = m_document->displayedState();
+    auto f = std::make_shared<cad::RemoveFeature>();
+    QStringList names;
+    for(const cad::BodyId &b : ids)
+        if(const cad::Body *body = st ? st->body(b) : nullptr) {
+            f->bodies.push_back(b);
+            names << QString::fromStdString(m_document->bodyName(*body));
+        }
+    if(f->bodies.empty()) return cad::kNoFeature;
+    m_modelView->setSelection({});
+    const cad::FeatureId id = m_document->addFeature(f, tr("Delete %1").arg(names.join(QStringLiteral(", "))).toStdString());
+    statusBar()->showMessage(tr("Deleted %1. Undo, or delete %2 from the timeline, to bring it back.")
+                                 .arg(names.join(QStringLiteral(", ")), QString::fromStdString(f->name)),
+                             6000);
+    return id;
 }
 
 bool MainWindow::deleteSketch(cad::FeatureId id, bool ask) {
@@ -944,6 +996,10 @@ void MainWindow::buildActions() {
                               [this] { m_sketch->deleteSelection(); });
     del->setShortcuts({QKeySequence(Qt::Key_Delete), QKeySequence(Qt::Key_Backspace)});
     m_sketchOnly.push_back(del);
+    // Delete in the solid workspace: the selected bodies (a Remove step).
+    QAction *delBodies = makeAction("deleteBodies", tr("Delete Body"), IconId::Delete, {}, [this] { deleteSelectedBodies(); });
+    delBodies->setToolTip(tr("<b>Delete Body</b> (Delete)<p>Deletes the selected bodies from this point of the "
+                             "timeline on: a Remove step is added. Undo, or delete that step, to bring them back.</p>"));
     m_sketchOnly.push_back(makeAction("sketchLookAt", tr("Look At"), IconId::LookAt, {}, [this] { m_sketch->lookAt(); }));
     m_sketchOnly.push_back(
         makeAction("finishSketch", tr("Finish Sketch"), IconId::FinishSketch, {}, [this] { m_sketch->finish(); }));
@@ -1076,6 +1132,8 @@ void MainWindow::buildMenus() {
     QMenu *edit = menuBar()->addMenu(tr("&Edit"));
     edit->addAction(action(QStringLiteral("undo")));
     edit->addAction(action(QStringLiteral("redo")));
+    edit->addSeparator();
+    edit->addAction(action(QStringLiteral("deleteBodies")));
 
     QMenu *view = menuBar()->addMenu(tr("&View"));
     QAction *fit = view->addAction(tr("Fit"), this, [this] { m_viewport->fitAll(); });
@@ -1118,6 +1176,7 @@ void MainWindow::buildMenus() {
 
 void MainWindow::onSketchActive(bool active) {
     for(QAction *a : m_sketchOnly) a->setEnabled(active);
+    action(QStringLiteral("deleteBodies"))->setEnabled(!active); // Delete is the sketch's own then
     m_ribbon->setTabVisible(m_sketchTab, active);
     m_ribbon->setCurrentTab(active ? m_sketchTab : m_solidTab);
     if(!active) {

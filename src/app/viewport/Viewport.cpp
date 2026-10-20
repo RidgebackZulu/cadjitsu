@@ -578,6 +578,10 @@ void Viewport::keyPressEvent(QKeyEvent *e) {
         if(m_navMode != NavMode::Select) setNavMode(NavMode::Select);
         emit escapePressed();
         return;
+    case Qt::Key_Delete:
+    case Qt::Key_Backspace:
+        emit deletePressed();
+        return;
     default:
         QRhiWidget::keyPressEvent(e);
     }

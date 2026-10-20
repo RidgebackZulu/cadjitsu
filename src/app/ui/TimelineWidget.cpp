@@ -45,6 +45,7 @@ IconId iconFor(cad::FeatureType t) {
     case cad::FeatureType::Revolve: return IconId::Revolve;
     case cad::FeatureType::Shell: return IconId::Shell;
     case cad::FeatureType::Align: return IconId::Align;
+    case cad::FeatureType::Remove: return IconId::Delete;
     }
     return IconId::Body;
 }

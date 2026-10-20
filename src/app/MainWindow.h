@@ -120,6 +120,10 @@ public:
     // Deletes a sketch (finishing it first if it is open). With `ask`, asks
     // first when other features use it. False if not deleted.
     bool deleteSketch(cad::FeatureId id, bool ask = true);
+    // Deletes bodies with a Remove step (one undo step); the step's id, or none.
+    cad::FeatureId deleteBodies(const std::vector<cad::BodyId> &ids);
+    void deleteSelectedBodies();
+    std::vector<cad::BodyId> selectedBodies() const;
     // Right-click on sketch geometry: Construction / Normal, Mirror, Pattern,
     // Delete. False if there is no sketch geometry there.
     bool showSketchEntityMenu(const QPoint &globalPos);

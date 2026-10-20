@@ -460,6 +460,14 @@ Deletes a feature from the timeline (one undo step).
 |---|---|---|
 | `feature` **(required)** | integer or string |  |
 
+## `delete_bodies`
+
+Deletes bodies, like pressing Delete on them: a Remove step joins the timeline at the marker, so the bodies are gone from there on while the features that made them stay (delete_feature on the step, or undo, brings them back). Use it to drop one body a feature made among others; delete_feature removes the whole feature.
+
+| Argument | Type | Description |
+|---|---|---|
+| `bodies` **(required)** | array of string | the bodies to delete |
+
 ## `roll_to`
 
 Moves the timeline's history marker: to a position (0 = before everything) or to just after a feature. New features are inserted at the marker.

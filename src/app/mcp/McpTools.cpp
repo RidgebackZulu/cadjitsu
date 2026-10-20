@@ -2137,6 +2137,28 @@ void McpTools::define() {
             return json{{"deleted", f->name}, {"bodies", bodiesJson(settle())}};
         });
 
+    add("delete_bodies",
+        "Deletes bodies, like pressing Delete on them: a Remove step joins the timeline at the marker, so the bodies "
+        "are gone from there on while the features that made them stay (delete_feature on the step, or undo, brings "
+        "them back). Use it to drop one body a feature made among others; delete_feature removes the whole feature.",
+        {{"bodies", arrayOf(str("body id or name"), "the bodies to delete")}}, {"bodies"},
+        [this, begin, settle, bodyOf, bodiesJson](const json &a) {
+            begin();
+            const cad::StatePtr st = settle();
+            std::vector<cad::BodyId> ids;
+            json names = json::array();
+            for(const json &b : a.at("bodies")) {
+                const cad::Body *body = bodyOf(st, b);
+                ids.push_back(body->id);
+                names.push_back(m_w.document().bodyName(*body));
+            }
+            if(ids.empty()) fail("give the bodies to delete");
+            const cad::FeatureId id = m_w.deleteBodies(ids);
+            if(id == cad::kNoFeature) fail("nothing to delete");
+            const cad::FeaturePtr f = m_w.document().feature(id);
+            return json{{"deleted", names}, {"feature", id}, {"feature_name", f ? f->name : ""}, {"bodies", bodiesJson(settle())}};
+        });
+
     add("roll_to",
         "Moves the timeline's history marker: to a position (0 = before everything) or to just after a feature. New "
         "features are inserted at the marker.",
